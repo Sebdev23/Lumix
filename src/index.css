@@ -56,3 +56,8 @@ body {
   scrollbar-width: thin;
   scrollbar-color: #334155 transparent;
 }
+
+/* PWA safe area */
+.pt-safe {
+  padding-top: env(safe-area-inset-top, 0px);
+}

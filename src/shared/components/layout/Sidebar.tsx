@@ -46,7 +46,7 @@ export function Sidebar({ onClose }: SidebarProps) {
     navigate('/login')
   }
   return (
-    <aside className="flex flex-col h-full bg-slate-900 border-r border-slate-800">
+    <aside className="flex flex-col h-full bg-slate-900 border-r border-slate-800 pt-safe">
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-800 flex-shrink-0">
         <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">

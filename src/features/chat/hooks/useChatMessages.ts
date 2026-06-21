@@ -184,7 +184,7 @@ export function useChatMessages() {
 
     try {
       // QUESTIONS: detect with ? prefix or question keywords
-      const questionWords = /^(que|como|cual|cuantas|cuantos|quien|donde|cuando|dame|dime|cuentame|resume|listame|muestrame|consultame|tengo|hay|mostrame|quiero ver|ver |mis |cuales son)\b/i
+      const questionWords = /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|ver |mis |cuales son)\b/i
       const isQuestion = /^[?¿/]/.test(content) || questionWords.test(content)
 
       if (isQuestion && teamId) {

@@ -46,7 +46,7 @@ export function ActivitiesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-4 h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
+      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
         <h2 className="text-sm font-semibold text-slate-200">Actividades</h2>
         <div className="flex items-center gap-2">
           <button
@@ -76,7 +76,7 @@ export function ActivitiesPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-1 px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0">
+      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0 flex-nowrap">
         {statusFilters.map((f) => (
           <button
             key={f.value}
