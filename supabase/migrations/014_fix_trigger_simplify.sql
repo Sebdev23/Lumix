@@ -1,15 +1,7 @@
--- Migration 013: Ensure default team exists and fix trigger
+-- Migration 014: Fix trigger to avoid SELECT query on public schema inside GoTrue context
 
--- Re-insert default team if it was deleted
-INSERT INTO teams (id, name, description, created_by)
-VALUES (
-  '00000000-0000-0000-0000-000000000001',
-  'Equipo de Desarrollo',
-  'Equipo principal de OPERA AI',
-  NULL
-) ON CONFLICT (id) DO NOTHING;
-
--- Simplified trigger: no SELECT queries on public schema (causes 500 in GoTrue context)
+-- The SELECT EXISTS query on teams table inside the trigger causes 500 error
+-- when executed in GoTrue's auth context. Simplified to use hardcoded team ID.
 CREATE OR REPLACE FUNCTION handle_new_user()
 RETURNS TRIGGER AS $$
 DECLARE
