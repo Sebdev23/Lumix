@@ -71,11 +71,11 @@ export function TeamsPage() {
               <div className="flex items-start justify-between">
                 <div>
                   <h3 className="text-sm font-medium text-slate-200">{team.name}</h3>
-                  <p className="text-xs text-slate-500 mt-0.5">{team.description || 'Sin descripcion'}</p>
+                  <p className="text-xs text-slate-500 mt-0.5">
+                    {team.description || 'Sin descripcion'}
+                  </p>
                 </div>
-                {profile?.team_id === team.id && (
-                  <Badge variant="success">Actual</Badge>
-                )}
+                {profile?.team_id === team.id && <Badge variant="success">Actual</Badge>}
               </div>
 
               {selectedTeam === team.id && (
@@ -112,14 +112,16 @@ export function TeamsPage() {
                   )}
 
                   {isAdmin && (
-                    <div className="flex gap-2">
+                    <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         value={inviteEmail}
                         onChange={(e) => setInviteEmail(e.target.value)}
                         placeholder="Email para invitar..."
                         className="flex-1 text-xs rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                       />
-                      <Button size="sm" onClick={handleInvite}>Invitar</Button>
+                      <Button size="sm" onClick={handleInvite}>
+                        Invitar
+                      </Button>
                     </div>
                   )}
                   {error && <p className="text-xs text-red-400 mt-1">{error}</p>}

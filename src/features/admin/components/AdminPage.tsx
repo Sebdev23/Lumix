@@ -38,7 +38,13 @@ export function AdminPage() {
     setSuccess('')
     setGeneratedPassword('')
     try {
-      const result = await adminService.createUser(newEmail, '', newName, newRole, selectedTeam ?? undefined)
+      const result = await adminService.createUser(
+        newEmail,
+        '',
+        newName,
+        newRole,
+        selectedTeam ?? undefined,
+      )
       setSuccess(`Usuario ${newEmail} creado. Rol: ${newRole}`)
       setGeneratedPassword(result.password)
       setNewEmail('')
@@ -63,9 +69,11 @@ export function AdminPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-4 h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
+      <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
         <h2 className="text-sm font-semibold text-slate-200">Administracion</h2>
-        <Badge variant="danger" className="ml-2">Admin</Badge>
+        <Badge variant="danger" className="ml-2">
+          Admin
+        </Badge>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
@@ -73,8 +81,19 @@ export function AdminPage() {
         <Card>
           <h3 className="text-sm font-medium text-slate-200 mb-4">Crear usuario</h3>
           <div className="space-y-3">
-            <Input label="Nombre completo" value={newName} onChange={(e) => setNewName(e.target.value)} placeholder="Nombre del usuario" />
-            <Input label="Email" type="email" value={newEmail} onChange={(e) => setNewEmail(e.target.value)} placeholder="usuario@email.com" />
+            <Input
+              label="Nombre completo"
+              value={newName}
+              onChange={(e) => setNewName(e.target.value)}
+              placeholder="Nombre del usuario"
+            />
+            <Input
+              label="Email"
+              type="email"
+              value={newEmail}
+              onChange={(e) => setNewEmail(e.target.value)}
+              placeholder="usuario@email.com"
+            />
 
             <div>
               <label className="text-sm font-medium text-slate-300 block mb-1.5">Rol</label>
@@ -96,7 +115,9 @@ export function AdminPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-slate-300 block mb-1.5">Equipo (opcional)</label>
+              <label className="text-sm font-medium text-slate-300 block mb-1.5">
+                Equipo (opcional)
+              </label>
               <select
                 value={selectedTeam ?? ''}
                 onChange={(e) => setSelectedTeam(e.target.value || null)}
@@ -104,7 +125,9 @@ export function AdminPage() {
               >
                 <option value="">Sin equipo</option>
                 {teams.map((t) => (
-                  <option key={t.id} value={t.id}>{t.name}</option>
+                  <option key={t.id} value={t.id}>
+                    {t.name}
+                  </option>
                 ))}
               </select>
             </div>
@@ -115,10 +138,13 @@ export function AdminPage() {
                 <p className="text-xs text-emerald-400">{success}</p>
                 {generatedPassword && (
                   <p className="text-xs text-emerald-300 mt-1 font-mono">
-                    Clave temporal: <span className="font-bold select-all">{generatedPassword}</span>
+                    Clave temporal:{' '}
+                    <span className="font-bold select-all">{generatedPassword}</span>
                   </p>
                 )}
-                <p className="text-[10px] text-emerald-600 mt-1">Debera cambiarla al iniciar sesion</p>
+                <p className="text-[10px] text-emerald-600 mt-1">
+                  Debera cambiarla al iniciar sesion
+                </p>
               </div>
             )}
 
@@ -139,7 +165,9 @@ export function AdminPage() {
               placeholder="Nombre del nuevo equipo"
               className="flex-1 text-xs rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
-            <Button size="sm" onClick={handleCreateTeam} disabled={!newTeamName.trim()}>+ Equipo</Button>
+            <Button size="sm" onClick={handleCreateTeam} disabled={!newTeamName.trim()}>
+              + Equipo
+            </Button>
           </div>
 
           {teamsLoading ? (
@@ -179,7 +207,9 @@ export function AdminPage() {
                                 className="text-xs rounded border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
                               >
                                 {roles.map((r) => (
-                                  <option key={r} value={r}>{r}</option>
+                                  <option key={r} value={r}>
+                                    {r}
+                                  </option>
                                 ))}
                               </select>
                             </div>

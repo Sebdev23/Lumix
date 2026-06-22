@@ -9,7 +9,7 @@ const meetings = [
 export function MeetingsPage() {
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-4 h-14 border-b border-slate-800 bg-slate-900">
+      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900">
         <h2 className="text-sm font-semibold text-slate-200">Reuniones</h2>
       </div>
       <div className="flex-1 overflow-y-auto p-4 space-y-3">
@@ -24,7 +24,9 @@ export function MeetingsPage() {
             <div className="flex items-center justify-between">
               <div>
                 <h3 className="text-sm font-medium text-slate-200">{m.title}</h3>
-                <p className="text-xs text-slate-400 mt-1">{m.date} · {m.time}</p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {m.date} · {m.time}
+                </p>
               </div>
               <span className="px-3 py-1 rounded-full bg-indigo-600/20 text-indigo-400 text-xs font-medium">
                 Proxima

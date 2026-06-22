@@ -37,7 +37,7 @@ export function DashboardPage() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center px-4 h-14 border-b border-slate-800 bg-slate-900">
+        <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900">
           <h2 className="text-sm font-semibold text-slate-200">Dashboard</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
@@ -49,7 +49,7 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-4 h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
+      <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
         <h2 className="text-sm font-semibold text-slate-200">Dashboard</h2>
       </div>
 
@@ -87,7 +87,7 @@ export function DashboardPage() {
             <div className="space-y-4">
               {memberWorkloads.map((member) => (
                 <div key={member.name} className="space-y-1.5">
-                  <div className="flex items-center justify-between">
+                  <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                     <div className="flex items-center gap-2">
                       <span className="text-sm text-slate-300">{member.name}</span>
                       <Badge variant={getLoadBadge(member.percentage)}>
@@ -131,10 +131,7 @@ export function DashboardPage() {
               label="Errores sin asignar"
               value={`${openErrors - (memberWorkloads.length > 0 ? openErrors : 0)}`}
             />
-            <IndicatorRow
-              label="Miembros del equipo"
-              value={`${memberWorkloads.length}`}
-            />
+            <IndicatorRow label="Miembros del equipo" value={`${memberWorkloads.length}`} />
           </div>
         </Card>
       </div>
