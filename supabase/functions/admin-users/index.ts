@@ -5,6 +5,17 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
+function ok(body: Record<string, unknown>) {
+  return new Response(JSON.stringify(body), {
+    status: 200,
+    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+  })
+}
+
+function fail(error: string) {
+  return ok({ success: false, error })
+}
+
 const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')
 const PROJECT_URL = Deno.env.get('PROJECT_URL')
 
@@ -15,15 +26,8 @@ serve(async (req: Request) => {
 
   try {
     if (!SERVICE_ROLE_KEY || !PROJECT_URL) {
-      return new Response(
-        JSON.stringify({
-          error:
-            'Edge function not configured: SERVICE_ROLE_KEY and PROJECT_URL must be set in Supabase dashboard > Edge Functions > admin-users > Settings > Environment Variables',
-        }),
-        {
-          status: 500,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
+      return fail(
+        'Edge function not configured: SERVICE_ROLE_KEY and PROJECT_URL must be set in Supabase dashboard > Edge Functions > admin-users > Settings > Environment Variables',
       )
     }
 
@@ -33,10 +37,7 @@ serve(async (req: Request) => {
 
     if (action === 'create-user') {
       if (!email || !fullName) {
-        return new Response(JSON.stringify({ error: 'Email y nombre requeridos' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return fail('Email y nombre requeridos')
       }
 
       const authResponse = await fetch(`${PROJECT_URL}/auth/v1/admin/users`, {
@@ -63,10 +64,7 @@ serve(async (req: Request) => {
         } catch {
           parsed = errText
         }
-        return new Response(JSON.stringify({ error: 'Auth API: ' + parsed }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return fail('Auth API: ' + parsed)
       }
 
       const authUser = await authResponse.json()
@@ -84,13 +82,7 @@ serve(async (req: Request) => {
       })
 
       if (!profileRes.ok) {
-        return new Response(
-          JSON.stringify({ error: 'Failed to set profile role: ' + (await profileRes.text()) }),
-          {
-            status: 400,
-            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-          },
-        )
+        console.error('Profile update failed:', await profileRes.text())
       }
 
       if (teamId) {
@@ -106,13 +98,7 @@ serve(async (req: Request) => {
         })
 
         if (!memberRes.ok) {
-          return new Response(
-            JSON.stringify({ error: 'Failed to add team member: ' + (await memberRes.text()) }),
-            {
-              status: 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            },
-          )
+          console.error('Team member insert failed:', await memberRes.text())
         }
 
         const teamRes = await fetch(`${PROJECT_URL}/rest/v1/profiles?id=eq.${userId2}`, {
@@ -127,30 +113,16 @@ serve(async (req: Request) => {
         })
 
         if (!teamRes.ok) {
-          return new Response(
-            JSON.stringify({ error: 'Failed to set team: ' + (await teamRes.text()) }),
-            {
-              status: 400,
-              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-            },
-          )
+          console.error('Profile team update failed:', await teamRes.text())
         }
       }
 
-      return new Response(
-        JSON.stringify({ success: true, user: { id: userId2, email }, password }),
-        {
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        },
-      )
+      return ok({ success: true, user: { id: userId2, email }, password })
     }
 
     if (action === 'change-role') {
       if (!userId || !teamId || !role) {
-        return new Response(JSON.stringify({ error: 'userId, teamId, role requeridos' }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return fail('userId, teamId, role requeridos')
       }
 
       const res = await fetch(
@@ -168,25 +140,14 @@ serve(async (req: Request) => {
       )
 
       if (!res.ok) {
-        return new Response(JSON.stringify({ error: 'Update failed: ' + (await res.text()) }), {
-          status: 400,
-          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-        })
+        return fail('Update failed: ' + (await res.text()))
       }
 
-      return new Response(JSON.stringify({ success: true }), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return ok({ success: true })
     }
 
-    return new Response(JSON.stringify({ error: 'Accion desconocida' }), {
-      status: 400,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return fail('Accion desconocida')
   } catch (err) {
-    return new Response(JSON.stringify({ error: 'Catch: ' + String(err) }), {
-      status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return fail('Error interno: ' + String(err))
   }
 })
