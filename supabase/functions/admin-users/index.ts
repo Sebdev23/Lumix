@@ -83,7 +83,9 @@ serve(async (req: Request) => {
       })
 
       if (!profileRes.ok) {
-        console.error('Profile update failed:', await profileRes.text())
+        const errText = await profileRes.text()
+        console.error('Profile role update failed:', errText)
+        return fail('Failed to set role: ' + errText)
       }
 
       if (teamId) {
@@ -99,7 +101,9 @@ serve(async (req: Request) => {
         })
 
         if (!memberRes.ok) {
-          console.error('Team member insert failed:', await memberRes.text())
+          const errText = await memberRes.text()
+          console.error('Team member insert failed:', errText)
+          return fail('Failed to add team member: ' + errText)
         }
 
         const teamRes = await fetch(`${PROJECT_URL}/rest/v1/profiles?id=eq.${userId2}`, {
@@ -114,7 +118,9 @@ serve(async (req: Request) => {
         })
 
         if (!teamRes.ok) {
-          console.error('Profile team update failed:', await teamRes.text())
+          const errText = await teamRes.text()
+          console.error('Profile team update failed:', errText)
+          return fail('Failed to set team: ' + errText)
         }
       }
 
