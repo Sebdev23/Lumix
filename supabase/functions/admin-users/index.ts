@@ -57,14 +57,15 @@ serve(async (req: Request) => {
 
       if (!authResponse.ok) {
         const errText = await authResponse.text()
-        let parsed: string
+        let detail = errText
         try {
           const j = JSON.parse(errText)
-          parsed = j.msg || j.message || j.error_description || errText
+          detail = j.msg || j.message || j.error_description || j.error || errText
         } catch {
-          parsed = errText
+          /* keep raw text */
         }
-        return fail('Auth API: ' + parsed)
+        console.error('Auth API error:', errText)
+        return fail(`Auth API (${authResponse.status}): ${detail}`)
       }
 
       const authUser = await authResponse.json()
