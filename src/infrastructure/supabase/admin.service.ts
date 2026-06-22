@@ -11,7 +11,13 @@ export const adminService = {
     const { data, error } = await supabase.functions.invoke('admin-users', {
       body: { action: 'create-user', email, password, fullName, role, teamId },
     })
-    if (error) throw new Error(error.message)
+
+    if (error) {
+      const detail =
+        typeof error === 'object' && 'message' in error ? String(error.message) : String(error)
+      throw new Error(detail)
+    }
+    if (!data) throw new Error('Empty response from admin-users function')
     if (data.error) throw new Error(data.error)
     return data
   },
@@ -20,7 +26,12 @@ export const adminService = {
     const { data, error } = await supabase.functions.invoke('admin-users', {
       body: { action: 'change-role', userId, teamId, role },
     })
-    if (error) throw new Error(error.message)
+    if (error) {
+      const detail =
+        typeof error === 'object' && 'message' in error ? String(error.message) : String(error)
+      throw new Error(detail)
+    }
+    if (!data) throw new Error('Empty response from admin-users function')
     if (data.error) throw new Error(data.error)
     return data
   },

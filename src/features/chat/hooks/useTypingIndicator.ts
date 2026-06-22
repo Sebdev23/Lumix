@@ -14,6 +14,8 @@ export function useTypingIndicator() {
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(undefined)
 
   useEffect(() => {
+    if (!user) return
+
     const channel = supabase.channel('typing-indicator', {
       config: {
         broadcast: { self: false },
@@ -39,7 +41,7 @@ export function useTypingIndicator() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [])
+  }, [user?.id])
 
   const broadcastTyping = () => {
     if (!user || !profile || !channelRef.current) return

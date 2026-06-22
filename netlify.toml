@@ -10,4 +10,4 @@
     X-Content-Type-Options = "nosniff"
     Referrer-Policy = "strict-origin-when-cross-origin"
     Permissions-Policy = "camera=(), microphone=(), geolocation=()"
-    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://dviowymbowuhbwqcaaye.supabase.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://dviowymbowuhbwqcaaye.supabase.co https://api.openai.com; font-src 'self'"
+    Content-Security-Policy = "default-src 'self'; script-src 'self' 'unsafe-inline' https://dviowymbowuhbwqcaaye.supabase.co; style-src 'self' 'unsafe-inline'; img-src 'self' data: https:; connect-src 'self' https://dviowymbowuhbwqcaaye.supabase.co wss://dviowymbowuhbwqcaaye.supabase.co https://api.openai.com; font-src 'self'"

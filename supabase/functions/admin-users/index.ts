@@ -5,8 +5,8 @@ const corsHeaders = {
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
-const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')!
-const PROJECT_URL = Deno.env.get('PROJECT_URL')!
+const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')
+const PROJECT_URL = Deno.env.get('PROJECT_URL')
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
@@ -14,6 +14,19 @@ serve(async (req: Request) => {
   }
 
   try {
+    if (!SERVICE_ROLE_KEY || !PROJECT_URL) {
+      return new Response(
+        JSON.stringify({
+          error:
+            'Edge function not configured: SERVICE_ROLE_KEY and PROJECT_URL must be set in Supabase dashboard > Edge Functions > admin-users > Settings > Environment Variables',
+        }),
+        {
+          status: 500,
+          headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        },
+      )
+    }
+
     const body = await req.json()
     const { action, email, fullName, role, teamId, userId } = body
     const password = body.password || `Opera${Math.random().toString(36).slice(2, 8)}!`
@@ -43,7 +56,14 @@ serve(async (req: Request) => {
 
       if (!authResponse.ok) {
         const errText = await authResponse.text()
-        return new Response(JSON.stringify({ error: 'Auth API: ' + errText }), {
+        let parsed: string
+        try {
+          const j = JSON.parse(errText)
+          parsed = j.msg || j.message || j.error_description || errText
+        } catch {
+          parsed = errText
+        }
+        return new Response(JSON.stringify({ error: 'Auth API: ' + parsed }), {
           status: 400,
           headers: { ...corsHeaders, 'Content-Type': 'application/json' },
         })
@@ -52,8 +72,7 @@ serve(async (req: Request) => {
       const authUser = await authResponse.json()
       const userId2 = authUser.id
 
-      // Update profile role
-      await fetch(`${PROJECT_URL}/rest/v1/profiles?id=eq.${userId2}`, {
+      const profileRes = await fetch(`${PROJECT_URL}/rest/v1/profiles?id=eq.${userId2}`, {
         method: 'PATCH',
         headers: {
           Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -64,9 +83,18 @@ serve(async (req: Request) => {
         body: JSON.stringify({ role: role || 'colaborador' }),
       })
 
+      if (!profileRes.ok) {
+        return new Response(
+          JSON.stringify({ error: 'Failed to set profile role: ' + (await profileRes.text()) }),
+          {
+            status: 400,
+            headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+          },
+        )
+      }
+
       if (teamId) {
-        // Add to team
-        await fetch(`${PROJECT_URL}/rest/v1/team_members`, {
+        const memberRes = await fetch(`${PROJECT_URL}/rest/v1/team_members`, {
           method: 'POST',
           headers: {
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -77,8 +105,17 @@ serve(async (req: Request) => {
           body: JSON.stringify({ team_id: teamId, user_id: userId2, role: role || 'colaborador' }),
         })
 
-        // Update profile team
-        await fetch(`${PROJECT_URL}/rest/v1/profiles?id=eq.${userId2}`, {
+        if (!memberRes.ok) {
+          return new Response(
+            JSON.stringify({ error: 'Failed to add team member: ' + (await memberRes.text()) }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+          )
+        }
+
+        const teamRes = await fetch(`${PROJECT_URL}/rest/v1/profiles?id=eq.${userId2}`, {
           method: 'PATCH',
           headers: {
             Authorization: `Bearer ${SERVICE_ROLE_KEY}`,
@@ -88,6 +125,16 @@ serve(async (req: Request) => {
           },
           body: JSON.stringify({ team_id: teamId }),
         })
+
+        if (!teamRes.ok) {
+          return new Response(
+            JSON.stringify({ error: 'Failed to set team: ' + (await teamRes.text()) }),
+            {
+              status: 400,
+              headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+            },
+          )
+        }
       }
 
       return new Response(

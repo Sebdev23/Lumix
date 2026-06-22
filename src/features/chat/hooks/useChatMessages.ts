@@ -46,19 +46,25 @@ export function useChatMessages() {
       if (cancelled) return
       membersRef.current = members
       const personal = !isAdmin
-        ? data.filter((m) => m.sender_id === user?.id || m.sender_id === 'ai' || (m as ChatMessage).is_ai)
+        ? data.filter(
+            (m) => m.sender_id === user?.id || m.sender_id === 'ai' || (m as ChatMessage).is_ai,
+          )
         : data
-      setMessages(personal.map((msg) => {
-        const isAi = msg.sender_id === 'ai' || (msg as ChatMessage).is_ai
-        if (isAi) {
-          return { ...msg, sender: { full_name: 'Lumix', avatar_url: null }, sender_id: 'ai' }
-        }
-        const member = members.find((m) => m.id === msg.sender_id)
-        return {
-          ...msg,
-          sender: member ? { full_name: member.full_name, avatar_url: member.avatar_url ?? null } : null,
-        }
-      }))
+      setMessages(
+        personal.map((msg) => {
+          const isAi = msg.sender_id === 'ai' || (msg as ChatMessage).is_ai
+          if (isAi) {
+            return { ...msg, sender: { full_name: 'Lumix', avatar_url: null }, sender_id: 'ai' }
+          }
+          const member = members.find((m) => m.id === msg.sender_id)
+          return {
+            ...msg,
+            sender: member
+              ? { full_name: member.full_name, avatar_url: member.avatar_url ?? null }
+              : null,
+          }
+        }),
+      )
       setLoading(false)
     }
 
@@ -85,7 +91,13 @@ export function useChatMessages() {
         (payload) => {
           const newMsg = payload.new as ChatMessage
           // Solo admin ve mensajes de otros
-          if (!isAdmin && newMsg.sender_id !== user?.id && newMsg.sender_id !== 'ai' && !newMsg.is_ai) return
+          if (
+            !isAdmin &&
+            newMsg.sender_id !== user?.id &&
+            newMsg.sender_id !== 'ai' &&
+            !newMsg.is_ai
+          )
+            return
           const isAiMsg = newMsg.sender_id === 'ai' || newMsg.is_ai
           setMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev
@@ -98,7 +110,12 @@ export function useChatMessages() {
                   : newMsg.sender_id === 'ai'
                     ? { full_name: 'Lumix', avatar_url: null }
                     : membersRef.current.find((m) => m.id === newMsg.sender_id)
-                      ? { full_name: membersRef.current.find((m) => m.id === newMsg.sender_id)!.full_name, avatar_url: membersRef.current.find((m) => m.id === newMsg.sender_id)!.avatar_url }
+                      ? {
+                          full_name: membersRef.current.find((m) => m.id === newMsg.sender_id)!
+                            .full_name,
+                          avatar_url: membersRef.current.find((m) => m.id === newMsg.sender_id)!
+                            .avatar_url,
+                        }
                       : null,
               },
             ]
@@ -112,7 +129,7 @@ export function useChatMessages() {
     return () => {
       supabase.removeChannel(channel)
     }
-  }, [user, profile])
+  }, [user?.id, profile?.team_id])
 
   const appendAndSave = async (message: ChatMessage) => {
     setMessages((prev) => {
@@ -128,7 +145,9 @@ export function useChatMessages() {
           team_id: teamId,
           is_ai: true,
         })
-      } catch { /* silent */ }
+      } catch {
+        /* silent */
+      }
     }
   }
 
@@ -164,9 +183,7 @@ export function useChatMessages() {
 
       sentMessage = { ...sent, sender: optimisticMsg.sender }
 
-      setMessages((prev) =>
-        prev.map((m) => (m.id === optimisticId ? sentMessage! : m)),
-      )
+      setMessages((prev) => prev.map((m) => (m.id === optimisticId ? sentMessage! : m)))
     } catch {
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
     } finally {
@@ -184,7 +201,8 @@ export function useChatMessages() {
 
     try {
       // QUESTIONS: detect with ? prefix or question keywords
-      const questionWords = /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|ver |mis |cuales son)\b/i
+      const questionWords =
+        /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|ver |mis |cuales son)\b/i
       const isQuestion = /^[?¿/]/.test(content) || questionWords.test(content)
 
       if (isQuestion && teamId) {
@@ -206,16 +224,30 @@ export function useChatMessages() {
             due_date: new Date(a.due_date).toLocaleDateString('es-CL'),
             responsible: members.find((m) => m.id === a.responsible_id)?.full_name || 'Sin asignar',
           })),
-          errors: errors.filter((e) => e.status !== 'cerrado').map((e) => ({
-            title: e.title,
-            severity: e.severity,
-            status: e.status,
-          })),
+          errors: errors
+            .filter((e) => e.status !== 'cerrado')
+            .map((e) => ({
+              title: e.title,
+              severity: e.severity,
+              status: e.status,
+            })),
           members: isColaborador
-            ? [{ name: profile?.full_name || 'Tu', activeTasks: visibleActivities.filter((a) => a.status !== 'completado').length, load: 0 }]
+            ? [
+                {
+                  name: profile?.full_name || 'Tu',
+                  activeTasks: visibleActivities.filter((a) => a.status !== 'completado').length,
+                  load: 0,
+                },
+              ]
             : members.map((m) => {
-                const tasks = activities.filter((a) => a.responsible_id === m.id && a.status !== 'completado')
-                return { name: m.full_name, activeTasks: tasks.length, load: Math.min(Math.round((tasks.length / 10) * 100), 100) }
+                const tasks = activities.filter(
+                  (a) => a.responsible_id === m.id && a.status !== 'completado',
+                )
+                return {
+                  name: m.full_name,
+                  activeTasks: tasks.length,
+                  load: Math.min(Math.round((tasks.length / 10) * 100), 100),
+                }
               }),
         }
 
@@ -237,8 +269,14 @@ export function useChatMessages() {
       let result: ClassifyResult
 
       // Auto-detect ingesta keywords even in Auto mode
-      const ingestaWords = /\b(ingestar|ingesta|ingerir|cargar datos|subir datos|descargar datos|etl|data pipeline|migrar datos|importar datos|exportar datos)\b/i
-      const effectiveType = forcedType && forcedType !== 'auto' ? forcedType : ingestaWords.test(content) ? 'ingesta' : null
+      const ingestaWords =
+        /\b(ingestar|ingesta|ingerir|cargar datos|subir datos|descargar datos|etl|data pipeline|migrar datos|importar datos|exportar datos)\b/i
+      const effectiveType =
+        forcedType && forcedType !== 'auto'
+          ? forcedType
+          : ingestaWords.test(content)
+            ? 'ingesta'
+            : null
 
       if (effectiveType) {
         // Still use AI to extract title/description, but force the category
@@ -250,29 +288,72 @@ export function useChatMessages() {
               category: effectiveType === 'error' ? 'error' : 'actividad',
               entities: {
                 ...aiResult.entities,
-                title: effectiveType === 'ingesta' ? `[Ingesta] ${aiResult.entities.title || content.slice(0, 100)}` : aiResult.entities.title || content.slice(0, 100),
+                title:
+                  effectiveType === 'ingesta'
+                    ? `[Ingesta] ${aiResult.entities.title || content.slice(0, 100)}`
+                    : aiResult.entities.title || content.slice(0, 100),
               },
-              reply: effectiveType === 'error' ? 'Error registrado.' : effectiveType === 'ingesta' ? 'Ingesta registrada.' : 'Actividad creada.',
+              reply:
+                effectiveType === 'error'
+                  ? 'Error registrado.'
+                  : effectiveType === 'ingesta'
+                    ? 'Ingesta registrada.'
+                    : 'Actividad creada.',
             }
           } else {
             result = {
               category: effectiveType === 'error' ? 'error' : 'actividad',
               confidence: 1,
-              entities: { title: effectiveType === 'ingesta' ? `[Ingesta] ${content.slice(0, 100)}` : content.slice(0, 100), description: content, responsible: null, priority: 3, due_date: null, severity: effectiveType === 'error' ? 'media' : null, scheduled_at: null },
-              reply: effectiveType === 'error' ? 'Error registrado.' : effectiveType === 'ingesta' ? 'Ingesta registrada.' : 'Actividad creada.',
+              entities: {
+                title:
+                  effectiveType === 'ingesta'
+                    ? `[Ingesta] ${content.slice(0, 100)}`
+                    : content.slice(0, 100),
+                description: content,
+                responsible: null,
+                priority: 3,
+                due_date: null,
+                severity: effectiveType === 'error' ? 'media' : null,
+                scheduled_at: null,
+              },
+              reply:
+                effectiveType === 'error'
+                  ? 'Error registrado.'
+                  : effectiveType === 'ingesta'
+                    ? 'Ingesta registrada.'
+                    : 'Actividad creada.',
             }
           }
         } catch {
           result = {
             category: effectiveType === 'error' ? 'error' : 'actividad',
             confidence: 1,
-            entities: { title: effectiveType === 'ingesta' ? `[Ingesta] ${content.slice(0, 100)}` : content.slice(0, 100), description: content, responsible: null, priority: 3, due_date: null, severity: effectiveType === 'error' ? 'media' : null, scheduled_at: null },
-            reply: effectiveType === 'error' ? 'Error registrado.' : effectiveType === 'ingesta' ? 'Ingesta registrada.' : 'Actividad creada.',
+            entities: {
+              title:
+                effectiveType === 'ingesta'
+                  ? `[Ingesta] ${content.slice(0, 100)}`
+                  : content.slice(0, 100),
+              description: content,
+              responsible: null,
+              priority: 3,
+              due_date: null,
+              severity: effectiveType === 'error' ? 'media' : null,
+              scheduled_at: null,
+            },
+            reply:
+              effectiveType === 'error'
+                ? 'Error registrado.'
+                : effectiveType === 'ingesta'
+                  ? 'Ingesta registrada.'
+                  : 'Actividad creada.',
           }
         }
       } else {
         const aiResult = await classifyMessage(content)
-        if (!aiResult?.category) { setAiProcessing(false); return }
+        if (!aiResult?.category) {
+          setAiProcessing(false)
+          return
+        }
         result = aiResult
       }
 
@@ -299,9 +380,16 @@ export function useChatMessages() {
             responsibleName = found.full_name
           } else {
             // If name not found, log for debugging
-            console.log('AI detected responsible:', result.entities.responsible, 'but not found in team:', members.map(m => m.full_name))
+            console.log(
+              'AI detected responsible:',
+              result.entities.responsible,
+              'but not found in team:',
+              members.map((m) => m.full_name),
+            )
           }
-        } catch { /* fallback to sender */ }
+        } catch {
+          /* fallback to sender */
+        }
       }
 
       const isIngesta = result.entities.title.startsWith('[Ingesta]')
@@ -347,7 +435,9 @@ export function useChatMessages() {
                   },
                 })
               }
-            } catch { /* ignore */ }
+            } catch {
+              /* ignore */
+            }
           }
 
           if (!hasOverload) {
@@ -363,13 +453,14 @@ export function useChatMessages() {
               team_id: teamId,
               created_by: message.sender_id,
             })
-            aiContent = responsibleId !== message.sender_id
-              ? `Actividad "${activity.title}" asignada a ${responsibleName}. Prioridad: ${activity.priority}/5.`
-              : isColaborador
-                ? `Actividad "${activity.title}" auto-asignada. Prioridad: ${activity.priority}/5.`
-                : isIngesta
-                  ? `Ingesta "${activity.title.replace('[Ingesta] ', '')}" registrada.`
-                  : `Actividad "${activity.title}" creada. Prioridad: ${activity.priority}/5.`
+            aiContent =
+              responsibleId !== message.sender_id
+                ? `Actividad "${activity.title}" asignada a ${responsibleName}. Prioridad: ${activity.priority}/5.`
+                : isColaborador
+                  ? `Actividad "${activity.title}" auto-asignada. Prioridad: ${activity.priority}/5.`
+                  : isIngesta
+                    ? `Ingesta "${activity.title.replace('[Ingesta] ', '')}" registrada.`
+                    : `Actividad "${activity.title}" creada. Prioridad: ${activity.priority}/5.`
 
             // Notify if assigned to someone else
             if (responsibleId !== message.sender_id) {
@@ -380,7 +471,9 @@ export function useChatMessages() {
                   type: 'deadline_soon',
                   metadata: { activity_id: activity.id },
                 })
-              } catch { /* */ }
+              } catch {
+                /* */
+              }
               appendAndSave({
                 id: `ai-notify-${Date.now()}`,
                 content: `📨 Notificacion enviada a ${responsibleName}`,
@@ -398,7 +491,8 @@ export function useChatMessages() {
           const error = await errorsService.create({
             title: result.entities.title || message.content.slice(0, 100),
             description: result.entities.description || message.content,
-            severity: (result.entities.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
+            severity:
+              (result.entities.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
             responsible_id: responsibleId,
             status: 'abierto',
             date: new Date().toISOString().split('T')[0],
@@ -428,7 +522,9 @@ export function useChatMessages() {
 
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === message.id ? { ...m, category: isIngesta ? null : result.category as ChatMessage['category'] } : m,
+          m.id === message.id
+            ? { ...m, category: isIngesta ? null : (result.category as ChatMessage['category']) }
+            : m,
         ),
       )
     } catch (err) {

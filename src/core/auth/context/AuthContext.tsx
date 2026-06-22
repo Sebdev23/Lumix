@@ -1,15 +1,11 @@
-import { useEffect, useState, type ReactNode } from 'react'
+import { useEffect, useState, useRef, type ReactNode } from 'react'
 import { supabase } from '@infrastructure/supabase/client'
 import type { User, Session } from '@supabase/supabase-js'
 import type { Profile } from '@shared/types'
 import { AuthContext } from './AuthContextValue'
 
 async function fetchProfile(userId: string): Promise<Profile | null> {
-  const { data } = await supabase
-    .from('profiles')
-    .select('*')
-    .eq('id', userId)
-    .single()
+  const { data } = await supabase.from('profiles').select('*').eq('id', userId).single()
   return data
 }
 
@@ -18,9 +14,14 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   const [session, setSession] = useState<Session | null>(null)
   const [profile, setProfile] = useState<Profile | null>(null)
   const [loading, setLoading] = useState(true)
+  const initialized = useRef(false)
 
   useEffect(() => {
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange(async (_event, newSession) => {
+      if (!initialized.current) return
+
       setSession(newSession)
       setUser(newSession?.user ?? null)
 
@@ -30,17 +31,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
       } else {
         setProfile(null)
       }
-
-      setLoading(false)
     })
 
     supabase.auth.getSession().then(({ data: { session: currentSession } }) => {
       setSession(currentSession)
       setUser(currentSession?.user ?? null)
       if (currentSession?.user) {
-        fetchProfile(currentSession.user.id).then(setProfile)
+        fetchProfile(currentSession.user.id).then((prof) => {
+          setProfile(prof)
+          initialized.current = true
+          setLoading(false)
+        })
+      } else {
+        initialized.current = true
+        setLoading(false)
       }
-      setLoading(false)
     })
 
     return () => subscription.unsubscribe()
