@@ -17,7 +17,16 @@ export interface ClassifyResult {
 
 export async function classifyMessage(content: string): Promise<ClassifyResult> {
   const { data, error } = await supabase.functions.invoke('ai-classify', {
-    body: { content },
+    body: {
+      content,
+      today: new Date().toLocaleDateString('es-CL', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      }),
+      todayISO: new Date().toISOString().split('T')[0],
+    },
   })
 
   if (error) throw new Error(error.message)
@@ -37,7 +46,7 @@ export async function generateMinutes(transcript: string): Promise<string> {
   const response = await fetch('https://api.openai.com/v1/chat/completions', {
     method: 'POST',
     headers: {
-      'Authorization': `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
+      Authorization: `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
@@ -45,7 +54,8 @@ export async function generateMinutes(transcript: string): Promise<string> {
       messages: [
         {
           role: 'system',
-          content: 'Eres un asistente que genera minutas de reunion en espanol. Incluye: resumen, asistentes, temas tratados, acuerdos y tareas pendientes con responsables. Formato markdown.',
+          content:
+            'Eres un asistente que genera minutas de reunion en espanol. Incluye: resumen, asistentes, temas tratados, acuerdos y tareas pendientes con responsables. Formato markdown.',
         },
         { role: 'user', content: `Genera la minuta de esta transcripcion:\n\n${transcript}` },
       ],
@@ -60,7 +70,14 @@ export async function generateMinutes(transcript: string): Promise<string> {
 }
 
 interface TeamData {
-  activities: { title: string; status: string; priority: number; due_date: string; responsible: string }[]
+  today: string
+  activities: {
+    title: string
+    status: string
+    priority: number
+    due_date: string
+    responsible: string
+  }[]
   errors: { title: string; severity: string; status: string }[]
   members: { name: string; activeTasks: number; load: number }[]
 }

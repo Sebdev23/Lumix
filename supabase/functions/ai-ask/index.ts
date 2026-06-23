@@ -15,6 +15,14 @@ serve(async (req: Request) => {
   try {
     const { question, teamData } = await req.json()
 
+    const today =
+      teamData?.today ||
+      new Date().toLocaleDateString('es-CL', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+      })
+
     const membersStr = teamData.members
       .map(
         (m: { name: string; activeTasks: number; load: number }) =>
@@ -40,12 +48,6 @@ serve(async (req: Request) => {
           `- ${e.title} | ${e.severity} | ${e.status}`,
       )
       .join('\n')
-
-    const today = new Date().toLocaleDateString('es-CL', {
-      weekday: 'long',
-      day: 'numeric',
-      month: 'long',
-    })
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

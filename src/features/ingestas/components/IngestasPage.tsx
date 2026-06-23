@@ -24,9 +24,7 @@ const statusColors: Record<ActivityStatus, BadgeVariant> = {
 const priorityColors: Record<number, string> = {
   1: 'bg-red-500',
   2: 'bg-amber-500',
-  3: 'bg-indigo-500',
-  4: 'bg-blue-500',
-  5: 'bg-slate-600',
+  3: 'bg-emerald-500',
 }
 
 export function IngestasPage() {
@@ -134,10 +132,10 @@ export function IngestasPage() {
                       </td>
                       <td className="py-2.5 px-3 hidden md:table-cell">
                         <div className="flex gap-0.5">
-                          {[1, 2, 3, 4, 5].map((p) => (
+                          {[1, 2, 3].map((p) => (
                             <div
                               key={p}
-                              className={`w-1.5 h-3 rounded-sm ${p <= a.priority ? priorityColors[p] : 'bg-slate-700'}`}
+                              className={`w-1.5 h-3 rounded-sm ${p >= a.priority ? priorityColors[p] : 'bg-slate-700'}`}
                             />
                           ))}
                         </div>
@@ -268,7 +266,7 @@ export function IngestasPage() {
                         await activitiesService.update(selected.id, { priority: p })
                         setSelected({ ...selected, priority: p })
                       }}
-                      className={`w-6 h-6 rounded text-xs font-bold text-white ${p <= 2 ? 'bg-red-700' : p === 3 ? 'bg-indigo-700' : 'bg-slate-700'}`}
+                      className={`w-6 h-6 rounded text-xs font-bold text-white ${p === 1 ? 'bg-red-700' : p === 2 ? 'bg-amber-700' : 'bg-emerald-700'}`}
                     >
                       {p}
                     </button>

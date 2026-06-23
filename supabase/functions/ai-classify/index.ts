@@ -14,8 +14,8 @@ Tu tarea es analizar el mensaje y devolver un JSON con esta estructura exacta:
   "category": "actividad" | "error",
   "confidence": 0.0 a 1.0,
   "entities": {
-    "title": "titulo extraido del mensaje",
-    "description": "descripcion extraida",
+    "title": "titulo claro y descriptivo extraido del mensaje",
+    "description": "resumen del contexto y detalles clave del mensaje",
     "responsible": "nombre de la persona responsable o null",
     "priority": 1-5 o null (solo actividad),
     "due_date": "fecha en formato YYYY-MM-DD o null (solo actividad)",
@@ -24,20 +24,30 @@ Tu tarea es analizar el mensaje y devolver un JSON con esta estructura exacta:
   "reply": "respuesta breve en espanol confirmando lo que se hizo"
 }
 
-Reglas de clasificacion (SOLO 2 CATEGORIAS):
+REGLAS PARA EL TITULO:
+- Extrae la accion principal y el contexto clave del mensaje
+- El titulo debe ser descriptivo pero conciso, entre 5 y 15 palabras
+- Incluye nombres de personas, sistemas o lugares mencionados si son relevantes
+- Ejemplos: "Revisar utilizacion del frigorifico Rosario con Emilio Ruiz", "Ajustar capacidad de congelado para manana", "Crear reporte de seguimiento SAP PM mantenimiento"
+- NO cortes el titulo abruptamente. Si el mensaje tiene contexto importante, incluyelo.
 
-ERROR: bug, falla, no funciona, problema, incidencia, error, roto, caido, crash, 500, exception, no carga, no responde, se cayo, no anda, fallo, defecto, mal funcionamiento.
+REGLAS PARA LA DESCRIPCION:
+- Incluye todos los detalles adicionales del mensaje que no estan en el titulo
+- Si el mensaje menciona personas especificas, sistemas, KPIs, o fechas, incluyelos
 
-ACTIVIDAD: TODO lo demas. Cualquier tarea, solicitud, pedido, entregable, documento, reporte, ajuste, creacion, modificacion. Si no es claramente un error, es ACTIVIDAD.
+REGLAS PARA ERROR vs ACTIVIDAD:
+- ERROR: el mensaje describe claramente una falla, bug, mal funcionamiento, o problema tecnico. Palabras clave: "error", "falla", "no funciona", "bug", "roto", "caido", "no carga", "no responde", "se cayo", "duplicado", "no se visualiza", "no se actualiza"
+- ACTIVIDAD: tareas, solicitudes, pedidos, reportes, ajustes, revisiones, creaciones, modificaciones
+- Si el mensaje empieza con "Error" o "error", es ERROR
+- Si el mensaje menciona "no se actualiza", "no se visualiza", "duplicado", es ERROR
+- Si no estas seguro, clasifica como ACTIVIDAD
 
-PRIORIDAD por defecto: si no se menciona urgencia, usa 3 (media).
+PRIORIDAD por defecto: si no se menciona urgencia, usa 2 (media).
 
-Reglas de prioridad (escala chilena: 1 = maximo):
-- 1 = urgente, critico, "ya", "ahora", "inmediato"
-- 2 = alta
-- 3 = media (default)
-- 4 = baja
-- 5 = "cuando puedas", "sin prisa"
+Reglas de prioridad (escala: 1 = alta, 3 = baja):
+- 1 = urgente, critico, "ya", "ahora", "inmediato", "prioridad alta", "alta prioridad"
+- 2 = media (default cuando no se especifica)
+- 3 = baja, "cuando puedas", "sin prisa"
 
 Reglas de fechas:
 - Usa la fecha actual proporcionada en el mensaje del usuario para calcular fechas relativas
@@ -45,6 +55,7 @@ Reglas de fechas:
 - "el viernes" = el viernes mas cercano (esta semana o proxima)
 - "manana" = dia siguiente a la fecha actual
 - "la proxima semana" = misma fecha + 7 dias
+- "esta semana" = mismo dia + 7 dias desde hoy
 - Si no se menciona fecha, usa null para due_date (el sistema asignara +7 dias habiles)
 - IMPORTANTE: nunca inventes fechas. Si el usuario dice "proximo jueves", calcula la fecha real usando la fecha actual
 
@@ -63,7 +74,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { content } = await req.json()
+    const { content, todayISO: clientISO, today: clientToday } = await req.json()
 
     if (!content || typeof content !== 'string') {
       return new Response(JSON.stringify({ error: 'Content is required' }), {
@@ -72,13 +83,15 @@ serve(async (req: Request) => {
       })
     }
 
-    const today = new Date().toISOString().split('T')[0]
-    const todayStr = new Date().toLocaleDateString('es-CL', {
-      weekday: 'long',
-      year: 'numeric',
-      month: 'long',
-      day: 'numeric',
-    })
+    const today = clientISO || new Date().toISOString().split('T')[0]
+    const todayStr =
+      clientToday ||
+      new Date().toLocaleDateString('es-CL', {
+        weekday: 'long',
+        year: 'numeric',
+        month: 'long',
+        day: 'numeric',
+      })
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

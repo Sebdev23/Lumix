@@ -1,12 +1,7 @@
-import { useState } from 'react'
+import { useState, useCallback } from 'react'
 import { Badge } from '@shared/components/ui/Badge'
 import { Modal } from '@shared/components/ui/Modal'
-import {
-  useGantt,
-  getLoadColor,
-  getLoadBgColor,
-  getLoadTextColor,
-} from '@features/gantt/hooks/useGantt'
+import { useGantt, getLoadColor, getLoadTextColor } from '@features/gantt/hooks/useGantt'
 import { getDaysRemaining, getDaysColor } from '@features/activities/hooks/useActivities'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
@@ -15,9 +10,7 @@ import type { Activity } from '@shared/types'
 const priorityColors: Record<number, string> = {
   1: 'bg-red-500',
   2: 'bg-amber-500',
-  3: 'bg-indigo-500',
-  4: 'bg-blue-500',
-  5: 'bg-slate-600',
+  3: 'bg-emerald-500',
 }
 
 function getLoadBadgeVariant(pct: number) {
@@ -37,13 +30,71 @@ function getLoadLabel(pct: number): string {
 const dayNames = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
 
 export function GanttPage() {
-  const { rows, loading, days, weekLabel, prevWeek, nextWeek, currentWeek, weekOffset } = useGantt()
+  const { rows, loading, days, weekLabel, prevWeek, nextWeek, currentWeek, weekOffset, reload } =
+    useGantt()
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null)
+  const [dragActivity, setDragActivity] = useState<Activity | null>(null)
+  const [dragOverDate, setDragOverDate] = useState<string | null>(null)
+  const [dropping, setDropping] = useState(false)
   const { profile } = useAuth()
   const canEdit =
     profile?.role === 'admin' ||
     profile?.role === 'jefatura' ||
     selectedActivity?.responsible_id === profile?.id
+
+  const handleDragStart = useCallback((e: React.DragEvent, activity: Activity) => {
+    e.dataTransfer.effectAllowed = 'move'
+    e.dataTransfer.setData('text/plain', activity.id)
+    setDragActivity(activity)
+  }, [])
+
+  const handleDragEnd = useCallback(() => {
+    setDragActivity(null)
+    setDragOverDate(null)
+  }, [])
+
+  const handleDragOver = useCallback((e: React.DragEvent, date: string) => {
+    e.preventDefault()
+    e.dataTransfer.dropEffect = 'move'
+    setDragOverDate(date)
+  }, [])
+
+  const handleDragLeave = useCallback((e: React.DragEvent) => {
+    const target = e.currentTarget as HTMLElement
+    const rect = target.getBoundingClientRect()
+    const x = e.clientX - rect.left
+    const y = e.clientY - rect.top
+    if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
+      setDragOverDate(null)
+    }
+  }, [])
+
+  const handleDrop = useCallback(
+    async (e: React.DragEvent, date: string) => {
+      e.preventDefault()
+      setDragOverDate(null)
+      if (!dragActivity || dropping) return
+
+      const newDueDate = new Date(date)
+      const oldDueDate = new Date(dragActivity.due_date)
+      if (newDueDate.toDateString() === oldDueDate.toDateString()) {
+        setDragActivity(null)
+        return
+      }
+
+      setDropping(true)
+      try {
+        await activitiesService.update(dragActivity.id, { due_date: newDueDate.toISOString() })
+        setDragActivity(null)
+        reload()
+      } catch {
+        /* ignore */
+      } finally {
+        setDropping(false)
+      }
+    },
+    [dragActivity, dropping, reload],
+  )
 
   return (
     <div className="flex flex-col h-full">
@@ -148,7 +199,7 @@ export function GanttPage() {
                   </div>
 
                   {/* Day cells */}
-                  <div className="flex-1 flex gap-1">
+                  <div className="flex-1 flex gap-1 min-w-0">
                     {row.days.map((cell, j) => {
                       const isToday = cell.date === new Date().toISOString().split('T')[0]
                       const isWeekend = j >= 5
@@ -157,37 +208,55 @@ export function GanttPage() {
                       return (
                         <div
                           key={cell.date}
-                          className={`flex-1 min-h-[36px] rounded-lg border p-1.5 transition-colors ${
-                            isToday
-                              ? 'border-indigo-500/30 bg-indigo-500/5'
-                              : isWeekend
-                                ? 'border-slate-800/50 bg-slate-900/30'
-                                : 'border-slate-800 bg-slate-900/50'
+                          onDragOver={(e) => handleDragOver(e, cell.date)}
+                          onDragLeave={handleDragLeave}
+                          onDrop={(e) => handleDrop(e, cell.date)}
+                          className={`flex-1 min-w-0 min-h-[40px] max-h-[80px] overflow-hidden rounded-lg border p-1 transition-colors ${
+                            dragOverDate === cell.date
+                              ? 'border-indigo-400 bg-indigo-500/10'
+                              : isToday
+                                ? 'border-indigo-500/30 bg-indigo-500/5'
+                                : isWeekend
+                                  ? 'border-slate-800/50 bg-slate-900/30'
+                                  : 'border-slate-800 bg-slate-900/50'
                           }`}
                         >
                           {hasActivities ? (
-                            <div className="space-y-1">
+                            <div className="space-y-0.5 overflow-y-auto max-h-full">
                               {cell.activities.map((activity) => {
                                 const isCompleted = activity.status === 'completado'
                                 return (
                                   <div
                                     key={activity.id}
+                                    draggable={!isCompleted}
+                                    onDragStart={(e) => {
+                                      if (isCompleted) return
+                                      e.stopPropagation()
+                                      handleDragStart(e, activity)
+                                    }}
+                                    onDragEnd={handleDragEnd}
                                     onClick={(e) => {
                                       e.stopPropagation()
                                       setSelectedActivity(activity)
                                     }}
-                                    className={`text-[10px] px-1.5 py-1 rounded border truncate cursor-pointer hover:brightness-110 ${
+                                    className={`text-[9px] px-1 py-0.5 rounded border truncate transition-opacity ${
+                                      dragActivity?.id === activity.id
+                                        ? 'opacity-40'
+                                        : 'cursor-pointer hover:brightness-110'
+                                    } ${
                                       isCompleted
                                         ? 'bg-emerald-600/30 border-emerald-500/20 text-emerald-400'
-                                        : getLoadBgColor(
-                                            activity.priority >= 4
-                                              ? 95
-                                              : activity.priority >= 3
-                                                ? 75
-                                                : 50,
-                                          )
+                                        : activity.priority === 1
+                                          ? 'bg-red-500/40 border-red-400/20 text-red-300'
+                                          : activity.priority === 2
+                                            ? 'bg-amber-500/40 border-amber-400/20 text-amber-300'
+                                            : 'bg-indigo-600/40 border-indigo-500/20 text-indigo-300'
                                     }`}
-                                    title={`${activity.title}${isCompleted ? ' (completado)' : ''} - Click para ver detalles`}
+                                    title={
+                                      isCompleted
+                                        ? `${activity.title} (completado)`
+                                        : `Arrastrar para cambiar fecha - ${activity.title}`
+                                    }
                                   >
                                     {activity.title}
                                   </div>
@@ -247,7 +316,7 @@ export function GanttPage() {
                 <p className="text-xs text-slate-500 mb-1">Prioridad</p>
                 {canEdit ? (
                   <div className="flex gap-1">
-                    {[1, 2, 3, 4, 5].map((p) => (
+                    {[1, 2, 3].map((p) => (
                       <button
                         key={p}
                         onClick={async () => {
@@ -255,7 +324,7 @@ export function GanttPage() {
                           setSelectedActivity({ ...selectedActivity, priority: p })
                         }}
                         className={`w-6 h-6 rounded text-xs font-bold text-white ${
-                          p <= 2 ? 'bg-red-700' : p === 3 ? 'bg-indigo-700' : 'bg-slate-700'
+                          p === 1 ? 'bg-red-700' : p === 2 ? 'bg-amber-700' : 'bg-emerald-700'
                         }`}
                       >
                         {p}
@@ -264,10 +333,10 @@ export function GanttPage() {
                   </div>
                 ) : (
                   <div className="flex items-center gap-1">
-                    {[1, 2, 3, 4, 5].map((p) => (
+                    {[1, 2, 3].map((p) => (
                       <div
                         key={p}
-                        className={`w-2 h-4 rounded-sm ${p <= selectedActivity.priority ? priorityColors[p] : 'bg-slate-700'}`}
+                        className={`w-2 h-4 rounded-sm ${p >= selectedActivity.priority ? priorityColors[p] : 'bg-slate-700'}`}
                       />
                     ))}
                   </div>

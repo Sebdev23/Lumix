@@ -217,13 +217,22 @@ export function useChatMessages() {
           : activities
 
         const teamData = {
-          activities: visibleActivities.map((a) => ({
-            title: a.title,
-            status: a.status,
-            priority: a.priority,
-            due_date: new Date(a.due_date).toLocaleDateString('es-CL'),
-            responsible: members.find((m) => m.id === a.responsible_id)?.full_name || 'Sin asignar',
-          })),
+          today: new Date().toLocaleDateString('es-CL', {
+            weekday: 'long',
+            day: 'numeric',
+            month: 'long',
+          }),
+          activities: visibleActivities.map((a) => {
+            const [y, m, d] = a.due_date.split('T')[0].split('-').map(Number)
+            return {
+              title: a.title,
+              status: a.status,
+              priority: a.priority,
+              due_date: new Date(y, m - 1, d).toLocaleDateString('es-CL'),
+              responsible:
+                members.find((m) => m.id === a.responsible_id)?.full_name || 'Sin asignar',
+            }
+          }),
           errors: errors
             .filter((e) => e.status !== 'cerrado')
             .map((e) => ({
@@ -311,7 +320,7 @@ export function useChatMessages() {
                     : content.slice(0, 100),
                 description: content,
                 responsible: null,
-                priority: 3,
+                priority: 2,
                 due_date: null,
                 severity: effectiveType === 'error' ? 'media' : null,
                 scheduled_at: null,
@@ -428,7 +437,7 @@ export function useChatMessages() {
                     pendingDesc: result.entities.description || message.content,
                     pendingResponsibleId: responsibleId,
                     pendingResponsibleName: responsibleName,
-                    pendingPriority: result.entities.priority ?? 3,
+                    pendingPriority: result.entities.priority ?? 2,
                     pendingDueDate: dueDate,
                     pendingSenderId: message.sender_id,
                     pendingIsColaborador: isColaborador,
@@ -443,9 +452,9 @@ export function useChatMessages() {
           if (!hasOverload) {
             const activity = await activitiesService.create({
               title: result.entities.title || message.content.slice(0, 100),
-              description: result.entities.description || message.content,
+              description: message.content,
               responsible_id: responsibleId,
-              priority: result.entities.priority ?? 3,
+              priority: result.entities.priority ?? 2,
               status: 'pendiente',
               due_date: dueDate,
               dependencies: [],
@@ -455,12 +464,12 @@ export function useChatMessages() {
             })
             aiContent =
               responsibleId !== message.sender_id
-                ? `Actividad "${activity.title}" asignada a ${responsibleName}. Prioridad: ${activity.priority}/5.`
+                ? `Actividad "${activity.title}" asignada a ${responsibleName}. Prioridad: ${activity.priority}/3.`
                 : isColaborador
-                  ? `Actividad "${activity.title}" auto-asignada. Prioridad: ${activity.priority}/5.`
+                  ? `Actividad "${activity.title}" auto-asignada. Prioridad: ${activity.priority}/3.`
                   : isIngesta
                     ? `Ingesta "${activity.title.replace('[Ingesta] ', '')}" registrada.`
-                    : `Actividad "${activity.title}" creada. Prioridad: ${activity.priority}/5.`
+                    : `Actividad "${activity.title}" creada. Prioridad: ${activity.priority}/3.`
 
             // Notify if assigned to someone else
             if (responsibleId !== message.sender_id) {

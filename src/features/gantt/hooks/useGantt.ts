@@ -45,6 +45,7 @@ export function useGantt() {
   const [rows, setRows] = useState<GanttRow[]>([])
   const [loading, setLoading] = useState(true)
   const [weekOffset, setWeekOffset] = useState(0)
+  const [refreshKey, setRefreshKey] = useState(0)
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
 
@@ -69,9 +70,7 @@ export function useGantt() {
       if (cancelled) return
 
       const ganttRows: GanttRow[] = members.map((member) => {
-        const memberActivities = activities.filter(
-          (a) => a.responsible_id === member.id,
-        )
+        const memberActivities = activities.filter((a) => a.responsible_id === member.id)
         const activeActivities = memberActivities.filter((a) => a.status !== 'completado')
 
         const dayCells: DayCell[] = days.map((day) => {
@@ -108,13 +107,14 @@ export function useGantt() {
     return () => {
       cancelled = true
     }
-  }, [weekOffset, teamId, user])
+  }, [weekOffset, teamId, user, refreshKey])
 
   const prevWeek = () => setWeekOffset((w) => w - 1)
   const nextWeek = () => setWeekOffset((w) => w + 1)
   const currentWeek = () => setWeekOffset(0)
+  const reload = () => setRefreshKey((k) => k + 1)
 
-  return { rows, loading, days, weekLabel, prevWeek, nextWeek, currentWeek, weekOffset }
+  return { rows, loading, days, weekLabel, prevWeek, nextWeek, currentWeek, weekOffset, reload }
 }
 
 export function getLoadColor(percentage: number): string {
