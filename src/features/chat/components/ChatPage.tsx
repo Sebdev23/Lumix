@@ -5,6 +5,9 @@ import { useAuth } from '@core/auth/hooks/useAuth'
 import { useChatMessages } from '@features/chat/hooks/useChatMessages'
 import { useTypingIndicator } from '@features/chat/hooks/useTypingIndicator'
 import { useFileUpload } from '@features/chat/hooks/useFileUpload'
+import { useVoiceRecorder } from '@features/chat/hooks/useVoiceRecorder'
+import { transcribeAudio } from '@core/ai-engine/client'
+import { supabase } from '@infrastructure/supabase/client'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { teamsService } from '@infrastructure/supabase/teams.service'
 
@@ -28,6 +31,14 @@ export function ChatPage() {
     useChatMessages()
   const { typingUsers, broadcastTyping } = useTypingIndicator()
   const { upload, uploading } = useFileUpload()
+  const {
+    isRecording,
+    isSupported,
+    startRecording,
+    stopRecording,
+    error: recorderError,
+  } = useVoiceRecorder()
+  const [transcribing, setTranscribing] = useState(false)
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
@@ -89,6 +100,35 @@ export function ChatPage() {
       handleSend()
     }
   }
+
+  const handleVoiceToggle = useCallback(async () => {
+    if (transcribing) return
+
+    if (isRecording) {
+      const blob = await stopRecording()
+      if (!blob) return
+
+      setTranscribing(true)
+      try {
+        const filePath = `chat/voice-${Date.now()}.webm`
+        const { error: uploadErr } = await supabase.storage
+          .from('chat-files')
+          .upload(filePath, blob, { contentType: 'audio/webm' })
+
+        if (uploadErr) throw uploadErr
+
+        const { data: urlData } = supabase.storage.from('chat-files').getPublicUrl(filePath)
+        const transcript = await transcribeAudio(urlData.publicUrl)
+        setInput((prev) => prev + (prev ? ' ' : '') + transcript)
+      } catch {
+        /* ignore */
+      } finally {
+        setTranscribing(false)
+      }
+    } else {
+      await startRecording()
+    }
+  }, [isRecording, transcribing, stopRecording, startRecording])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -279,6 +319,35 @@ export function ChatPage() {
                 />
               </svg>
             </button>
+            {isSupported && (
+              <button
+                onClick={handleVoiceToggle}
+                disabled={transcribing}
+                className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
+                  isRecording
+                    ? 'bg-red-600 text-white animate-pulse'
+                    : transcribing
+                      ? 'bg-slate-700 text-slate-500'
+                      : 'hover:bg-slate-800 text-slate-400 hover:text-indigo-400'
+                }`}
+                title={
+                  isRecording
+                    ? 'Detener grabacion'
+                    : transcribing
+                      ? 'Transcribiendo...'
+                      : 'Grabar mensaje de voz'
+                }
+              >
+                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
+                  />
+                </svg>
+              </button>
+            )}
             <textarea
               value={input}
               onChange={handleInputChange}
@@ -307,9 +376,15 @@ export function ChatPage() {
             </Button>
           </div>
           <p className="text-[10px] text-slate-600 mt-2 text-center">
-            {aiProcessing
-              ? 'Lumix esta procesando tu mensaje...'
-              : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
+            {isRecording
+              ? 'Grabando... toca el microfono para detener'
+              : transcribing
+                ? 'Transcribiendo audio...'
+                : recorderError
+                  ? recorderError
+                  : aiProcessing
+                    ? 'Lumix esta procesando tu mensaje...'
+                    : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
           </p>
         </div>
       </div>
