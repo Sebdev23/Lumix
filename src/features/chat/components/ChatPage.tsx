@@ -5,9 +5,7 @@ import { useAuth } from '@core/auth/hooks/useAuth'
 import { useChatMessages } from '@features/chat/hooks/useChatMessages'
 import { useTypingIndicator } from '@features/chat/hooks/useTypingIndicator'
 import { useFileUpload } from '@features/chat/hooks/useFileUpload'
-import { useVoiceRecorder } from '@features/chat/hooks/useVoiceRecorder'
-import { transcribeAudio } from '@core/ai-engine/client'
-import { supabase } from '@infrastructure/supabase/client'
+import { useSpeechRecognition } from '@features/chat/hooks/useSpeechRecognition'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { teamsService } from '@infrastructure/supabase/teams.service'
 
@@ -32,13 +30,21 @@ export function ChatPage() {
   const { typingUsers, broadcastTyping } = useTypingIndicator()
   const { upload, uploading } = useFileUpload()
   const {
-    isRecording,
+    isListening,
     isSupported,
-    startRecording,
-    stopRecording,
+    startListening,
+    stopListening,
+    transcript,
     error: recorderError,
-  } = useVoiceRecorder()
-  const [transcribing, setTranscribing] = useState(false)
+  } = useSpeechRecognition()
+  const prevListeningRef = useRef(false)
+
+  useEffect(() => {
+    if (prevListeningRef.current && !isListening && transcript) {
+      setInput((prev) => prev + (prev ? ' ' : '') + transcript)
+    }
+    prevListeningRef.current = isListening
+  }, [isListening, transcript])
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
@@ -101,34 +107,14 @@ export function ChatPage() {
     }
   }
 
-  const handleVoiceToggle = useCallback(async () => {
-    if (transcribing) return
-
-    if (isRecording) {
-      const blob = await stopRecording()
-      if (!blob) return
-
-      setTranscribing(true)
-      try {
-        const filePath = `chat/voice-${Date.now()}.webm`
-        const { error: uploadErr } = await supabase.storage
-          .from('chat-files')
-          .upload(filePath, blob, { contentType: 'audio/webm' })
-
-        if (uploadErr) throw uploadErr
-
-        const { data: urlData } = supabase.storage.from('chat-files').getPublicUrl(filePath)
-        const transcript = await transcribeAudio(urlData.publicUrl)
-        setInput((prev) => prev + (prev ? ' ' : '') + transcript)
-      } catch {
-        /* ignore */
-      } finally {
-        setTranscribing(false)
-      }
+  const handleVoiceToggle = useCallback(() => {
+    if (isListening) {
+      stopListening()
     } else {
-      await startRecording()
+      setInput('')
+      startListening()
     }
-  }, [isRecording, transcribing, stopRecording, startRecording])
+  }, [isListening, stopListening, startListening])
 
   const handleFileSelect = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0]
@@ -322,21 +308,12 @@ export function ChatPage() {
             {isSupported && (
               <button
                 onClick={handleVoiceToggle}
-                disabled={transcribing}
                 className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
-                  isRecording
+                  isListening
                     ? 'bg-red-600 text-white animate-pulse'
-                    : transcribing
-                      ? 'bg-slate-700 text-slate-500'
-                      : 'hover:bg-slate-800 text-slate-400 hover:text-indigo-400'
+                    : 'hover:bg-slate-800 text-slate-400 hover:text-indigo-400'
                 }`}
-                title={
-                  isRecording
-                    ? 'Detener grabacion'
-                    : transcribing
-                      ? 'Transcribiendo...'
-                      : 'Grabar mensaje de voz'
-                }
+                title={isListening ? 'Detener grabacion' : 'Grabar mensaje de voz'}
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -376,15 +353,13 @@ export function ChatPage() {
             </Button>
           </div>
           <p className="text-[10px] text-slate-600 mt-2 text-center">
-            {isRecording
+            {isListening
               ? 'Grabando... toca el microfono para detener'
-              : transcribing
-                ? 'Transcribiendo audio...'
-                : recorderError
-                  ? recorderError
-                  : aiProcessing
-                    ? 'Lumix esta procesando tu mensaje...'
-                    : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
+              : recorderError
+                ? recorderError
+                : aiProcessing
+                  ? 'Lumix esta procesando tu mensaje...'
+                  : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
           </p>
         </div>
       </div>
