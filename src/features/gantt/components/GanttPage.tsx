@@ -187,7 +187,7 @@ export function GanttPage() {
                     <div className="flex items-center gap-1.5 mt-1">
                       <div className={`w-2 h-2 rounded-full ${getLoadColor(row.loadPercentage)}`} />
                       <span className={`text-[10px] ${getLoadTextColor(row.loadPercentage)}`}>
-                        {row.loadPercentage}%
+                        {row.loadPercentage}% · {row.totalHours}h
                       </span>
                       <Badge
                         variant={getLoadBadgeVariant(row.loadPercentage)}

@@ -95,7 +95,7 @@ export function DashboardPage() {
                       </Badge>
                     </div>
                     <span className="text-xs text-slate-400">
-                      {member.total} activas · {member.completed} completadas
+                      {member.total} activas ({member.totalHours}h) · {member.completed} completadas
                     </span>
                   </div>
                   <div className="relative h-2 rounded-full bg-slate-700 overflow-hidden">

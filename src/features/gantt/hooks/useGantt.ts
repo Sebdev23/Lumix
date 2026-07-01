@@ -16,6 +16,7 @@ export interface GanttRow {
   days: DayCell[]
   totalActivities: number
   loadPercentage: number
+  totalHours: number
 }
 
 function getWeekDays(referenceDate: Date): { date: string; label: string }[] {
@@ -88,14 +89,16 @@ export function useGantt() {
         })
 
         const total = activeActivities.length
-        const maxTasks = 10
-        const loadPercentage = Math.min(Math.round((total / maxTasks) * 100), 150)
+        const totalHours = activeActivities.reduce((sum, a) => sum + (a.estimated_hours ?? 3), 0)
+        const weeklyHours = 42
+        const loadPercentage = Math.min(Math.round((totalHours / weeklyHours) * 100), 150)
 
         return {
           member,
           days: dayCells,
           totalActivities: total,
           loadPercentage,
+          totalHours,
         }
       })
 

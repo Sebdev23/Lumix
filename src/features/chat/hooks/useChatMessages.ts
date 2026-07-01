@@ -390,13 +390,21 @@ export function useChatMessages() {
             responsibleId = found.id
             responsibleName = found.full_name
           } else {
-            // If name not found, log for debugging
             console.log(
               'AI detected responsible:',
               result.entities.responsible,
               'but not found in team:',
               members.map((m) => m.full_name),
             )
+            appendAndSave({
+              id: `ai-warn-name-${Date.now()}`,
+              content: `No encontre a "${result.entities.responsible}" en el equipo. La actividad queda asignada a ${responsibleName}.`,
+              sender_id: 'ai',
+              category: null,
+              created_at: new Date().toISOString(),
+              team_id: teamId,
+              sender: { full_name: 'Lumix', avatar_url: null },
+            })
           }
         } catch (err) {
           console.error('Member lookup failed:', err)
@@ -501,7 +509,7 @@ export function useChatMessages() {
         case 'error': {
           const error = await errorsService.create({
             title: result.entities.title || message.content.slice(0, 100),
-            description: result.entities.description || message.content,
+            description: message.content,
             severity:
               (result.entities.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
             responsible_id: responsibleId,

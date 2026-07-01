@@ -10,6 +10,7 @@ interface MemberWorkload {
   total: number
   completed: number
   percentage: number
+  totalHours: number
 }
 
 interface DashboardData {
@@ -108,14 +109,16 @@ function buildWorkloads(activities: Activity[], members: Profile[]): MemberWorkl
       (a) => a.responsible_id === member.id && a.status === 'completado',
     ).length
 
-    const maxTasks = 10
-    const percentage = Math.round((total / maxTasks) * 100)
+    const totalHours = memberActivities.reduce((sum, a) => sum + (a.estimated_hours ?? 3), 0)
+    const weeklyHours = 42
+    const percentage = Math.round((totalHours / weeklyHours) * 100)
 
     return {
       name: member.full_name,
       total,
       completed,
       percentage: Math.min(percentage, 100),
+      totalHours,
     }
   })
 }

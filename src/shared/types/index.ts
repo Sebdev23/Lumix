@@ -38,6 +38,7 @@ export interface Activity {
   team_id: string
   created_by: string
   completed_at: string | null
+  estimated_hours?: number
 }
 
 export interface AppError {
