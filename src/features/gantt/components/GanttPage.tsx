@@ -5,6 +5,7 @@ import { useGantt, getLoadColor, getLoadTextColor } from '@features/gantt/hooks/
 import { getDaysRemaining, getDaysColor } from '@features/activities/hooks/useActivities'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { formatDateLocal } from '@shared/utils/date'
 import type { Activity } from '@shared/types'
 
 const priorityColors: Record<number, string> = {
@@ -374,11 +375,35 @@ export function GanttPage() {
                   <p
                     className={`text-sm ${getDaysColor(getDaysRemaining(selectedActivity.due_date))}`}
                   >
-                    {new Date(selectedActivity.due_date).toLocaleDateString('es-CL')}
+                    {formatDateLocal(selectedActivity.due_date)}
                   </p>
                 )}
               </div>
             </div>
+            {canEdit && (
+              <div>
+                <p className="text-xs text-slate-500 mb-1">Horas estimadas</p>
+                <div className="flex gap-1 flex-wrap">
+                  {[1, 2, 3, 4, 5, 8, 12].map((h) => (
+                    <button
+                      key={h}
+                      onClick={async () => {
+                        await activitiesService.update(selectedActivity.id, { estimated_hours: h })
+                        setSelectedActivity({ ...selectedActivity, estimated_hours: h })
+                        reload()
+                      }}
+                      className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
+                        (selectedActivity.estimated_hours ?? 3) === h
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      }`}
+                    >
+                      {h}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
           </div>
         )}
       </Modal>

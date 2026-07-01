@@ -422,6 +422,31 @@ export function ActivitiesPage() {
               </div>
             </div>
 
+            {(isAdminOrJefe || selectedActivity.responsible_id === profile?.id) && (
+              <div>
+                <p className="text-xs text-slate-500 mb-1">Horas estimadas</p>
+                <div className="flex gap-1">
+                  {[1, 2, 3, 4, 5, 8, 12].map((h) => (
+                    <button
+                      key={h}
+                      onClick={async () => {
+                        await activitiesService.update(selectedActivity.id, { estimated_hours: h })
+                        setSelectedActivity({ ...selectedActivity, estimated_hours: h })
+                        reload()
+                      }}
+                      className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
+                        (selectedActivity.estimated_hours ?? 3) === h
+                          ? 'bg-indigo-600 text-white'
+                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                      }`}
+                    >
+                      {h}
+                    </button>
+                  ))}
+                </div>
+              </div>
+            )}
+
             {selectedActivity.observations || observation ? (
               <div>
                 <p className="text-xs text-slate-500 mb-1">Observaciones</p>

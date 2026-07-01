@@ -55,20 +55,18 @@ export function DashboardPage() {
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
         {/* KPIs */}
-        <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+        <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
           <KpiCard
             label="Pendientes"
             value={pendingActivities}
             sub={`${criticalActivities} criticas`}
             color="text-amber-400"
-            critical={criticalActivities > 0}
           />
           <KpiCard
-            label="Errores abiertos"
+            label="Errores"
             value={openErrors}
             sub={`${criticalErrors} criticos`}
             color="text-red-400"
-            critical={criticalErrors > 0}
           />
           <KpiCard
             label="Completadas"
@@ -76,6 +74,7 @@ export function DashboardPage() {
             sub="esta semana"
             color="text-emerald-400"
           />
+          <TotalHoursCard workloads={memberWorkloads} />
         </div>
 
         {/* Carga por miembro */}
@@ -108,10 +107,10 @@ export function DashboardPage() {
                     )}
                   </div>
                   <div className="flex justify-between text-[10px] text-slate-600">
-                    <span>0%</span>
-                    <span>70%</span>
-                    <span>90%</span>
-                    <span>100%</span>
+                    <span>0h</span>
+                    <span>21h</span>
+                    <span>30h</span>
+                    <span>42h</span>
                   </div>
                 </div>
               ))}
@@ -144,24 +143,34 @@ function KpiCard({
   value,
   sub,
   color,
-  critical,
 }: {
   label: string
   value: number
   sub: string
   color: string
-  critical?: boolean
 }) {
   return (
     <Card>
-      <div className="relative">
-        {critical && (
-          <div className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-red-500 animate-pulse" />
-        )}
-        <p className="text-xs text-slate-400">{label}</p>
-        <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
-        <p className="text-[10px] text-slate-500 mt-0.5">{sub}</p>
-      </div>
+      <p className="text-xs text-slate-400">{label}</p>
+      <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
+      <p className="text-[10px] text-slate-500 mt-0.5">{sub}</p>
+    </Card>
+  )
+}
+
+function TotalHoursCard({
+  workloads,
+}: {
+  workloads: { totalHours: number; percentage: number }[]
+}) {
+  const total = workloads.reduce((s, w) => s + w.totalHours, 0)
+  return (
+    <Card>
+      <p className="text-xs text-slate-400">Horas equipo</p>
+      <p className={`text-2xl font-bold mt-1 ${total > 42 ? 'text-red-400' : 'text-indigo-400'}`}>
+        {total}h
+      </p>
+      <p className="text-[10px] text-slate-500 mt-0.5">de 42h semanales</p>
     </Card>
   )
 }

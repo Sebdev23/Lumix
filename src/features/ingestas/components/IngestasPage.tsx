@@ -249,7 +249,7 @@ export function IngestasPage() {
               <div>
                 <p className="text-xs text-slate-500 mb-1">Prioridad</p>
                 <div className="flex gap-1">
-                  {[1, 2, 3, 4, 5].map((p) => (
+                  {[1, 2, 3].map((p) => (
                     <button
                       key={p}
                       onClick={async () => {
@@ -279,6 +279,27 @@ export function IngestasPage() {
               <div>
                 <p className="text-xs text-slate-500 mb-1">Creado</p>
                 <p className="text-sm text-slate-300">{formatDateLocal(selected.created_at)}</p>
+              </div>
+            </div>
+            <div>
+              <p className="text-xs text-slate-500 mb-1">Horas estimadas</p>
+              <div className="flex gap-1 flex-wrap">
+                {[1, 2, 3, 4, 5, 8, 12].map((h) => (
+                  <button
+                    key={h}
+                    onClick={async () => {
+                      await activitiesService.update(selected.id, { estimated_hours: h })
+                      setSelected({ ...selected, estimated_hours: h })
+                    }}
+                    className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
+                      (selected.estimated_hours ?? 3) === h
+                        ? 'bg-indigo-600 text-white'
+                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                    }`}
+                  >
+                    {h}
+                  </button>
+                ))}
               </div>
             </div>
             {/* Timeline */}
