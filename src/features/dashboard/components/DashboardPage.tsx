@@ -1,6 +1,7 @@
 import { Card } from '@shared/components/ui/Card'
 import { Badge } from '@shared/components/ui/Badge'
 import { useDashboard } from '@features/dashboard/hooks/useDashboard'
+import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 
 function getLoadColor(percentage: number): string {
   if (percentage > 100) return 'bg-red-500'
@@ -26,11 +27,14 @@ function getLoadBadge(percentage: number) {
 export function DashboardPage() {
   const {
     pendingActivities,
-    criticalActivities,
     openErrors,
     criticalErrors,
     completedThisWeek,
+    overdue,
+    upcomingDeadlines,
     memberWorkloads,
+    statusCounts,
+    priorityCounts,
     loading,
   } = useDashboard()
 
@@ -59,8 +63,8 @@ export function DashboardPage() {
           <KpiCard
             label="Pendientes"
             value={pendingActivities}
-            sub={`${criticalActivities} criticas`}
-            color="text-amber-400"
+            sub={overdue > 0 ? `${overdue} vencidas` : 'al dia'}
+            color={overdue > 0 ? 'text-red-400' : 'text-amber-400'}
           />
           <KpiCard
             label="Errores"
@@ -76,6 +80,77 @@ export function DashboardPage() {
           />
           <TotalHoursCard workloads={memberWorkloads} />
         </div>
+
+        {/* Status + Priority */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+          <Card>
+            <h3 className="text-sm font-medium text-slate-200 mb-3">Estado de actividades</h3>
+            <div className="space-y-2">
+              <StatusBar
+                label="Pendientes"
+                count={statusCounts.pendiente}
+                color="bg-amber-500"
+                total={pendingActivities + statusCounts.completado}
+              />
+              <StatusBar
+                label="En proceso"
+                count={statusCounts.en_proceso}
+                color="bg-indigo-500"
+                total={pendingActivities + statusCounts.completado}
+              />
+              <StatusBar
+                label="Bloqueadas"
+                count={statusCounts.bloqueado}
+                color="bg-red-500"
+                total={pendingActivities + statusCounts.completado}
+              />
+              <StatusBar
+                label="Completadas"
+                count={statusCounts.completado}
+                color="bg-emerald-500"
+                total={pendingActivities + statusCounts.completado}
+              />
+            </div>
+          </Card>
+          <Card>
+            <h3 className="text-sm font-medium text-slate-200 mb-3">Prioridad</h3>
+            <div className="space-y-2">
+              <PriorityRow label="Alta" count={priorityCounts.alta} color="bg-red-500" />
+              <PriorityRow label="Media" count={priorityCounts.media} color="bg-amber-500" />
+              <PriorityRow label="Baja" count={priorityCounts.baja} color="bg-emerald-500" />
+            </div>
+          </Card>
+        </div>
+
+        {/* Proximos vencimientos */}
+        {upcomingDeadlines.length > 0 && (
+          <Card>
+            <h3 className="text-sm font-medium text-slate-200 mb-3">Proximos vencimientos</h3>
+            <div className="space-y-2">
+              {upcomingDeadlines.map((a) => {
+                const days = Math.ceil(
+                  (parseDateLocal(a.due_date).getTime() - new Date().getTime()) / 86400000,
+                )
+                return (
+                  <div key={a.id} className="flex items-center justify-between text-xs">
+                    <span className="text-slate-300 truncate flex-1 mr-2">{a.title}</span>
+                    <span
+                      className={
+                        days <= 1 ? 'text-red-400' : days <= 2 ? 'text-amber-400' : 'text-slate-400'
+                      }
+                    >
+                      {days === 0
+                        ? 'Hoy'
+                        : days === 1
+                          ? 'Manana'
+                          : formatDateLocal(a.due_date, 'short')}
+                    </span>
+                  </div>
+                )
+              })}
+            </div>
+          </Card>
+        )}
 
         {/* Carga por miembro */}
         <Card>
@@ -116,22 +191,6 @@ export function DashboardPage() {
               ))}
             </div>
           )}
-        </Card>
-
-        {/* Resumen */}
-        <Card>
-          <h3 className="text-sm font-medium text-slate-200 mb-2">Indicadores</h3>
-          <div className="space-y-3">
-            <IndicatorRow
-              label="Tasa de completitud"
-              value={`${pendingActivities + completedThisWeek > 0 ? Math.round((completedThisWeek / (pendingActivities + completedThisWeek)) * 100) : 0}%`}
-            />
-            <IndicatorRow
-              label="Errores sin asignar"
-              value={`${openErrors - (memberWorkloads.length > 0 ? openErrors : 0)}`}
-            />
-            <IndicatorRow label="Miembros del equipo" value={`${memberWorkloads.length}`} />
-          </div>
         </Card>
       </div>
     </div>
@@ -175,11 +234,37 @@ function TotalHoursCard({
   )
 }
 
-function IndicatorRow({ label, value }: { label: string; value: string }) {
+function StatusBar({
+  label,
+  count,
+  color,
+  total,
+}: {
+  label: string
+  count: number
+  color: string
+  total: number
+}) {
+  const pct = total > 0 ? Math.round((count / total) * 100) : 0
+  return (
+    <div className="flex items-center gap-2">
+      <span className="text-xs text-slate-400 w-20">{label}</span>
+      <div className="flex-1 h-2 rounded-full bg-slate-700 overflow-hidden">
+        <div className={`h-full rounded-full ${color}`} style={{ width: `${pct}%` }} />
+      </div>
+      <span className="text-xs text-slate-300 w-8 text-right">{count}</span>
+    </div>
+  )
+}
+
+function PriorityRow({ label, count, color }: { label: string; count: number; color: string }) {
   return (
     <div className="flex items-center justify-between">
-      <span className="text-xs text-slate-400">{label}</span>
-      <span className="text-sm font-medium text-slate-200">{value}</span>
+      <div className="flex items-center gap-2">
+        <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
+        <span className="text-xs text-slate-400">{label}</span>
+      </div>
+      <span className="text-sm font-medium text-slate-200">{count}</span>
     </div>
   )
 }
