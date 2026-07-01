@@ -51,6 +51,8 @@ export function ActivitiesPage() {
     isColaborador,
     filterMember,
     setFilterMember,
+    filterDate,
+    setFilterDate,
     reload,
   } = useActivities()
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null)
@@ -143,6 +145,20 @@ export function ActivitiesPage() {
             ))}
           </select>
         )}
+        <div className="w-px bg-slate-700 mx-1" />
+        {(['todas', 'hoy', 'semana', 'mes'] as const).map((d) => (
+          <button
+            key={d}
+            onClick={() => setFilterDate(d)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+              filterDate === d
+                ? 'bg-indigo-600/20 text-indigo-400'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            {d === 'todas' ? 'Todas' : d === 'hoy' ? 'Hoy' : d === 'semana' ? 'Semana' : 'Mes'}
+          </button>
+        ))}
         <div className="flex-1" />
       </div>
 

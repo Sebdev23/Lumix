@@ -11,6 +11,7 @@ export function useActivities() {
   const [members, setMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<ActivityStatus | 'todas' | 'activas'>('todas')
+  const [filterDate, setFilterDate] = useState<'todas' | 'hoy' | 'semana' | 'mes'>('todas')
   const [showMine, setShowMine] = useState(false)
   const [filterMember, setFilterMember] = useState<string>('todas')
   const { user, profile } = useAuth()
@@ -66,6 +67,37 @@ export function useActivities() {
 
   if (filterMember !== 'todas') {
     filtered = filtered.filter((a) => a.responsible_id === filterMember)
+  }
+
+  if (filterDate !== 'todas') {
+    const now = new Date()
+    now.setHours(0, 0, 0, 0)
+    const today = new Date(now)
+
+    if (filterDate === 'hoy') {
+      filtered = filtered.filter((a) => {
+        const d = parseDateLocal(a.due_date)
+        d.setHours(0, 0, 0, 0)
+        return d.getTime() === today.getTime()
+      })
+    } else if (filterDate === 'semana') {
+      const weekStart = new Date(today)
+      const day = weekStart.getDay()
+      const diff = day === 0 ? -6 : 1 - day
+      weekStart.setDate(weekStart.getDate() + diff)
+      filtered = filtered.filter((a) => {
+        const d = parseDateLocal(a.due_date)
+        d.setHours(0, 0, 0, 0)
+        return d >= weekStart && d <= today
+      })
+    } else if (filterDate === 'mes') {
+      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
+      filtered = filtered.filter((a) => {
+        const d = parseDateLocal(a.due_date)
+        d.setHours(0, 0, 0, 0)
+        return d >= monthStart && d <= today
+      })
+    }
   }
 
   const changeStatus = async (id: string, newStatus: ActivityStatus) => {
@@ -132,6 +164,8 @@ export function useActivities() {
     isColaborador,
     filterMember,
     setFilterMember,
+    filterDate,
+    setFilterDate,
     reload: async () => {
       const data = await activitiesService.getByTeam(teamId)
       setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
