@@ -33,6 +33,7 @@ export function useDashboard() {
   const [loading, setLoading] = useState(true)
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
+  const isColaborador = profile?.role === 'colaborador'
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -48,23 +49,36 @@ export function useDashboard() {
 
       if (cancelled) return
 
-      const notCompleted = activities.filter((a) => a.status !== 'completado')
-      const completed = activities.filter((a) => a.status === 'completado')
-      const notResolved = errors.filter((e) => e.status !== 'cerrado' && e.status !== 'resuelto')
+      const filteredActivities = isColaborador
+        ? activities.filter((a) => a.responsible_id === user?.id)
+        : activities
+      const filteredErrors = isColaborador
+        ? errors.filter((e) => e.responsible_id === user?.id)
+        : errors
+
+      const notCompleted = filteredActivities.filter((a) => a.status !== 'completado')
+      const completed = filteredActivities.filter((a) => a.status === 'completado')
+      const notResolved = filteredErrors.filter(
+        (e) => e.status !== 'cerrado' && e.status !== 'resuelto',
+      )
 
       const now = new Date()
       const weekAgo = new Date(now.getTime() - 7 * 24 * 60 * 60 * 1000)
-      const completedThisWeek = completed.filter((a) =>
-        new Date(a.created_at) >= weekAgo,
-      ).length
+      const completedThisWeek = completed.filter((a) => new Date(a.created_at) >= weekAgo).length
 
-      const memberWorkloads = buildWorkloads(activities, members)
+      const memberWorkloads = isColaborador
+        ? buildWorkloads(
+            filteredActivities,
+            members.filter((m) => m.id === user?.id),
+          )
+        : buildWorkloads(filteredActivities, members)
 
       setData({
         pendingActivities: notCompleted.length,
-        criticalActivities: notCompleted.filter((a) => a.priority >= 4).length,
+        criticalActivities: notCompleted.filter((a) => a.priority <= 2).length,
         openErrors: notResolved.length,
-        criticalErrors: notResolved.filter((e) => e.severity === 'critica' || e.severity === 'alta').length,
+        criticalErrors: notResolved.filter((e) => e.severity === 'critica' || e.severity === 'alta')
+          .length,
         completedThisWeek,
         memberWorkloads,
       })
