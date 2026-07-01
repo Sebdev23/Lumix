@@ -6,6 +6,8 @@ import { useChatMessages } from '@features/chat/hooks/useChatMessages'
 import { useTypingIndicator } from '@features/chat/hooks/useTypingIndicator'
 import { useFileUpload } from '@features/chat/hooks/useFileUpload'
 import { useSpeechRecognition } from '@features/chat/hooks/useSpeechRecognition'
+import { transcribeAudio } from '@core/ai-engine/client'
+import { supabase } from '@infrastructure/supabase/client'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { teamsService } from '@infrastructure/supabase/teams.service'
 
@@ -36,6 +38,7 @@ export function ChatPage() {
     transcript,
     error: recorderError,
   } = useSpeechRecognition()
+  const [transcribing, setTranscribing] = useState(false)
   const prevListeningRef = useRef(false)
 
   useEffect(() => {
@@ -106,14 +109,32 @@ export function ChatPage() {
     }
   }
 
-  const handleVoiceToggle = useCallback(() => {
-    if (isListening) {
-      stopListening()
+  const handleVoiceToggle = useCallback(async () => {
+    if (isListening || transcribing) {
+      if (transcribing) return
+      const blob = await stopListening()
+      if (blob) {
+        setTranscribing(true)
+        try {
+          const filePath = `chat/voice-${Date.now()}.webm`
+          const { error: uploadErr } = await supabase.storage
+            .from('chat-files')
+            .upload(filePath, blob, { contentType: 'audio/webm' })
+          if (uploadErr) throw uploadErr
+          const { data: urlData } = supabase.storage.from('chat-files').getPublicUrl(filePath)
+          const text = await transcribeAudio(urlData.publicUrl)
+          setInput((prev) => prev + (prev ? ' ' : '') + text)
+        } catch {
+          /* ignore */
+        } finally {
+          setTranscribing(false)
+        }
+      }
     } else {
       setInput('')
       startListening()
     }
-  }, [isListening, stopListening, startListening])
+  }, [isListening, transcribing, stopListening, startListening])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
@@ -281,12 +302,21 @@ export function ChatPage() {
             {isSupported && (
               <button
                 onClick={handleVoiceToggle}
+                disabled={transcribing}
                 className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
                   isListening
                     ? 'bg-red-600 text-white animate-pulse'
-                    : 'hover:bg-slate-800 text-slate-400 hover:text-indigo-400'
+                    : transcribing
+                      ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
+                      : 'hover:bg-slate-800 text-slate-400 hover:text-indigo-400'
                 }`}
-                title={isListening ? 'Detener grabacion' : 'Grabar mensaje de voz'}
+                title={
+                  isListening
+                    ? 'Detener grabacion'
+                    : transcribing
+                      ? 'Transcribiendo...'
+                      : 'Grabar mensaje de voz'
+                }
               >
                 <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
