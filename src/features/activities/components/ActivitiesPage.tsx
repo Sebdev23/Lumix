@@ -51,8 +51,12 @@ export function ActivitiesPage() {
     isColaborador,
     filterMember,
     setFilterMember,
-    filterDate,
-    setFilterDate,
+    dateType,
+    setDateType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
     reload,
   } = useActivities()
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null)
@@ -146,19 +150,38 @@ export function ActivitiesPage() {
           </select>
         )}
         <div className="w-px bg-slate-700 mx-1" />
-        {(['todas', 'hoy', 'semana', 'mes'] as const).map((d) => (
+        <select
+          value={dateType}
+          onChange={(e) => setDateType(e.target.value as typeof dateType)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+        >
+          <option value="entrega">Entrega</option>
+          <option value="creadas">Creadas</option>
+          <option value="cerradas">Cerradas</option>
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+        />
+        {(dateFrom || dateTo) && (
           <button
-            key={d}
-            onClick={() => setFilterDate(d)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              filterDate === d
-                ? 'bg-indigo-600/20 text-indigo-400'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
-            }`}
+            onClick={() => {
+              setDateFrom('')
+              setDateTo('')
+            }}
+            className="px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800"
           >
-            {d === 'todas' ? 'Todas' : d === 'hoy' ? 'Hoy' : d === 'semana' ? 'Semana' : 'Mes'}
+            Limpiar
           </button>
-        ))}
+        )}
         <div className="flex-1" />
       </div>
 

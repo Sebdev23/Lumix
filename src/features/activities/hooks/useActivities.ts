@@ -12,6 +12,9 @@ export function useActivities() {
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<ActivityStatus | 'todas' | 'activas'>('todas')
   const [filterDate, setFilterDate] = useState<'todas' | 'hoy' | 'semana' | 'mes'>('todas')
+  const [dateType, setDateType] = useState<'creadas' | 'cerradas' | 'entrega'>('entrega')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const [showMine, setShowMine] = useState(false)
   const [filterMember, setFilterMember] = useState<string>('todas')
   const { user, profile } = useAuth()
@@ -69,35 +72,20 @@ export function useActivities() {
     filtered = filtered.filter((a) => a.responsible_id === filterMember)
   }
 
-  if (filterDate !== 'todas') {
-    const now = new Date()
-    now.setHours(0, 0, 0, 0)
-    const today = new Date(now)
-
-    if (filterDate === 'hoy') {
-      filtered = filtered.filter((a) => {
-        const d = parseDateLocal(a.due_date)
-        d.setHours(0, 0, 0, 0)
-        return d.getTime() === today.getTime()
-      })
-    } else if (filterDate === 'semana') {
-      const weekStart = new Date(today)
-      const day = weekStart.getDay()
-      const diff = day === 0 ? -6 : 1 - day
-      weekStart.setDate(weekStart.getDate() + diff)
-      filtered = filtered.filter((a) => {
-        const d = parseDateLocal(a.due_date)
-        d.setHours(0, 0, 0, 0)
-        return d >= weekStart && d <= today
-      })
-    } else if (filterDate === 'mes') {
-      const monthStart = new Date(today.getFullYear(), today.getMonth(), 1)
-      filtered = filtered.filter((a) => {
-        const d = parseDateLocal(a.due_date)
-        d.setHours(0, 0, 0, 0)
-        return d >= monthStart && d <= today
-      })
-    }
+  if (dateFrom && dateTo) {
+    filtered = filtered.filter((a) => {
+      const field =
+        dateType === 'creadas'
+          ? a.created_at
+          : dateType === 'cerradas'
+            ? a.completed_at
+            : a.due_date
+      if (!field) return false
+      const d = parseDateLocal(field)
+      const from = parseDateLocal(dateFrom + 'T00:00:00')
+      const to = parseDateLocal(dateTo + 'T23:59:59')
+      return d >= from && d <= to
+    })
   }
 
   const changeStatus = async (id: string, newStatus: ActivityStatus) => {
@@ -166,6 +154,12 @@ export function useActivities() {
     setFilterMember,
     filterDate,
     setFilterDate,
+    dateType,
+    setDateType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
     reload: async () => {
       const data = await activitiesService.getByTeam(teamId)
       setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
