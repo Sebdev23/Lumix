@@ -145,8 +145,8 @@ export function useChatMessages() {
           team_id: teamId,
           is_ai: true,
         })
-      } catch {
-        /* silent */
+      } catch (err) {
+        console.error('Failed to save AI message:', err)
       }
     }
   }
@@ -184,7 +184,8 @@ export function useChatMessages() {
       sentMessage = { ...sent, sender: optimisticMsg.sender }
 
       setMessages((prev) => prev.map((m) => (m.id === optimisticId ? sentMessage! : m)))
-    } catch {
+    } catch (err) {
+      console.error('Failed to send message:', err)
       setMessages((prev) => prev.filter((m) => m.id !== optimisticId))
     } finally {
       setSending(false)
@@ -333,7 +334,8 @@ export function useChatMessages() {
                     : 'Actividad creada.',
             }
           }
-        } catch {
+        } catch (err) {
+          console.error('AI classification failed:', err)
           result = {
             category: effectiveType === 'error' ? 'error' : 'actividad',
             confidence: 1,
@@ -396,8 +398,8 @@ export function useChatMessages() {
               members.map((m) => m.full_name),
             )
           }
-        } catch {
-          /* fallback to sender */
+        } catch (err) {
+          console.error('Member lookup failed:', err)
         }
       }
 
@@ -444,8 +446,8 @@ export function useChatMessages() {
                   },
                 })
               }
-            } catch {
-              /* ignore */
+            } catch (err) {
+              console.error('Overload check failed:', err)
             }
           }
 
@@ -480,8 +482,8 @@ export function useChatMessages() {
                   type: 'deadline_soon',
                   metadata: { activity_id: activity.id },
                 })
-              } catch {
-                /* */
+              } catch (err) {
+                console.error('Notification send failed:', err)
               }
               appendAndSave({
                 id: `ai-notify-${Date.now()}`,

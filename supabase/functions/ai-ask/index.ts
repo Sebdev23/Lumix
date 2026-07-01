@@ -6,10 +6,40 @@ const corsHeaders = {
 }
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
+const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
+
+const rateLimitMap = new Map<string, number[]>()
+const RATE_LIMIT_MAX = 10
+const RATE_LIMIT_WINDOW = 60000
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const timestamps = rateLimitMap.get(ip) || []
+  const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW)
+  if (recent.length >= RATE_LIMIT_MAX) return false
+  recent.push(now)
+  rateLimitMap.set(ip, recent)
+  return true
+}
 
 serve(async (req: Request) => {
   if (req.method === 'OPTIONS') {
     return new Response('ok', { headers: corsHeaders })
+  }
+
+  if (req.method !== 'POST') {
+    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
+      status: 405,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
+  const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown'
+  if (!checkRateLimit(ip)) {
+    return new Response(JSON.stringify({ error: 'Too many requests. Try again in a minute.' }), {
+      status: 429,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
   }
 
   try {
@@ -56,7 +86,7 @@ serve(async (req: Request) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: AI_MODEL,
         messages: [
           {
             role: 'system',

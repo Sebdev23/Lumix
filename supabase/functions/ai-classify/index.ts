@@ -6,6 +6,21 @@ const corsHeaders = {
 }
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
+const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
+
+const rateLimitMap = new Map<string, number[]>()
+const RATE_LIMIT_MAX = 10
+const RATE_LIMIT_WINDOW = 60000
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now()
+  const timestamps = rateLimitMap.get(ip) || []
+  const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW)
+  if (recent.length >= RATE_LIMIT_MAX) return false
+  recent.push(now)
+  rateLimitMap.set(ip, recent)
+  return true
+}
 
 const SYSTEM_PROMPT = `Eres OPERA AI, un asistente que clasifica mensajes de trabajo en lenguaje natural.
 
@@ -73,6 +88,14 @@ serve(async (req: Request) => {
     })
   }
 
+  const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown'
+  if (!checkRateLimit(ip)) {
+    return new Response(JSON.stringify({ error: 'Too many requests. Try again in a minute.' }), {
+      status: 429,
+      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+    })
+  }
+
   try {
     const { content, todayISO: clientISO, today: clientToday } = await req.json()
 
@@ -100,7 +123,7 @@ serve(async (req: Request) => {
         'Content-Type': 'application/json',
       },
       body: JSON.stringify({
-        model: 'gpt-4o',
+        model: AI_MODEL,
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           {

@@ -50,7 +50,7 @@ export async function generateMinutes(transcript: string): Promise<string> {
       'Content-Type': 'application/json',
     },
     body: JSON.stringify({
-      model: 'gpt-4o',
+      model: import.meta.env.VITE_AI_MODEL || 'gpt-4o',
       messages: [
         {
           role: 'system',
