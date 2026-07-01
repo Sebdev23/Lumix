@@ -14,8 +14,9 @@ import { exportToCSV } from '@shared/utils/export'
 import type { Activity, ActivityStatus } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 
-const statusFilters: { value: ActivityStatus | 'todas'; label: string }[] = [
+const statusFilters: { value: ActivityStatus | 'todas' | 'activas'; label: string }[] = [
   { value: 'todas', label: 'Todas' },
+  { value: 'activas', label: 'Activas' },
   { value: 'pendiente', label: 'Pendientes' },
   { value: 'en_proceso', label: 'En proceso' },
   { value: 'bloqueado', label: 'Bloqueadas' },

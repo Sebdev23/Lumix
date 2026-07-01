@@ -48,6 +48,7 @@ export function useGantt() {
   const [refreshKey, setRefreshKey] = useState(0)
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
+  const isColaborador = profile?.role === 'colaborador'
 
   const referenceDate = new Date()
   referenceDate.setDate(referenceDate.getDate() + weekOffset * 7)
@@ -98,7 +99,7 @@ export function useGantt() {
         }
       })
 
-      setRows(ganttRows)
+      setRows(isColaborador ? ganttRows.filter((r) => r.member.id === user?.id) : ganttRows)
       setLoading(false)
     }
 

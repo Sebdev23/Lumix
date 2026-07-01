@@ -9,7 +9,7 @@ export function useActivities() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [members, setMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterStatus, setFilterStatus] = useState<ActivityStatus | 'todas'>('todas')
+  const [filterStatus, setFilterStatus] = useState<ActivityStatus | 'todas' | 'activas'>('todas')
   const [showMine, setShowMine] = useState(false)
   const [filterMember, setFilterMember] = useState<string>('todas')
   const { user, profile } = useAuth()
@@ -37,11 +37,13 @@ export function useActivities() {
 
     let channel: Awaited<ReturnType<typeof activitiesService.subscribeToTeam>>
 
-    activitiesService.subscribeToTeam(teamId, () => {
-      if (!cancelled) load()
-    }).then((ch) => {
-      channel = ch
-    })
+    activitiesService
+      .subscribeToTeam(teamId, () => {
+        if (!cancelled) load()
+      })
+      .then((ch) => {
+        channel = ch
+      })
 
     return () => {
       cancelled = true
@@ -51,7 +53,9 @@ export function useActivities() {
 
   let filtered = activities
 
-  if (filterStatus !== 'todas') {
+  if (filterStatus === 'activas') {
+    filtered = filtered.filter((a) => a.status !== 'completado')
+  } else if (filterStatus !== 'todas') {
     filtered = filtered.filter((a) => a.status === filterStatus)
   }
 
@@ -89,17 +93,49 @@ export function useActivities() {
     return a.priority - b.priority
   })
 
-  const allStatuses: (ActivityStatus | 'todas')[] = ['todas', 'pendiente', 'en_proceso', 'bloqueado', 'falta_informacion', 'esperando_aprobacion', 'completado']
+  const allStatuses: (ActivityStatus | 'todas' | 'activas')[] = [
+    'todas',
+    'activas',
+    'pendiente',
+    'en_proceso',
+    'bloqueado',
+    'falta_informacion',
+    'esperando_aprobacion',
+    'completado',
+  ]
 
-  const counts: Record<ActivityStatus | 'todas', number> = {} as Record<ActivityStatus | 'todas', number>
+  const counts: Record<ActivityStatus | 'todas' | 'activas', number> = {} as Record<
+    ActivityStatus | 'todas' | 'activas',
+    number
+  >
   for (const s of allStatuses) {
-    counts[s] = s === 'todas' ? activities.length : activities.filter((a) => a.status === s).length
+    if (s === 'activas') {
+      counts[s] = activities.filter((a) => a.status !== 'completado').length
+    } else {
+      counts[s] =
+        s === 'todas' ? activities.length : activities.filter((a) => a.status === s).length
+    }
   }
 
-  return { activities: filtered, allActivities: activities, members, loading, filterStatus, setFilterStatus, changeStatus, counts, showMine, setShowMine, isColaborador, filterMember, setFilterMember, reload: async () => {
-    const data = await activitiesService.getByTeam(teamId)
-    setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
-  }}
+  return {
+    activities: filtered,
+    allActivities: activities,
+    members,
+    loading,
+    filterStatus,
+    setFilterStatus,
+    changeStatus,
+    counts,
+    showMine,
+    setShowMine,
+    isColaborador,
+    filterMember,
+    setFilterMember,
+    reload: async () => {
+      const data = await activitiesService.getByTeam(teamId)
+      setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
+    },
+  }
 }
 
 export function getDaysRemaining(dueDate: string): number {
