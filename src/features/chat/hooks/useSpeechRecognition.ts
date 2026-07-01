@@ -89,9 +89,13 @@ export function useSpeechRecognition(language = 'es-CL'): UseSpeechResult {
 
     recognition.onerror = (event: SpeechRecognitionErrorEvent) => {
       if (event.error === 'no-speech') return
-      setError(
-        event.error === 'not-allowed' ? 'Permiso de microfono denegado' : `Error: ${event.error}`,
-      )
+      if (event.error === 'not-allowed') {
+        setError(
+          'Microfono bloqueado. Permitilo en configuracion del navegador > Privacidad > Microfono.',
+        )
+      } else {
+        setError(`Error de voz: ${event.error}. Intenta de nuevo.`)
+      }
       setIsListening(false)
     }
 
