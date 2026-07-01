@@ -246,17 +246,27 @@ export function useChatMessages() {
                 {
                   name: profile?.full_name || 'Tu',
                   activeTasks: visibleActivities.filter((a) => a.status !== 'completado').length,
-                  load: 0,
+                  load: Math.min(
+                    Math.round(
+                      (visibleActivities
+                        .filter((a) => a.status !== 'completado')
+                        .reduce((sum, a) => sum + (a.estimated_hours ?? 3), 0) /
+                        42) *
+                        100,
+                    ),
+                    100,
+                  ),
                 },
               ]
             : members.map((m) => {
                 const tasks = activities.filter(
                   (a) => a.responsible_id === m.id && a.status !== 'completado',
                 )
+                const totalHours = tasks.reduce((sum, a) => sum + (a.estimated_hours ?? 3), 0)
                 return {
                   name: m.full_name,
                   activeTasks: tasks.length,
-                  load: Math.min(Math.round((tasks.length / 10) * 100), 100),
+                  load: Math.min(Math.round((totalHours / 42) * 100), 100),
                 }
               }),
         }

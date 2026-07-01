@@ -90,7 +90,7 @@ serve(async (req: Request) => {
         messages: [
           {
             role: 'system',
-            content: `Eres OPERA AI, asistente de equipos. Responde con los datos proporcionados. Hoy es ${today}. Espanol, claro, directo. Max 300 caracteres.`,
+            content: `Eres OPERA AI, asistente de equipos. Hoy es ${today}. Responde con los datos proporcionados en espanol, claro y directo. Si te preguntan por "esta semana" filtra solo actividades con fecha de entrega entre lunes y domingo de la semana actual. Si te preguntan por total general NO filtres. Siempre menciona la cantidad exacta y da ejemplos relevantes.`,
           },
           {
             role: 'user',
@@ -98,7 +98,7 @@ serve(async (req: Request) => {
           },
         ],
         temperature: 0.3,
-        max_tokens: 400,
+        max_tokens: 600,
       }),
     })
 
