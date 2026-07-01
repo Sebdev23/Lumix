@@ -148,7 +148,7 @@ export function GanttPage() {
           <div className="min-w-[600px] p-4">
             {/* Day headers */}
             <div className="flex mb-2 sticky top-0 bg-slate-950 z-10 pb-2 border-b border-slate-800">
-              <div className="w-28 flex-shrink-0" />
+              <div className="w-32 flex-shrink-0" />
               {days.map((day, i) => {
                 const isToday = day.date === new Date().toISOString().split('T')[0]
                 const isWeekend = i >= 5
@@ -180,21 +180,36 @@ export function GanttPage() {
               rows.map((row) => (
                 <div key={row.member.id} className="flex items-stretch mb-3">
                   {/* Member info */}
-                  <div className="w-28 flex-shrink-0 flex flex-col justify-center pr-3 py-1">
+                  <div className="w-32 flex-shrink-0 flex flex-col justify-center pr-2 py-1">
                     <p className="text-xs text-slate-300 truncate font-medium">
                       {row.member.full_name}
                     </p>
-                    <div className="flex items-center gap-1.5 mt-1">
-                      <div className={`w-2 h-2 rounded-full ${getLoadColor(row.loadPercentage)}`} />
-                      <span className={`text-[10px] ${getLoadTextColor(row.loadPercentage)}`}>
-                        {row.loadPercentage}% · {row.totalHours}h
-                      </span>
-                      <Badge
-                        variant={getLoadBadgeVariant(row.loadPercentage)}
-                        className="text-[9px] px-1.5"
-                      >
-                        {getLoadLabel(row.loadPercentage)}
-                      </Badge>
+                    <div className="mt-1 space-y-1">
+                      <div className="flex items-center gap-1.5">
+                        <div
+                          className={`w-2 h-2 rounded-full flex-shrink-0 ${getLoadColor(row.loadPercentage)}`}
+                        />
+                        <span className={`text-[10px] ${getLoadTextColor(row.loadPercentage)}`}>
+                          {row.loadPercentage}%
+                        </span>
+                        <Badge
+                          variant={getLoadBadgeVariant(row.loadPercentage)}
+                          className="text-[9px] px-1"
+                        >
+                          {getLoadLabel(row.loadPercentage)}
+                        </Badge>
+                      </div>
+                      <div className="flex items-center gap-1.5">
+                        <div className="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+                          <div
+                            className={`h-full rounded-full transition-all ${getLoadColor(row.loadPercentage)}`}
+                            style={{ width: `${Math.min(row.loadPercentage, 100)}%` }}
+                          />
+                        </div>
+                        <span className="text-[9px] text-slate-500 flex-shrink-0">
+                          {row.totalHours}/42h
+                        </span>
+                      </div>
                     </div>
                   </div>
 
