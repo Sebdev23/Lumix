@@ -11,6 +11,7 @@ import {
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { exportToCSV } from '@shared/utils/export'
+import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 import type { Activity, ActivityStatus } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 
@@ -73,14 +74,13 @@ export function ActivitiesPage() {
                   Descripcion: a.description,
                   Prioridad: a.priority,
                   Estado: statusLabels[a.status],
-                  Entrega: new Date(a.due_date).toLocaleDateString('es-CL'),
-                  Creado: new Date(a.created_at).toLocaleDateString('es-CL'),
-                  Cerrado: a.completed_at
-                    ? new Date(a.completed_at).toLocaleDateString('es-CL')
-                    : '-',
+                  Entrega: formatDateLocal(a.due_date),
+                  Creado: formatDateLocal(a.created_at),
+                  Cerrado: a.completed_at ? formatDateLocal(a.completed_at) : '-',
                   'Dias para cerrar': a.completed_at
                     ? Math.ceil(
-                        (new Date(a.completed_at).getTime() - new Date(a.created_at).getTime()) /
+                        (parseDateLocal(a.completed_at).getTime() -
+                          parseDateLocal(a.created_at).getTime()) /
                           86400000,
                       )
                     : '-',
@@ -240,24 +240,15 @@ export function ActivitiesPage() {
                       </td>
                       <td className="py-2.5 px-3">
                         <span className={getDaysColor(days)}>
-                          {new Date(activity.due_date).toLocaleDateString('es-CL', {
-                            day: '2-digit',
-                            month: 'short',
-                          })}
+                          {formatDateLocal(activity.due_date, 'short')}
                         </span>
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
-                        {new Date(activity.created_at).toLocaleDateString('es-CL', {
-                          day: '2-digit',
-                          month: 'short',
-                        })}
+                        {formatDateLocal(activity.created_at, 'short')}
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
                         {activity.completed_at
-                          ? new Date(activity.completed_at).toLocaleDateString('es-CL', {
-                              day: '2-digit',
-                              month: 'short',
-                            })
+                          ? formatDateLocal(activity.completed_at, 'short')
                           : '-'}
                       </td>
                       <td className="py-2.5 px-3">
@@ -404,7 +395,7 @@ export function ActivitiesPage() {
               <div>
                 <p className="text-xs text-slate-500 mb-1">Fecha creacion</p>
                 <p className="text-sm text-slate-300">
-                  {new Date(selectedActivity.created_at).toLocaleDateString('es-CL')}
+                  {formatDateLocal(selectedActivity.created_at)}
                 </p>
               </div>
               <div>
@@ -425,7 +416,7 @@ export function ActivitiesPage() {
                   <p
                     className={`text-sm ${getDaysColor(getDaysRemaining(selectedActivity.due_date))}`}
                   >
-                    {new Date(selectedActivity.due_date).toLocaleDateString('es-CL')}
+                    {formatDateLocal(selectedActivity.due_date)}
                   </p>
                 )}
               </div>

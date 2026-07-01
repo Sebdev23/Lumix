@@ -3,6 +3,7 @@ import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { parseDateLocal } from '@shared/utils/date'
 import type { Activity, ActivityStatus, Profile } from '@shared/types'
 
 export function useActivities() {
@@ -87,8 +88,8 @@ export function useActivities() {
   }
 
   filtered.sort((a, b) => {
-    const dateA = new Date(a.due_date).getTime()
-    const dateB = new Date(b.due_date).getTime()
+    const dateA = parseDateLocal(a.due_date).getTime()
+    const dateB = parseDateLocal(b.due_date).getTime()
     if (dateA !== dateB) return dateA - dateB
     return a.priority - b.priority
   })
@@ -141,7 +142,7 @@ export function useActivities() {
 export function getDaysRemaining(dueDate: string): number {
   const now = new Date()
   now.setHours(0, 0, 0, 0)
-  const due = new Date(dueDate)
+  const due = parseDateLocal(dueDate)
   due.setHours(0, 0, 0, 0)
   return Math.ceil((due.getTime() - now.getTime()) / (1000 * 60 * 60 * 24))
 }

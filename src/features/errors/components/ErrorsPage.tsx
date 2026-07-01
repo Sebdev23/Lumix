@@ -7,6 +7,7 @@ import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { exportToCSV } from '@shared/utils/export'
+import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 import type { AppError, ErrorSeverity, ErrorStatus, Profile } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 
@@ -96,12 +97,12 @@ export function ErrorsPage() {
                   Estado: errorStatusLabels[e.status],
                   Fecha: e.date,
                   Hora: e.time.slice(0, 5),
-                  Cerrado: e.resolved_at
-                    ? new Date(e.resolved_at).toLocaleDateString('es-CL')
-                    : '-',
+                  Cerrado: e.resolved_at ? formatDateLocal(e.resolved_at) : '-',
                   'Dias para resolver': e.resolved_at
                     ? Math.ceil(
-                        (new Date(e.resolved_at).getTime() - new Date(e.date).getTime()) / 86400000,
+                        (parseDateLocal(e.resolved_at).getTime() -
+                          parseDateLocal(e.date).getTime()) /
+                          86400000,
                       )
                     : '-',
                 })),
@@ -225,12 +226,7 @@ export function ErrorsPage() {
                       {error.date}
                     </td>
                     <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
-                      {error.resolved_at
-                        ? new Date(error.resolved_at).toLocaleDateString('es-CL', {
-                            day: '2-digit',
-                            month: 'short',
-                          })
-                        : '-'}
+                      {error.resolved_at ? formatDateLocal(error.resolved_at, 'short') : '-'}
                     </td>
                     <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1 justify-end">

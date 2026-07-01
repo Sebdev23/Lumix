@@ -8,6 +8,7 @@ import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { exportToCSV } from '@shared/utils/export'
+import { formatDateLocal } from '@shared/utils/date'
 import type { Activity, ActivityStatus } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 import type { Profile } from '@shared/types'
@@ -52,8 +53,8 @@ export function IngestasPage() {
                   Descripcion: a.description,
                   Estado: statusLabels[a.status],
                   Prioridad: a.priority,
-                  Entrega: new Date(a.due_date).toLocaleDateString('es-CL'),
-                  Creado: new Date(a.created_at).toLocaleDateString('es-CL'),
+                  Entrega: formatDateLocal(a.due_date),
+                  Creado: formatDateLocal(a.created_at),
                   Observaciones: a.observations,
                 })),
                 'ingestas',
@@ -141,24 +142,13 @@ export function IngestasPage() {
                         </div>
                       </td>
                       <td className={`py-2.5 px-3 ${getDaysColor(days)}`}>
-                        {new Date(a.due_date).toLocaleDateString('es-CL', {
-                          day: '2-digit',
-                          month: 'short',
-                        })}
+                        {formatDateLocal(a.due_date, 'short')}
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
-                        {new Date(a.created_at).toLocaleDateString('es-CL', {
-                          day: '2-digit',
-                          month: 'short',
-                        })}
+                        {formatDateLocal(a.created_at, 'short')}
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
-                        {a.completed_at
-                          ? new Date(a.completed_at).toLocaleDateString('es-CL', {
-                              day: '2-digit',
-                              month: 'short',
-                            })
-                          : '-'}
+                        {a.completed_at ? formatDateLocal(a.completed_at, 'short') : '-'}
                       </td>
                       <td className="py-2.5 px-3">
                         <Badge variant={statusColors[a.status]}>{statusLabels[a.status]}</Badge>
@@ -288,9 +278,7 @@ export function IngestasPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">Creado</p>
-                <p className="text-sm text-slate-300">
-                  {new Date(selected.created_at).toLocaleDateString('es-CL')}
-                </p>
+                <p className="text-sm text-slate-300">{formatDateLocal(selected.created_at)}</p>
               </div>
             </div>
             {/* Timeline */}
