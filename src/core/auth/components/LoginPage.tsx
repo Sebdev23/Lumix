@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { useNavigate } from 'react-router-dom'
 import { Button } from '@shared/components/ui/Button'
 import { Input } from '@shared/components/ui/Input'
+import { LumixIcon } from '@shared/components/ui/LumixIcon'
 import { useAuth } from '@core/auth/hooks/useAuth'
 
 export function LoginPage() {
@@ -29,10 +30,8 @@ export function LoginPage() {
     <div className="min-h-dvh flex items-center justify-center bg-slate-950 p-4">
       <div className="w-full max-w-sm">
         <div className="text-center mb-8">
-          <div className="w-12 h-12 rounded-xl bg-indigo-600 flex items-center justify-center mx-auto mb-4">
-            <span className="text-white font-bold text-xl">O</span>
-          </div>
-          <h1 className="text-xl font-bold text-slate-100">Lumix</h1>
+          <LumixIcon size="lg" className="mx-auto" />
+          <h1 className="text-xl font-bold text-slate-100 mt-4">Lumix</h1>
           <p className="text-sm text-slate-500 mt-1">Sistema Operativo Conversacional</p>
         </div>
 

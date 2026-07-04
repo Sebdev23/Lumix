@@ -55,6 +55,9 @@ const ChangePasswordPage = lazy(() =>
 const AuthGuard = lazy(() =>
   import('@core/auth/components/AuthGuard').then((m) => ({ default: m.AuthGuard })),
 )
+const ProfilePage = lazy(() =>
+  import('@features/profile/components/ProfilePage').then((m) => ({ default: m.ProfilePage })),
+)
 
 function PageLoader() {
   return (
@@ -92,6 +95,7 @@ export function App() {
                   <Route path="/teams" element={<TeamsPage />} />
                   <Route path="/admin" element={<AdminPage />} />
                   <Route path="/ingestas" element={<IngestasPage />} />
+                  <Route path="/profile" element={<ProfilePage />} />
                   <Route path="*" element={<Navigate to="/chat" replace />} />
                 </Route>
               </Routes>

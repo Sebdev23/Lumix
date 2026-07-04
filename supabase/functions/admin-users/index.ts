@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
@@ -29,6 +29,33 @@ serve(async (req: Request) => {
       return fail(
         'Edge function not configured: SERVICE_ROLE_KEY and PROJECT_URL must be set in Supabase dashboard > Edge Functions > admin-users > Settings > Environment Variables',
       )
+    }
+
+    const authHeader = req.headers.get('Authorization') || ''
+    const callerToken = authHeader.replace(/^Bearer\s+/i, '')
+    if (!callerToken) {
+      return fail('No autenticado')
+    }
+
+    const callerRes = await fetch(`${PROJECT_URL}/auth/v1/user`, {
+      headers: { Authorization: `Bearer ${callerToken}`, apikey: SERVICE_ROLE_KEY },
+    })
+    if (!callerRes.ok) {
+      return fail('Token invalido o expirado')
+    }
+    const callerUser = await callerRes.json()
+
+    const callerProfileRes = await fetch(
+      `${PROJECT_URL}/rest/v1/profiles?id=eq.${callerUser.id}&select=role`,
+      {
+        headers: { Authorization: `Bearer ${SERVICE_ROLE_KEY}`, apikey: SERVICE_ROLE_KEY },
+      },
+    )
+    const callerProfiles = await callerProfileRes.json()
+    const callerRole = callerProfiles?.[0]?.role
+
+    if (callerRole !== 'admin') {
+      return fail('No autorizado: se requiere rol admin')
     }
 
     const body = await req.json()

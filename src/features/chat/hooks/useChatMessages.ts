@@ -1,13 +1,35 @@
 import { useState, useEffect, useRef } from 'react'
 import { supabase } from '@infrastructure/supabase/client'
 import { messagesService } from '@infrastructure/supabase/messages.service'
-import { classifyMessage, askQuestion, type ClassifyResult } from '@core/ai-engine/client'
+import {
+  classifyMessage,
+  classifyBulk,
+  resolveUpdate,
+  askQuestion,
+  type ClassifyResult,
+  type BulkActivity,
+} from '@core/ai-engine/client'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import type { ChatMessage, SendMessagePayload } from '@features/chat/types'
+import type { Activity, ActivityStatus } from '@shared/types'
+
+const STATUS_LABELS: Record<string, string> = {
+  pendiente: 'Pendiente',
+  en_proceso: 'En proceso',
+  bloqueado: 'Bloqueado',
+  falta_informacion: 'Falta info',
+  esperando_aprobacion: 'Esperando aprobacion',
+  completado: 'Completado',
+}
+
+// Verbos que sugieren que el mensaje MODIFICA una actividad existente (gate barato
+// antes de llamar a la IA de actualizacion). La IA decide en definitiva (isUpdate).
+const UPDATE_VERBS =
+  /(\blist[oa]s?\b|complet|termin|finaliz|\bhech[oa]\b|mueve|p[aá]sala|p[aá]sale|reprogram|posterg|adelant|reasign|as[ií]gnal|bloque|desbloque|en proceso|falta info|esperando aprob|prioridad|cambia)/i
 
 function addBusinessDays(date: Date, days: number): Date {
   const result = new Date(date)
@@ -21,6 +43,232 @@ function addBusinessDays(date: Date, days: number): Date {
   return result
 }
 
+const DEFAULT_DUE_DAYS = 6
+
+function defaultDueDate(): string {
+  return addBusinessDays(new Date(), DEFAULT_DUE_DAYS).toISOString()
+}
+
+// Normaliza para comparar nombres sin tildes ni mayusculas
+function normalizeName(s: string): string {
+  return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
+}
+
+type Member = { id: string; full_name: string; avatar_url: string | null }
+
+// Devuelve los miembros que mejor calzan con el nombre buscado.
+// - 1 resultado => asignacion directa
+// - 0 o >1 => se pide confirmacion en el chat
+function matchMembers(searchName: string, members: Member[]): Member[] {
+  const q = normalizeName(searchName)
+  if (!q) return []
+
+  const exact = members.filter((m) => normalizeName(m.full_name) === q)
+  if (exact.length) return exact
+
+  const qTokens = q.split(/\s+/).filter(Boolean)
+  const scored = members
+    .map((m) => {
+      const nameTokens = normalizeName(m.full_name).split(/\s+/).filter(Boolean)
+      const fullName = normalizeName(m.full_name)
+      let score = 0
+      for (const qt of qTokens) {
+        if (nameTokens.some((nt) => nt === qt)) score += 3
+        else if (nameTokens.some((nt) => nt.startsWith(qt) || qt.startsWith(nt))) score += 2
+        else if (fullName.includes(qt)) score += 1
+      }
+      return { m, score }
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+
+  if (!scored.length) return []
+  const topScore = scored[0].score
+  return scored.filter((x) => x.score === topScore).map((x) => x.m)
+}
+
+// Candidatos por coincidencia de titulo, para cuando la IA no logra identificar
+// una sola actividad y hay que preguntar en el chat.
+function pickActivityCandidates(text: string, activities: Activity[]): Activity[] {
+  const q = normalizeName(text)
+  const qTokens = q.split(/\s+/).filter((t) => t.length > 2)
+  const scored = activities
+    .map((a) => {
+      const t = normalizeName(a.title)
+      let score = 0
+      for (const qt of qTokens) if (t.includes(qt)) score++
+      return { a, score }
+    })
+    .sort((x, y) => y.score - x.score)
+  const withScore = scored.filter((x) => x.score > 0)
+  return (withScore.length ? withScore : scored).slice(0, 6).map((x) => x.a)
+}
+
+const NAME_STOPWORDS = new Set([
+  'que',
+  'cual',
+  'cuales',
+  'actividad',
+  'actividades',
+  'tarea',
+  'tareas',
+  'pendiente',
+  'pendientes',
+  'tiene',
+  'tengo',
+  'tienes',
+  'esta',
+  'semana',
+  'para',
+  'del',
+  'los',
+  'las',
+  'mis',
+  'son',
+  'hay',
+  'proxima',
+  'proximo',
+  'proximamente',
+  'hoy',
+  'manana',
+  'muestra',
+  'muestrame',
+  'dame',
+  'lista',
+  'listar',
+  'ver',
+  'mias',
+  'tengan',
+  'tienen',
+  'esas',
+  'este',
+  'mes',
+  'dia',
+  'fecha',
+  'prioridad',
+  'estado',
+])
+
+// Detecta si la pregunta menciona a uno (o varios) miembros del equipo.
+function findMentionedMembers(question: string, members: Member[]): Member[] {
+  const qTokens = normalizeName(question)
+    .split(/\s+/)
+    .filter((t) => t.length > 2 && !NAME_STOPWORDS.has(t))
+  if (!qTokens.length) return []
+
+  const fullNames = members.map((m) => normalizeName(m.full_name))
+
+  const scored = members
+    .map((m, i) => {
+      const nameTokens = normalizeName(m.full_name).split(/\s+/).filter(Boolean)
+      const fullName = fullNames[i]
+      let score = 0
+      for (const qt of qTokens) {
+        if (nameTokens.some((nt) => nt === qt)) score += 3
+        else if (nameTokens.some((nt) => nt.startsWith(qt) || qt.startsWith(nt))) score += 2
+        else if (fullName.includes(qt)) score += 1
+      }
+      return { m, score }
+    })
+    .filter((x) => x.score > 0)
+    .sort((a, b) => b.score - a.score)
+  if (!scored.length) return []
+  const top = scored[0].score
+  return scored.filter((x) => x.score === top).map((x) => x.m)
+}
+
+function weekRange(offsetWeeks = 0): { from: Date; to: Date } {
+  const d = new Date()
+  const diffToMon = (d.getDay() + 6) % 7
+  const mon = new Date(d)
+  mon.setDate(d.getDate() - diffToMon + offsetWeeks * 7)
+  mon.setHours(0, 0, 0, 0)
+  const sun = new Date(mon)
+  sun.setDate(mon.getDate() + 6)
+  sun.setHours(23, 59, 59, 999)
+  return { from: mon, to: sun }
+}
+
+function dayRange(offsetDays = 0): { from: Date; to: Date } {
+  const from = new Date()
+  from.setDate(from.getDate() + offsetDays)
+  from.setHours(0, 0, 0, 0)
+  const to = new Date(from)
+  to.setHours(23, 59, 59, 999)
+  return { from, to }
+}
+
+// Interpreta el marco temporal mencionado en la pregunta.
+function parseTimeframe(question: string): { from: Date; to: Date } | null {
+  const n = normalizeName(question)
+  if (/proxima semana|semana que viene|siguiente semana/.test(n)) return weekRange(1)
+  if (/esta semana|semana actual/.test(n)) return weekRange(0)
+  if (/\bhoy\b/.test(n)) return dayRange(0)
+  if (/\bmanana\b/.test(n)) return dayRange(1)
+  return null
+}
+
+function dueWithin(dueDate: string, range: { from: Date; to: Date }): boolean {
+  const d = new Date(dueDate.split('T')[0] + 'T12:00:00')
+  return d >= range.from && d <= range.to
+}
+
+// Mostrar tabla editable (no crear) cuando el usuario quiere gestionar varias:
+//   - "cambiar/ver/modificar LAS de <persona/equipo>"  (plural + referencia)
+//   - un verbo de gestion AL INICIO + palabra generica "actividades/tareas"
+//     ("reasignar actividades", "modificar tareas", "quiero cambiar actividades")
+// Se usan raices (stems) para tolerar typos: "modifcar", "activades", "reasignar".
+function wantsEditList(content: string): boolean {
+  const n = normalizeName(content)
+  const editVerb = /(cambi|modif|edit|gestion|actualiz|reasign|most|muestr|\bver\b|revis)/.test(n)
+  const pluralRef = /\b(las|los|todas|todos)\s+(de[l]?\b|que\b|tarea|activ|pendient|labor)/.test(n)
+  const startsEdit =
+    /^(reasign|cambi|modif|edit|gestion|actualiz|ver\b|mostr|muestr|revis|quiero\s+(cambi|modif|edit|ver|reasign|gestion))/.test(
+      n,
+    )
+  const genericActs = /\b(activ|tarea|pendient)\w*/.test(n)
+  return (editVerb && pluralRef) || (startsEdit && genericActs)
+}
+
+// Preguntas tipo "que actividades tiene X" / "que tengo esta semana" => tabla editable.
+function wantsQuestionList(content: string): boolean {
+  const n = normalizeName(content)
+  const hasActWord = /(activ|tarea|pendient|labor)/.test(n)
+  const listVerbs =
+    /(que tiene|que tengo|tengo|tiene|mis|most|muestr|dame|lista|listar|\bver\b|cuales|proxim|esta semana|hoy|manana|pendient|semana|equipo)/.test(
+      n,
+    )
+  return hasActWord && listVerbs
+}
+
+export interface PendingActivity {
+  title: string
+  description: string
+  priority: number
+  dueDate: string
+  category: 'actividad' | 'ingesta'
+  senderId: string
+}
+
+export interface PendingUpdate {
+  changes: {
+    status: string | null
+    due_date: string | null
+    responsible: string | null
+    priority: number | null
+  }
+  action: string
+  reply: string
+}
+
+export interface QuickChanges {
+  status?: ActivityStatus
+  due_date?: string
+  responsibleId?: string
+  responsibleName?: string
+  priority?: number
+}
+
 export function useChatMessages() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
   const [loading, setLoading] = useState(true)
@@ -28,10 +276,12 @@ export function useChatMessages() {
   const [aiProcessing, setAiProcessing] = useState(false)
   const { user, profile } = useAuth()
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
-  const membersRef = useRef<{ id: string; full_name: string; avatar_url: string | null }[]>([])
+  const membersRef = useRef<Member[]>([])
   const teamId = profile?.team_id ?? ''
   const isColaborador = profile?.role === 'colaborador'
   const isAdmin = profile?.role === 'admin'
+  // Solo jefatura y admin pueden asignar a terceros. Colaborador e invitado se autoasignan.
+  const canAssignOthers = profile?.role === 'admin' || profile?.role === 'jefatura'
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -45,11 +295,9 @@ export function useChatMessages() {
       ])
       if (cancelled) return
       membersRef.current = members
-      const personal = !isAdmin
-        ? data.filter(
-            (m) => m.sender_id === user?.id || m.sender_id === 'ai' || (m as ChatMessage).is_ai,
-          )
-        : data
+      // Cada usuario ve SOLO su propia conversacion (sus mensajes + las respuestas de
+      // Lumix a el, que se guardan con su sender_id). El admin ve todo.
+      const personal = !isAdmin ? data.filter((m) => m.sender_id === user?.id) : data
       setMessages(
         personal.map((msg) => {
           const isAi = msg.sender_id === 'ai' || (msg as ChatMessage).is_ai
@@ -90,33 +338,22 @@ export function useChatMessages() {
         },
         (payload) => {
           const newMsg = payload.new as ChatMessage
-          // Solo admin ve mensajes de otros
-          if (
-            !isAdmin &&
-            newMsg.sender_id !== user?.id &&
-            newMsg.sender_id !== 'ai' &&
-            !newMsg.is_ai
-          )
-            return
+          // Solo admin ve mensajes de otros. Las respuestas de Lumix llevan el sender_id
+          // del usuario que las genero, asi que este filtro tambien las mantiene privadas.
+          if (!isAdmin && newMsg.sender_id !== user?.id) return
           const isAiMsg = newMsg.sender_id === 'ai' || newMsg.is_ai
           setMessages((prev) => {
             if (prev.some((m) => m.id === newMsg.id)) return prev
+            const member = membersRef.current.find((m) => m.id === newMsg.sender_id)
             return [
               ...prev,
               {
                 ...newMsg,
                 sender: isAiMsg
                   ? { full_name: 'Lumix', avatar_url: null }
-                  : newMsg.sender_id === 'ai'
-                    ? { full_name: 'Lumix', avatar_url: null }
-                    : membersRef.current.find((m) => m.id === newMsg.sender_id)
-                      ? {
-                          full_name: membersRef.current.find((m) => m.id === newMsg.sender_id)!
-                            .full_name,
-                          avatar_url: membersRef.current.find((m) => m.id === newMsg.sender_id)!
-                            .avatar_url,
-                        }
-                      : null,
+                  : member
+                    ? { full_name: member.full_name, avatar_url: member.avatar_url }
+                    : null,
               },
             ]
           })
@@ -131,12 +368,23 @@ export function useChatMessages() {
     }
   }, [user?.id, profile?.team_id])
 
-  const appendAndSave = async (message: ChatMessage) => {
+  async function ensureMembers(): Promise<Member[]> {
+    if (membersRef.current.length === 0 && teamId) {
+      try {
+        membersRef.current = await profilesService.getByTeam(teamId)
+      } catch (err) {
+        console.error('Member fetch failed:', err)
+      }
+    }
+    return membersRef.current
+  }
+
+  const appendAndSave = async (message: ChatMessage, persist = true) => {
     setMessages((prev) => {
       if (prev.some((m) => m.id === message.id)) return prev
       return [...prev, message]
     })
-    if (message.sender_id === 'ai' && teamId && user) {
+    if (persist && message.sender_id === 'ai' && teamId && user) {
       try {
         await messagesService.send({
           content: message.content,
@@ -150,6 +398,44 @@ export function useChatMessages() {
       }
     }
   }
+
+  const aiSay = (content: string, category: ChatMessage['category'] = null) =>
+    appendAndSave({
+      id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      content,
+      sender_id: 'ai',
+      category,
+      created_at: new Date().toISOString(),
+      team_id: teamId,
+      sender: { full_name: 'Lumix', avatar_url: null },
+    })
+
+  const memberName = (id?: string | null): string => {
+    if (!id) return 'Sin asignar'
+    if (id === user?.id) return profile?.full_name || 'Tu'
+    return membersRef.current.find((m) => m.id === id)?.full_name || 'Alguien'
+  }
+
+  // Tarjeta interactiva de actividad (P2). content sirve de fallback si se recarga.
+  const emitActivityCard = (activity: Activity, responsibleName: string, text: string) =>
+    appendAndSave({
+      id: `ai-card-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
+      content: text,
+      sender_id: 'ai',
+      category: null,
+      created_at: new Date().toISOString(),
+      team_id: teamId,
+      sender: { full_name: 'Lumix', avatar_url: null },
+      metadata: {
+        type: 'activity_card',
+        activityId: activity.id,
+        title: activity.title.replace(/^\[Ingesta\]\s*/, ''),
+        responsibleName,
+        dueDate: activity.due_date,
+        status: activity.status,
+        priority: activity.priority,
+      },
+    })
 
   const sendMessage = async (payload: SendMessagePayload) => {
     if (!user) return null
@@ -194,6 +480,346 @@ export function useChatMessages() {
     return sentMessage
   }
 
+  // Crea una actividad/ingesta ya con responsable resuelto. Notifica si es para otro.
+  async function persistActivity(opts: {
+    title: string
+    description: string
+    priority: number
+    dueDate: string
+    category: 'actividad' | 'ingesta'
+    responsibleId: string
+    responsibleName: string
+    senderId: string
+    silent?: boolean
+  }) {
+    const isIngesta = opts.category === 'ingesta'
+    const cleanTitle = opts.title.replace(/^\[Ingesta\]\s*/, '')
+    const title = isIngesta ? `[Ingesta] ${cleanTitle}` : opts.title
+
+    const activity = await activitiesService.create({
+      title,
+      description: opts.description,
+      responsible_id: opts.responsibleId,
+      priority: opts.priority,
+      status: 'pendiente',
+      due_date: opts.dueDate,
+      dependencies: [],
+      observations: isIngesta ? 'Tipo: Ingesta de datos' : '',
+      team_id: teamId,
+      created_by: opts.senderId,
+    })
+
+    const assignedToOther = opts.responsibleId !== opts.senderId
+
+    if (assignedToOther) {
+      try {
+        await notificationsService.send(opts.responsibleId, {
+          title: 'Nueva actividad asignada',
+          body: `"${cleanTitle}" - Entrega: ${new Date(opts.dueDate).toLocaleDateString('es-CL')}`,
+          type: 'deadline_soon',
+          metadata: { activity_id: activity.id },
+        })
+      } catch (err) {
+        console.error('Notification send failed:', err)
+      }
+    }
+
+    if (!opts.silent) {
+      const reply = assignedToOther
+        ? `Actividad "${cleanTitle}" asignada a ${opts.responsibleName}.`
+        : isIngesta
+          ? `Ingesta "${cleanTitle}" registrada.`
+          : `Actividad "${cleanTitle}" creada.`
+      await emitActivityCard(activity, opts.responsibleName, reply)
+      if (assignedToOther) {
+        await aiSay(`📨 Notificacion enviada a ${opts.responsibleName}`)
+      }
+    }
+
+    return activity
+  }
+
+  // Construye el objeto de cambios a partir de lo que devuelve la IA de update
+  function buildUpdatesFromChanges(changes: PendingUpdate['changes']): {
+    updates: Partial<Activity>
+    newResponsibleName?: string
+  } {
+    const updates: Partial<Activity> = {}
+    let newResponsibleName: string | undefined
+    if (changes.status) updates.status = changes.status as ActivityStatus
+    if (changes.priority) updates.priority = changes.priority
+    if (changes.due_date) updates.due_date = changes.due_date
+    if (changes.responsible && canAssignOthers) {
+      const matches = matchMembers(changes.responsible, membersRef.current)
+      if (matches.length === 1) {
+        updates.responsible_id = matches[0].id
+        newResponsibleName = matches[0].full_name
+      }
+    }
+    return { updates, newResponsibleName }
+  }
+
+  // Aplica cambios a una actividad existente, con control de rol y notificaciones.
+  async function commitUpdate(
+    activity: Activity,
+    updates: Partial<Activity>,
+    opts: { replyText?: string; newResponsibleName?: string } = {},
+  ) {
+    // Colaborador/invitado: solo su propia actividad y no puede reasignar a terceros
+    if (!canAssignOthers) {
+      if (activity.responsible_id !== user?.id) {
+        await aiSay('Solo puedes modificar tus propias actividades.')
+        return null
+      }
+      if (updates.responsible_id && updates.responsible_id !== user?.id) {
+        delete updates.responsible_id
+      }
+    }
+
+    if (Object.keys(updates).length === 0) {
+      await aiSay('No detecte ningun cambio para aplicar.')
+      return null
+    }
+
+    let updated: Activity
+    try {
+      updated = await activitiesService.update(activity.id, updates)
+    } catch (err) {
+      console.error('Update failed:', err)
+      await aiSay('No pude actualizar la actividad. Intentalo de nuevo.')
+      return null
+    }
+
+    if (updates.status === 'bloqueado') {
+      try {
+        await notificationsService.sendToTeam(teamId, {
+          title: 'Actividad bloqueada',
+          body: `"${updated.title}" fue bloqueada`,
+          type: 'activity_blocked',
+          metadata: { activity_id: updated.id },
+        })
+      } catch (err) {
+        console.error('Block notify failed:', err)
+      }
+    }
+    if (updates.responsible_id && updates.responsible_id !== activity.responsible_id) {
+      try {
+        await notificationsService.send(updates.responsible_id, {
+          title: 'Actividad reasignada',
+          body: `"${updated.title}" - Entrega: ${new Date(updated.due_date).toLocaleDateString('es-CL')}`,
+          type: 'deadline_soon',
+          metadata: { activity_id: updated.id },
+        })
+      } catch (err) {
+        console.error('Reassign notify failed:', err)
+      }
+    }
+
+    const rName = opts.newResponsibleName || memberName(updated.responsible_id)
+    await emitActivityCard(updated, rName, opts.replyText || 'Actividad actualizada.')
+    return updated
+  }
+
+  // Actualizacion pendiente confirmada desde el chat (cuando la IA no supo cual era)
+  const applyPendingUpdate = async (activityId: string, pending: PendingUpdate) => {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) {
+      await aiSay('No encontre la actividad.')
+      return null
+    }
+    const { updates, newResponsibleName } = buildUpdatesFromChanges(pending.changes)
+    return commitUpdate(activity, updates, { replyText: pending.reply, newResponsibleName })
+  }
+
+  // Accion directa desde los botones de la tarjeta (sin IA)
+  const quickUpdate = async (activityId: string, changes: QuickChanges) => {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) return null
+    const updates: Partial<Activity> = {}
+    if (changes.status) updates.status = changes.status
+    if (changes.due_date) updates.due_date = changes.due_date
+    if (changes.priority) updates.priority = changes.priority
+    if (changes.responsibleId) updates.responsible_id = changes.responsibleId
+
+    const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    let replyText = 'Actividad actualizada.'
+    if (changes.status === 'completado') replyText = `Actividad "${title}" completada. ✅`
+    else if (changes.status)
+      replyText = `Actividad "${title}" ahora esta: ${STATUS_LABELS[changes.status] ?? changes.status}.`
+    else if (changes.due_date)
+      replyText = `Actividad "${title}" movida al ${new Date(changes.due_date + 'T12:00:00').toLocaleDateString('es-CL')}.`
+    else if (changes.responsibleId)
+      replyText = `Actividad "${title}" reasignada a ${changes.responsibleName ?? 'otro miembro'}.`
+    else if (changes.priority) replyText = `Actividad "${title}" con prioridad ${changes.priority}.`
+
+    return commitUpdate(activity, updates, {
+      replyText,
+      newResponsibleName: changes.responsibleName,
+    })
+  }
+
+  // Edicion completa desde el modal del listado (prioridad, fecha, descripcion, estado)
+  const editActivityFields = async (
+    activityId: string,
+    changes: {
+      priority?: number
+      due_date?: string
+      description?: string
+      status?: ActivityStatus
+      responsibleId?: string
+    },
+  ) => {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) return null
+    const updates: Partial<Activity> = {}
+    if (changes.priority) updates.priority = changes.priority
+    if (changes.due_date) updates.due_date = changes.due_date
+    if (changes.description !== undefined) updates.description = changes.description
+    if (changes.status) updates.status = changes.status
+    if (changes.responsibleId) updates.responsible_id = changes.responsibleId
+    const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    return commitUpdate(activity, updates, { replyText: `Actividad "${title}" actualizada.` })
+  }
+
+  const listMembers = () => ensureMembers()
+
+  // Llamada desde la UI cuando el usuario confirma a quien asignar (flujo name_confirm)
+  const createResolvedActivity = async (
+    pending: PendingActivity,
+    responsibleId: string,
+    responsibleName: string,
+  ) => {
+    return persistActivity({
+      title: pending.title,
+      description: pending.description,
+      priority: pending.priority,
+      dueDate: pending.dueDate,
+      category: pending.category,
+      responsibleId,
+      responsibleName,
+      senderId: pending.senderId,
+    })
+  }
+
+  // Carga masiva: crea varias actividades tras confirmacion en la UI
+  const bulkCreate = async (items: BulkActivity[]) => {
+    if (!user) return 0
+    const members = await ensureMembers()
+    let created = 0
+
+    for (const it of items) {
+      let responsibleId = user.id
+      let responsibleName = profile?.full_name ?? ''
+
+      if (canAssignOthers && it.responsible) {
+        const matches = matchMembers(it.responsible, members)
+        if (matches.length === 1) {
+          responsibleId = matches[0].id
+          responsibleName = matches[0].full_name
+        }
+        // Si es ambiguo o no existe en carga masiva, queda con quien lo crea.
+      }
+
+      try {
+        await persistActivity({
+          title: it.title || it.description?.slice(0, 100) || 'Actividad',
+          description: it.description || it.title || '',
+          priority: it.priority ?? 2,
+          dueDate: it.due_date || defaultDueDate(),
+          category: 'actividad',
+          responsibleId,
+          responsibleName,
+          senderId: user.id,
+          silent: true,
+        })
+        created++
+      } catch (err) {
+        console.error('Bulk item failed:', err)
+      }
+    }
+
+    await aiSay(`✅ Carga masiva: ${created} de ${items.length} actividades creadas.`, 'actividad')
+    return created
+  }
+
+  // Muestra una tabla editable de actividades filtrada por persona/periodo.
+  async function showActivityList(
+    content: string,
+    senderId: string,
+    preloaded?: { activities: Activity[]; members: Member[] },
+  ) {
+    const activities = preloaded?.activities ?? (await activitiesService.getByTeam(teamId))
+    const members = preloaded?.members ?? (await ensureMembers())
+    membersRef.current = members
+
+    const visible = isColaborador
+      ? activities.filter((a) => a.responsible_id === senderId)
+      : activities
+
+    const mentioned = findMentionedMembers(content, members)
+    const wantsSelf = /\b(mis|tengo|mias)\b/i.test(normalizeName(content))
+    const tf = parseTimeframe(content)
+    const wantsCompleted = /complet/i.test(content)
+
+    let list = visible.filter((a) => !a.title.startsWith('[Ingesta]'))
+    let scopeLabel = ''
+
+    if (mentioned.length === 1 && !isColaborador) {
+      list = list.filter((a) => a.responsible_id === mentioned[0].id)
+      scopeLabel = mentioned[0].full_name
+    } else if (wantsSelf || isColaborador) {
+      list = list.filter((a) => a.responsible_id === senderId)
+      scopeLabel = 'tuyas'
+    }
+
+    if (tf) list = list.filter((a) => dueWithin(a.due_date, tf))
+    if (!wantsCompleted) list = list.filter((a) => a.status !== 'completado')
+
+    list.sort(
+      (a, b) =>
+        new Date(a.due_date.split('T')[0]).getTime() - new Date(b.due_date.split('T')[0]).getTime(),
+    )
+
+    if (list.length === 0) {
+      await aiSay('No encontre actividades que coincidan con tu consulta.')
+      return
+    }
+
+    const n = normalizeName(content)
+    const tfLabel = /esta semana/.test(n)
+      ? ' de esta semana'
+      : /proxima semana/.test(n)
+        ? ' de la proxima semana'
+        : /\bhoy\b/.test(n)
+          ? ' de hoy'
+          : /\bmanana\b/.test(n)
+            ? ' de manana'
+            : ''
+    const who = scopeLabel === 'tuyas' ? 'Tienes' : scopeLabel ? `${scopeLabel} tiene` : 'Hay'
+    await appendAndSave({
+      id: `ai-list-${Date.now()}`,
+      content: `${who} ${list.length} actividad${list.length === 1 ? '' : 'es'}${tfLabel}. Toca una para editarla.`,
+      sender_id: 'ai',
+      category: null,
+      created_at: new Date().toISOString(),
+      team_id: teamId,
+      sender: { full_name: 'Lumix', avatar_url: null },
+      metadata: {
+        type: 'activity_list',
+        activities: list.map((a) => ({
+          id: a.id,
+          title: a.title,
+          responsibleId: a.responsible_id,
+          responsibleName: memberName(a.responsible_id),
+          dueDate: a.due_date,
+          status: a.status,
+          priority: a.priority,
+          description: a.description,
+        })),
+      },
+    })
+  }
+
   const classifyAndAct = async (message: ChatMessage, forcedType?: string) => {
     if (!message.content || message.category) return
     setAiProcessing(true)
@@ -201,12 +827,27 @@ export function useChatMessages() {
     const content = message.content.trim()
 
     try {
-      // QUESTIONS: detect with ? prefix or question keywords
+      // PREGUNTAS: detectar con prefijo ? o palabras interrogativas
       const questionWords =
         /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|ver |mis |cuales son)\b/i
       const isQuestion = /^[?¿/]/.test(content) || questionWords.test(content)
+      const isAutoMode = !forcedType || forcedType === 'auto'
+
+      // LISTADO EDITABLE: "cambiar/ver/modificar las de <persona/equipo>" (aunque no sea pregunta)
+      if (isAutoMode && teamId && wantsEditList(content)) {
+        await showActivityList(content, message.sender_id)
+        setAiProcessing(false)
+        return
+      }
 
       if (isQuestion && teamId) {
+        // Preguntas de listado => tabla editable en vez de texto
+        if (wantsQuestionList(content)) {
+          await showActivityList(content, message.sender_id)
+          setAiProcessing(false)
+          return
+        }
+
         const [activities, errors, members] = await Promise.all([
           activitiesService.getByTeam(teamId),
           errorsService.getByTeam(teamId),
@@ -216,6 +857,8 @@ export function useChatMessages() {
         const visibleActivities = isColaborador
           ? activities.filter((a) => a.responsible_id === message.sender_id)
           : activities
+
+        membersRef.current = members
 
         const teamData = {
           today: new Date().toLocaleDateString('es-CL', {
@@ -271,297 +914,284 @@ export function useChatMessages() {
               }),
         }
 
-        const answer = await askQuestion(content, teamData)
-        appendAndSave({
-          id: `ai-q-${Date.now()}`,
-          content: answer,
-          sender_id: 'ai',
-          category: null,
-          created_at: new Date().toISOString(),
-          team_id: teamId,
-          sender: { full_name: 'Lumix', avatar_url: null },
-        })
+        try {
+          const answer = await askQuestion(content, teamData)
+          await aiSay(answer)
+        } catch (err) {
+          console.error('AI question failed:', err)
+          await aiSay('No pude responder tu consulta en este momento. Intentalo de nuevo.')
+        }
         setAiProcessing(false)
         return
       }
 
-      // Forced type: skip AI classification
-      let result: ClassifyResult
-
-      // Auto-detect ingesta keywords even in Auto mode
-      const ingestaWords =
-        /\b(ingestar|ingesta|ingerir|cargar datos|subir datos|descargar datos|etl|data pipeline|migrar datos|importar datos|exportar datos)\b/i
-      const effectiveType =
-        forcedType && forcedType !== 'auto'
-          ? forcedType
-          : ingestaWords.test(content)
-            ? 'ingesta'
-            : null
-
-      if (effectiveType) {
-        // Still use AI to extract title/description, but force the category
+      // ACTUALIZACION: si el mensaje suena a editar una actividad existente (solo en Auto),
+      // consultamos a la IA de update. Si no aplica, cae a creacion normal.
+      if (isAutoMode && teamId && UPDATE_VERBS.test(content)) {
         try {
-          const aiResult = await classifyMessage(content)
-          if (aiResult?.category) {
-            result = {
-              ...aiResult,
-              category: effectiveType === 'error' ? 'error' : 'actividad',
-              entities: {
-                ...aiResult.entities,
-                title:
-                  effectiveType === 'ingesta'
-                    ? `[Ingesta] ${aiResult.entities.title || content.slice(0, 100)}`
-                    : aiResult.entities.title || content.slice(0, 100),
-              },
-              reply:
-                effectiveType === 'error'
-                  ? 'Error registrado.'
-                  : effectiveType === 'ingesta'
-                    ? 'Ingesta registrada.'
-                    : 'Actividad creada.',
+          const memList = await ensureMembers()
+          const acts = await activitiesService.getByTeam(teamId)
+          const scope = canAssignOthers
+            ? acts
+            : acts.filter((a) => a.responsible_id === message.sender_id)
+          const open = scope.filter((a) => a.status !== 'completado')
+
+          if (open.length) {
+            const upd = await resolveUpdate(
+              content,
+              open.map((a) => ({
+                title: a.title,
+                responsible: memberName(a.responsible_id),
+                status: a.status,
+                due_date: a.due_date.split('T')[0],
+                priority: a.priority,
+              })),
+              memList.map((m) => m.full_name),
+            )
+
+            if (upd.isUpdate) {
+              if (upd.targetIndex >= 0 && upd.targetIndex < open.length) {
+                const { updates, newResponsibleName } = buildUpdatesFromChanges(upd.changes)
+                await commitUpdate(open[upd.targetIndex], updates, {
+                  replyText: upd.reply,
+                  newResponsibleName,
+                })
+              } else {
+                // Ambiguo: preguntar a cual actividad se refiere
+                const candidates = pickActivityCandidates(content, open).map((a) => ({
+                  id: a.id,
+                  title: a.title.replace(/^\[Ingesta\]\s*/, ''),
+                }))
+                await appendAndSave(
+                  {
+                    id: `ai-actpick-${Date.now()}`,
+                    content: '¿A cual actividad te refieres? Toca para elegir.',
+                    sender_id: 'ai',
+                    category: null,
+                    created_at: new Date().toISOString(),
+                    team_id: teamId,
+                    sender: { full_name: 'Lumix', avatar_url: null },
+                    metadata: {
+                      type: 'activity_pick',
+                      candidates,
+                      pending: { changes: upd.changes, action: upd.action, reply: upd.reply },
+                    },
+                  },
+                  false,
+                )
+              }
+              setMessages((prev) =>
+                prev.map((m) => (m.id === message.id ? { ...m, category: 'actividad' } : m)),
+              )
+              setAiProcessing(false)
+              return
             }
-          } else {
-            result = {
-              category: effectiveType === 'error' ? 'error' : 'actividad',
-              confidence: 1,
-              entities: {
-                title:
-                  effectiveType === 'ingesta'
-                    ? `[Ingesta] ${content.slice(0, 100)}`
-                    : content.slice(0, 100),
-                description: content,
-                responsible: null,
-                priority: 2,
-                due_date: null,
-                severity: effectiveType === 'error' ? 'media' : null,
-                scheduled_at: null,
-              },
-              reply:
-                effectiveType === 'error'
-                  ? 'Error registrado.'
-                  : effectiveType === 'ingesta'
-                    ? 'Ingesta registrada.'
-                    : 'Actividad creada.',
-            }
+            // isUpdate=false => continua al flujo de creacion
           }
         } catch (err) {
-          console.error('AI classification failed:', err)
-          result = {
-            category: effectiveType === 'error' ? 'error' : 'actividad',
-            confidence: 1,
-            entities: {
-              title:
-                effectiveType === 'ingesta'
-                  ? `[Ingesta] ${content.slice(0, 100)}`
-                  : content.slice(0, 100),
-              description: content,
-              responsible: null,
-              priority: 3,
-              due_date: null,
-              severity: effectiveType === 'error' ? 'media' : null,
-              scheduled_at: null,
-            },
-            reply:
-              effectiveType === 'error'
-                ? 'Error registrado.'
-                : effectiveType === 'ingesta'
-                  ? 'Ingesta registrada.'
-                  : 'Actividad creada.',
-          }
+          console.error('Update resolution failed, fallback to create:', err)
         }
-      } else {
-        const aiResult = await classifyMessage(content)
-        if (!aiResult?.category) {
-          setAiProcessing(false)
-          return
-        }
-        result = aiResult
       }
 
-      let aiContent = result.reply
-      let skipAiReply = false
+      // CLASIFICACION
+      const members = await ensureMembers()
+      const memberNames = members.map((m) => m.full_name)
 
+      let result: ClassifyResult
+      try {
+        result = await classifyMessage(content, memberNames)
+      } catch (err) {
+        console.error('AI classification failed:', err)
+        await aiSay('No pude procesar tu mensaje ahora. Intentalo de nuevo en unos segundos.')
+        setAiProcessing(false)
+        return
+      }
+
+      if (!result?.category) {
+        await aiSay('No pude interpretar tu mensaje. Intenta reformularlo.')
+        setAiProcessing(false)
+        return
+      }
+
+      // Tipo forzado desde el selector del chat (actividad/error/ingesta)
+      if (forcedType && forcedType !== 'auto') {
+        result = { ...result, category: forcedType as ClassifyResult['category'] }
+      }
+
+      const category = result.category
+      const dueDate = result.entities.due_date || defaultDueDate()
+      const priority = result.entities.priority ?? 2
+      const title = result.entities.title || content.slice(0, 100)
+
+      // ERROR
+      if (category === 'error') {
+        const error = await errorsService.create({
+          title,
+          description: content,
+          severity: (result.entities.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
+          responsible_id: message.sender_id,
+          status: 'abierto',
+          date: new Date().toISOString().split('T')[0],
+          time: new Date().toTimeString().slice(0, 8),
+          team_id: teamId,
+          created_by: message.sender_id,
+        })
+        await aiSay(
+          `Error "${error.title}" registrado en bitacora. Severidad: ${error.severity}.`,
+          'error',
+        )
+        setMessages((prev) =>
+          prev.map((m) => (m.id === message.id ? { ...m, category: 'error' } : m)),
+        )
+        setAiProcessing(false)
+        return
+      }
+
+      // ACTIVIDAD / INGESTA
+      const actCategory: 'actividad' | 'ingesta' = category === 'ingesta' ? 'ingesta' : 'actividad'
+
+      // Resolucion de responsable (solo jefatura/admin pueden asignar a terceros)
       let responsibleId = message.sender_id
       let responsibleName = profile?.full_name ?? ''
 
-      if (!isColaborador && result.entities.responsible && teamId) {
-        try {
-          const members = await profilesService.getByTeam(teamId)
-          const searchName = result.entities.responsible.toLowerCase().trim()
-
-          const found = members.find((m) => {
-            const full = m.full_name.toLowerCase()
-            if (full.includes(searchName)) return true
-            const firstName = full.split(' ')[0]
-            if (firstName.includes(searchName) || searchName.includes(firstName)) return true
-            return false
-          })
-          if (found) {
-            responsibleId = found.id
-            responsibleName = found.full_name
-          } else {
-            console.log(
-              'AI detected responsible:',
-              result.entities.responsible,
-              'but not found in team:',
-              members.map((m) => m.full_name),
-            )
-            appendAndSave({
-              id: `ai-warn-name-${Date.now()}`,
-              content: `No encontre a "${result.entities.responsible}" en el equipo. La actividad queda asignada a ${responsibleName}.`,
+      if (canAssignOthers && result.entities.responsible) {
+        const matches = matchMembers(result.entities.responsible, members)
+        if (matches.length === 1) {
+          responsibleId = matches[0].id
+          responsibleName = matches[0].full_name
+        } else {
+          // 0 o >1 coincidencias => preguntar en el chat y NO crear todavia
+          const notFound = matches.length === 0
+          const candidates = (notFound ? members : matches).map((m) => ({
+            id: m.id,
+            name: m.full_name,
+          }))
+          const pending: PendingActivity = {
+            title,
+            description: content,
+            priority,
+            dueDate,
+            category: actCategory,
+            senderId: message.sender_id,
+          }
+          await appendAndSave(
+            {
+              id: `ai-nameconfirm-${Date.now()}`,
+              content: notFound
+                ? `No encontre a "${result.entities.responsible}" en el equipo. ¿A quien asigno "${title}"? Toca para elegir.`
+                : `Hay varias personas que coinciden con "${result.entities.responsible}". ¿A quien asigno "${title}"? Toca para elegir.`,
               sender_id: 'ai',
               category: null,
               created_at: new Date().toISOString(),
               team_id: teamId,
               sender: { full_name: 'Lumix', avatar_url: null },
-            })
-          }
-        } catch (err) {
-          console.error('Member lookup failed:', err)
+              metadata: { type: 'name_confirm', candidates, pending },
+            },
+            false,
+          )
+          setMessages((prev) =>
+            prev.map((m) => (m.id === message.id ? { ...m, category: 'actividad' } : m)),
+          )
+          setAiProcessing(false)
+          return
         }
       }
 
-      const isIngesta = result.entities.title.startsWith('[Ingesta]')
-
-      switch (result.category) {
-        case 'actividad': {
-          const dueDate = result.entities.due_date || addBusinessDays(new Date(), 7).toISOString()
+      // Chequeo de sobrecarga antes de crear (solo actividad normal, no ingesta)
+      if (actCategory === 'actividad' && teamId) {
+        try {
+          const userActivities = await activitiesService.getByTeam(teamId)
           const dueDateStr = dueDate.split('T')[0]
-
-          // Check overload BEFORE creating (skip for ingesta)
-          let hasOverload = false
-          if (!isIngesta && teamId) {
-            try {
-              const userActivities = await activitiesService.getByTeam(teamId)
-              const sameDay = userActivities.filter(
-                (a) =>
-                  a.responsible_id === responsibleId &&
-                  a.status !== 'completado' &&
-                  a.due_date.startsWith(dueDateStr),
-              )
-
-              if (sameDay.length >= 2) {
-                hasOverload = true
-                skipAiReply = true
-                appendAndSave({
-                  id: `ai-warn-${Date.now()}`,
-                  content: `⚠️ ${responsibleName} ya tiene ${sameDay.length} actividades para el ${new Date(dueDate).toLocaleDateString('es-CL')}. Clic para decidir.`,
-                  sender_id: 'ai',
-                  category: null,
-                  created_at: new Date().toISOString(),
-                  team_id: teamId,
-                  sender: { full_name: 'Lumix', avatar_url: null },
-                  metadata: {
-                    type: 'overload',
-                    pendingTitle: result.entities.title || message.content.slice(0, 100),
-                    pendingDesc: result.entities.description || message.content,
-                    pendingResponsibleId: responsibleId,
-                    pendingResponsibleName: responsibleName,
-                    pendingPriority: result.entities.priority ?? 2,
-                    pendingDueDate: dueDate,
-                    pendingSenderId: message.sender_id,
-                    pendingIsColaborador: isColaborador,
-                  },
-                })
-              }
-            } catch (err) {
-              console.error('Overload check failed:', err)
-            }
-          }
-
-          if (!hasOverload) {
-            const activity = await activitiesService.create({
-              title: result.entities.title || message.content.slice(0, 100),
-              description: message.content,
-              responsible_id: responsibleId,
-              priority: result.entities.priority ?? 2,
-              status: 'pendiente',
-              due_date: dueDate,
-              dependencies: [],
-              observations: '',
-              team_id: teamId,
-              created_by: message.sender_id,
-            })
-            aiContent =
-              responsibleId !== message.sender_id
-                ? `Actividad "${activity.title}" asignada a ${responsibleName}. Prioridad: ${activity.priority}/3.`
-                : isColaborador
-                  ? `Actividad "${activity.title}" auto-asignada. Prioridad: ${activity.priority}/3.`
-                  : isIngesta
-                    ? `Ingesta "${activity.title.replace('[Ingesta] ', '')}" registrada.`
-                    : `Actividad "${activity.title}" creada. Prioridad: ${activity.priority}/3.`
-
-            // Notify if assigned to someone else
-            if (responsibleId !== message.sender_id) {
-              try {
-                await notificationsService.send(responsibleId, {
-                  title: 'Nueva actividad asignada',
-                  body: `"${activity.title}" - Entrega: ${new Date(activity.due_date).toLocaleDateString('es-CL')}`,
-                  type: 'deadline_soon',
-                  metadata: { activity_id: activity.id },
-                })
-              } catch (err) {
-                console.error('Notification send failed:', err)
-              }
-              appendAndSave({
-                id: `ai-notify-${Date.now()}`,
-                content: `📨 Notificacion enviada a ${responsibleName}`,
+          const sameDay = userActivities.filter(
+            (a) =>
+              a.responsible_id === responsibleId &&
+              a.status !== 'completado' &&
+              a.due_date.startsWith(dueDateStr),
+          )
+          if (sameDay.length >= 2) {
+            await appendAndSave(
+              {
+                id: `ai-warn-${Date.now()}`,
+                content: `⚠️ ${responsibleName} ya tiene ${sameDay.length} actividades para el ${new Date(dueDate).toLocaleDateString('es-CL')}. Clic para decidir.`,
                 sender_id: 'ai',
                 category: null,
                 created_at: new Date().toISOString(),
                 team_id: teamId,
                 sender: { full_name: 'Lumix', avatar_url: null },
-              })
-            }
+                metadata: {
+                  type: 'overload',
+                  pendingTitle: title,
+                  pendingDesc: content,
+                  pendingResponsibleId: responsibleId,
+                  pendingResponsibleName: responsibleName,
+                  pendingPriority: priority,
+                  pendingDueDate: dueDate,
+                  pendingSenderId: message.sender_id,
+                  pendingIsColaborador: isColaborador,
+                },
+              },
+              false,
+            )
+            setMessages((prev) =>
+              prev.map((m) => (m.id === message.id ? { ...m, category: 'actividad' } : m)),
+            )
+            setAiProcessing(false)
+            return
           }
-          break
-        }
-        case 'error': {
-          const error = await errorsService.create({
-            title: result.entities.title || message.content.slice(0, 100),
-            description: message.content,
-            severity:
-              (result.entities.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
-            responsible_id: responsibleId,
-            status: 'abierto',
-            date: new Date().toISOString().split('T')[0],
-            time: new Date().toTimeString().slice(0, 8),
-            team_id: teamId,
-            created_by: message.sender_id,
-          })
-          aiContent = `Error "${error.title}" registrado en bitacora. Severidad: ${error.severity}.`
-          break
-        }
-        default: {
-          aiContent = result.reply || 'Mensaje procesado.'
+        } catch (err) {
+          console.error('Overload check failed:', err)
         }
       }
 
-      if (!skipAiReply) {
-        appendAndSave({
-          id: `ai-${Date.now()}`,
-          content: aiContent,
-          sender_id: 'ai',
-          category: result.category as ChatMessage['category'],
-          created_at: new Date().toISOString(),
-          team_id: teamId,
-          sender: { full_name: 'Lumix', avatar_url: null },
-        })
-      }
+      await persistActivity({
+        title,
+        description: content,
+        priority,
+        dueDate,
+        category: actCategory,
+        responsibleId,
+        responsibleName,
+        senderId: message.sender_id,
+      })
 
       setMessages((prev) =>
         prev.map((m) =>
           m.id === message.id
-            ? { ...m, category: isIngesta ? null : (result.category as ChatMessage['category']) }
+            ? { ...m, category: actCategory === 'ingesta' ? null : 'actividad' }
             : m,
         ),
       )
     } catch (err) {
       console.error('AI processing failed:', err)
+      await aiSay('Ocurrio un problema al procesar tu mensaje. Intentalo de nuevo.')
     } finally {
       setAiProcessing(false)
     }
   }
 
-  return { messages, loading, sending, aiProcessing, sendMessage, classifyAndAct }
+  // Modo Masivo: parsea el texto y devuelve las actividades detectadas (sin crear aun)
+  const parseBulk = async (content: string): Promise<BulkActivity[]> => {
+    const members = await ensureMembers()
+    const result = await classifyBulk(
+      content,
+      members.map((m) => m.full_name),
+    )
+    return result.activities
+  }
+
+  return {
+    messages,
+    loading,
+    sending,
+    aiProcessing,
+    sendMessage,
+    classifyAndAct,
+    parseBulk,
+    bulkCreate,
+    createResolvedActivity,
+    quickUpdate,
+    applyPendingUpdate,
+    editActivityFields,
+    listMembers,
+  }
 }

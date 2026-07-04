@@ -71,36 +71,44 @@ export function useGantt() {
 
       if (cancelled) return
 
-      const ganttRows: GanttRow[] = members.map((member) => {
-        const memberActivities = activities.filter((a) => a.responsible_id === member.id)
-        const activeActivities = memberActivities.filter((a) => a.status !== 'completado')
+      const ganttRows: GanttRow[] = members
+        .filter((m) => m.role !== 'admin' && m.role !== 'invitado')
+        .map((member) => {
+          const memberActivities = activities.filter((a) => a.responsible_id === member.id)
 
-        const dayCells: DayCell[] = days.map((day) => {
-          const dayActivities = memberActivities.filter((a) => {
-            if (!a.due_date) return false
-            return a.due_date.startsWith(day.date)
+          // Actividades con vencimiento dentro de la semana visible (todos los estados)
+          const thisWeekActivities = memberActivities.filter((a) =>
+            days.some((d) => a.due_date?.startsWith(d.date)),
+          )
+
+          const dayCells: DayCell[] = days.map((day) => {
+            const dayActivities = memberActivities.filter((a) => {
+              if (!a.due_date) return false
+              return a.due_date.startsWith(day.date)
+            })
+            return {
+              date: day.date,
+              label: day.label,
+              activities: dayActivities,
+              count: dayActivities.length,
+            }
           })
+
+          const totalHours = thisWeekActivities.reduce(
+            (sum, a) => sum + (a.estimated_hours ?? 3),
+            0,
+          )
+          const weeklyHours = 42
+          const loadPercentage = Math.min(Math.round((totalHours / weeklyHours) * 100), 150)
+
           return {
-            date: day.date,
-            label: day.label,
-            activities: dayActivities,
-            count: dayActivities.length,
+            member,
+            days: dayCells,
+            totalActivities: thisWeekActivities.length,
+            loadPercentage,
+            totalHours,
           }
         })
-
-        const total = activeActivities.length
-        const totalHours = activeActivities.reduce((sum, a) => sum + (a.estimated_hours ?? 3), 0)
-        const weeklyHours = 42
-        const loadPercentage = Math.min(Math.round((totalHours / weeklyHours) * 100), 150)
-
-        return {
-          member,
-          days: dayCells,
-          totalActivities: total,
-          loadPercentage,
-          totalHours,
-        }
-      })
 
       setRows(isColaborador ? ganttRows.filter((r) => r.member.id === user?.id) : ganttRows)
       setLoading(false)

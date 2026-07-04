@@ -64,16 +64,21 @@ export function useActivities() {
     filtered = filtered.filter((a) => a.status === filterStatus)
   }
 
+  // Base para contadores: incluye filtros de miembro y fecha, pero NO el filtro de estado
+  let countBase = activities
+
   if (showMine || isColaborador) {
     filtered = filtered.filter((a) => a.responsible_id === user?.id)
+    countBase = countBase.filter((a) => a.responsible_id === user?.id)
   }
 
   if (filterMember !== 'todas') {
     filtered = filtered.filter((a) => a.responsible_id === filterMember)
+    countBase = countBase.filter((a) => a.responsible_id === filterMember)
   }
 
   if (dateFrom && dateTo) {
-    filtered = filtered.filter((a) => {
+    const datePredicate = (a: Activity) => {
       const field =
         dateType === 'creadas'
           ? a.created_at
@@ -85,7 +90,9 @@ export function useActivities() {
       const from = parseDateLocal(dateFrom + 'T00:00:00')
       const to = parseDateLocal(dateTo + 'T23:59:59')
       return d >= from && d <= to
-    })
+    }
+    filtered = filtered.filter(datePredicate)
+    countBase = countBase.filter(datePredicate)
   }
 
   const changeStatus = async (id: string, newStatus: ActivityStatus) => {
@@ -131,10 +138,9 @@ export function useActivities() {
   >
   for (const s of allStatuses) {
     if (s === 'activas') {
-      counts[s] = activities.filter((a) => a.status !== 'completado').length
+      counts[s] = countBase.filter((a) => a.status !== 'completado').length
     } else {
-      counts[s] =
-        s === 'todas' ? activities.length : activities.filter((a) => a.status === s).length
+      counts[s] = s === 'todas' ? countBase.length : countBase.filter((a) => a.status === s).length
     }
   }
 

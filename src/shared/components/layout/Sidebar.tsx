@@ -1,6 +1,7 @@
 import { NavLink, useNavigate } from 'react-router-dom'
 import { useState, useEffect } from 'react'
 import { Avatar } from '@shared/components/ui/Avatar'
+import { LumixIcon } from '@shared/components/ui/LumixIcon'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useNotificationsContext } from '@core/notifications/NotificationContext'
 import { teamsService } from '@infrastructure/supabase/teams.service'
@@ -46,12 +47,13 @@ export function Sidebar({ onClose }: SidebarProps) {
     navigate('/login')
   }
   return (
-    <aside className="flex flex-col h-full bg-slate-900 border-r border-slate-800" style={{ paddingTop: 'env(safe-area-inset-top)' }}>
+    <aside
+      className="flex flex-col h-full bg-slate-900 border-r border-slate-800"
+      style={{ paddingTop: 'env(safe-area-inset-top)' }}
+    >
       {/* Logo */}
       <div className="flex items-center gap-3 px-4 h-14 border-b border-slate-800 flex-shrink-0">
-        <div className="w-8 h-8 rounded-lg bg-indigo-600 flex items-center justify-center">
-          <span className="text-white font-bold text-sm">O</span>
-        </div>
+        <LumixIcon size="sm" />
         <span className="text-slate-200 font-semibold text-sm">Lumix</span>
       </div>
 
@@ -117,7 +119,10 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* User */}
       <div className="flex-shrink-0 border-t border-slate-800 p-3">
-        <div className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-800 cursor-pointer group">
+        <div
+          onClick={() => navigate('/profile')}
+          className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-800 cursor-pointer group"
+        >
           <Avatar name={profile?.full_name ?? 'Usuario'} src={profile?.avatar_url} size="sm" />
           <div className="flex-1 min-w-0">
             <p className="text-sm font-medium text-slate-200 truncate">
@@ -128,8 +133,11 @@ export function Sidebar({ onClose }: SidebarProps) {
             </p>
           </div>
           <button
-            onClick={handleLogout}
-            className="p-1.5 rounded-lg opacity-0 group-hover:opacity-100 hover:bg-slate-700 text-slate-400 hover:text-red-400 transition-all"
+            onClick={(e) => {
+              e.stopPropagation()
+              handleLogout()
+            }}
+            className="p-1.5 rounded-lg hover:bg-slate-700 text-slate-500 hover:text-red-400 transition-colors"
             title="Cerrar sesion"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

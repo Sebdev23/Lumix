@@ -13,6 +13,10 @@ dist-ssr
 *.local
 .env
 
+# Secrets / credenciales
+SUPABASE_CREDS.md
+*.creds
+
 # Editor directories and files
 .vscode/*
 !.vscode/extensions.json

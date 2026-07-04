@@ -62,24 +62,22 @@ export const teamsService = {
   },
 
   async addMember(teamId: string, email: string): Promise<void> {
-    const { data: profile, error: profileError } = await supabase
-      .from('profiles')
-      .select('id')
-      .eq('email', email)
-      .maybeSingle()
+    const { data: userId, error: lookupError } = await supabase.rpc('find_user_id_by_email', {
+      lookup_email: email,
+    })
 
-    if (profileError) throw new Error('Error al buscar usuario')
-    if (!profile) throw new Error('Usuario no encontrado. Debe registrarse primero en /signup')
+    if (lookupError) throw new Error('Error al buscar usuario')
+    if (!userId) throw new Error('Usuario no encontrado. Debe registrarse primero en /signup')
 
     const { error } = await supabase.from('team_members').insert({
       team_id: teamId,
-      user_id: profile.id,
+      user_id: userId,
       role: 'colaborador',
     })
 
     if (error) throw error
 
-    await supabase.from('profiles').update({ team_id: teamId }).eq('id', profile.id)
+    await supabase.from('profiles').update({ team_id: teamId }).eq('id', userId)
   },
 
   async changeRole(teamId: string, userId: string, role: string): Promise<void> {

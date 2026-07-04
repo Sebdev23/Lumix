@@ -1,7 +1,9 @@
 import { supabase } from '@infrastructure/supabase/client'
 
+export type ClassifyCategory = 'actividad' | 'error' | 'ingesta'
+
 export interface ClassifyResult {
-  category: string
+  category: ClassifyCategory
   confidence: number
   entities: {
     title: string
@@ -10,27 +12,97 @@ export interface ClassifyResult {
     priority: number | null
     due_date: string | null
     severity: string | null
-    scheduled_at: string | null
+    scheduled_at?: string | null
   }
   reply: string
 }
 
-export async function classifyMessage(content: string): Promise<ClassifyResult> {
+export interface BulkActivity {
+  title: string
+  description: string
+  responsible: string | null
+  priority: number | null
+  due_date: string | null
+}
+
+export interface BulkResult {
+  activities: BulkActivity[]
+}
+
+function todayContext() {
+  return {
+    today: new Date().toLocaleDateString('es-CL', {
+      weekday: 'long',
+      year: 'numeric',
+      month: 'long',
+      day: 'numeric',
+    }),
+    todayISO: new Date().toISOString().split('T')[0],
+  }
+}
+
+export async function classifyMessage(
+  content: string,
+  members: string[] = [],
+): Promise<ClassifyResult> {
   const { data, error } = await supabase.functions.invoke('ai-classify', {
-    body: {
-      content,
-      today: new Date().toLocaleDateString('es-CL', {
-        weekday: 'long',
-        year: 'numeric',
-        month: 'long',
-        day: 'numeric',
-      }),
-      todayISO: new Date().toISOString().split('T')[0],
-    },
+    body: { content, members, ...todayContext() },
   })
 
   if (error) throw new Error(error.message)
   return data as ClassifyResult
+}
+
+export interface UpdateActivityLite {
+  title: string
+  responsible: string
+  status: string
+  due_date: string
+  priority: number
+}
+
+export type UpdateAction =
+  | 'complete'
+  | 'reschedule'
+  | 'reassign'
+  | 'status'
+  | 'priority'
+  | 'unknown'
+
+export interface UpdateResult {
+  isUpdate: boolean
+  targetIndex: number
+  action: UpdateAction
+  changes: {
+    status: string | null
+    due_date: string | null
+    responsible: string | null
+    priority: number | null
+  }
+  reply: string
+}
+
+export async function resolveUpdate(
+  content: string,
+  activities: UpdateActivityLite[],
+  members: string[] = [],
+): Promise<UpdateResult> {
+  const { data, error } = await supabase.functions.invoke('ai-update', {
+    body: { content, activities, members, ...todayContext() },
+  })
+
+  if (error) throw new Error(error.message)
+  return data as UpdateResult
+}
+
+export async function classifyBulk(content: string, members: string[] = []): Promise<BulkResult> {
+  const { data, error } = await supabase.functions.invoke('ai-bulk', {
+    body: { content, members, ...todayContext() },
+  })
+
+  if (error) throw new Error(error.message)
+  const result = data as BulkResult
+  return { activities: Array.isArray(result?.activities) ? result.activities : [] }
 }
 
 export async function transcribeAudio(audioUrl: string): Promise<string> {
@@ -43,30 +115,12 @@ export async function transcribeAudio(audioUrl: string): Promise<string> {
 }
 
 export async function generateMinutes(transcript: string): Promise<string> {
-  const response = await fetch('https://api.openai.com/v1/chat/completions', {
-    method: 'POST',
-    headers: {
-      Authorization: `Bearer ${import.meta.env.VITE_OPENAI_API_KEY}`,
-      'Content-Type': 'application/json',
-    },
-    body: JSON.stringify({
-      model: import.meta.env.VITE_AI_MODEL || 'gpt-4o',
-      messages: [
-        {
-          role: 'system',
-          content:
-            'Eres un asistente que genera minutas de reunion en espanol. Incluye: resumen, asistentes, temas tratados, acuerdos y tareas pendientes con responsables. Formato markdown.',
-        },
-        { role: 'user', content: `Genera la minuta de esta transcripcion:\n\n${transcript}` },
-      ],
-      temperature: 0.3,
-      max_tokens: 1000,
-    }),
+  const { data, error } = await supabase.functions.invoke('ai-minutes', {
+    body: { transcript },
   })
 
-  if (!response.ok) throw new Error('Minutes generation failed')
-  const data = await response.json()
-  return data.choices?.[0]?.message?.content ?? ''
+  if (error) throw new Error(error.message)
+  return (data as { minutes: string }).minutes
 }
 
 interface TeamData {

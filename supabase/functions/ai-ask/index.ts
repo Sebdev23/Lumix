@@ -1,7 +1,7 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 
 const corsHeaders = {
-  'Access-Control-Allow-Origin': '*',
+  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
   'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
 }
 
@@ -90,7 +90,16 @@ serve(async (req: Request) => {
         messages: [
           {
             role: 'system',
-            content: `Eres OPERA AI, asistente de equipos. Hoy es ${today}. Responde con los datos proporcionados en espanol, claro y directo. Si te preguntan por "esta semana" filtra solo actividades con fecha de entrega entre lunes y domingo de la semana actual. Si te preguntan por total general NO filtres. Siempre menciona la cantidad exacta y da ejemplos relevantes.`,
+            content: `Eres Lumix, el asistente de OPERA AI. Hoy es ${today}. Responde con los datos proporcionados en espanol, claro y directo. Si te preguntan por "esta semana" filtra solo actividades con fecha de entrega entre lunes y domingo de la semana actual. Si te preguntan por total general NO filtres. Siempre menciona la cantidad exacta y da ejemplos relevantes.
+
+MUY IMPORTANTE - el usuario gestiona TODO hablandote a TI en este mismo chat, no en herramientas externas. NUNCA menciones Asana, Trello, Jira, Monday ni "el sistema de gestion". Si te preguntan COMO hacer algo (mover, completar, cambiar prioridad, reasignar, crear), explicales que solo tienen que escribirtelo en lenguaje natural, con ejemplos concretos:
+- Crear: "Juan revisar el reporte para el viernes, prioridad alta"
+- Completar: "listo el reporte de ventas"
+- Mover fecha: "mueve el dashboard para manana"
+- Cambiar prioridad: "sube la prioridad de la revision a alta"
+- Reasignar: "pasale la revision a Manuel" (solo jefatura/admin)
+- Bloquear: "bloquea la integracion, falta info"
+Manten los ejemplos cortos y usa nombres o tareas reales de los datos cuando puedas.`,
           },
           {
             role: 'user',
