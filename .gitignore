@@ -27,3 +27,6 @@ SUPABASE_CREDS.md
 *.njsproj
 *.sln
 *.sw?
+
+# Local Netlify folder
+.netlify
