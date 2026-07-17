@@ -1,3 +1,5 @@
+import { parseDateLocal } from '@shared/utils/date'
+
 export interface ActivityListItem {
   id: string
   title: string
@@ -59,7 +61,7 @@ export function ActivityListMessage({ header, items, onSelect }: Props) {
                 <span>👤 {it.responsibleName}</span>
                 <span>
                   📅{' '}
-                  {new Date(it.dueDate).toLocaleDateString('es-CL', {
+                  {parseDateLocal(it.dueDate).toLocaleDateString('es-CL', {
                     day: '2-digit',
                     month: '2-digit',
                   })}

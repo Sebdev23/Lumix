@@ -16,6 +16,9 @@ const ActivitiesPage = lazy(() =>
 const ErrorsPage = lazy(() =>
   import('@features/errors/components/ErrorsPage').then((m) => ({ default: m.ErrorsPage })),
 )
+const MinutaPage = lazy(() =>
+  import('@features/minuta/components/MinutaPage').then((m) => ({ default: m.MinutaPage })),
+)
 const NotificationsPage = lazy(() =>
   import('@features/notifications/components/NotificationsPage').then((m) => ({
     default: m.NotificationsPage,
@@ -87,6 +90,7 @@ export function App() {
                 >
                   <Route path="/chat" element={<ChatPage />} />
                   <Route path="/activities" element={<ActivitiesPage />} />
+                  <Route path="/minuta" element={<MinutaPage />} />
                   <Route path="/errors" element={<ErrorsPage />} />
                   <Route path="/meetings" element={<MeetingsPage />} />
                   <Route path="/dashboard" element={<DashboardPage />} />

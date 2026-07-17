@@ -1,23 +1,24 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
 import { useErrors, severityLabels, errorStatusLabels } from '@features/errors/hooks/useErrors'
 import { errorsService } from '@infrastructure/supabase/errors.service'
-import { profilesService } from '@infrastructure/supabase/profiles.service'
-import { useAuth } from '@core/auth/hooks/useAuth'
 import { exportToCSV } from '@shared/utils/export'
 import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
-import type { AppError, ErrorSeverity, ErrorStatus, Profile } from '@shared/types'
+import type { AppError, ErrorSeverity, ErrorStatus } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 
-const severityFilters: { value: ErrorSeverity | 'todas'; label: string }[] = [
-  { value: 'todas', label: 'Todas' },
-  { value: 'critica', label: 'Criticas' },
-  { value: 'alta', label: 'Altas' },
-  { value: 'media', label: 'Medias' },
-  { value: 'baja', label: 'Bajas' },
+const statusFilters: { value: ErrorStatus | 'todas' | 'activos'; label: string }[] = [
+  { value: 'todas', label: 'Todos' },
+  { value: 'activos', label: 'Activos' },
+  { value: 'abierto', label: 'Abiertos' },
+  { value: 'en_revision', label: 'En revision' },
+  { value: 'resuelto', label: 'Resueltos' },
+  { value: 'cerrado', label: 'Cerrados' },
 ]
+
+const severityOptions: (ErrorSeverity | 'todas')[] = ['todas', 'critica', 'alta', 'media', 'baja']
 
 const severityColors: Record<ErrorSeverity, BadgeVariant> = {
   baja: 'info',
@@ -58,23 +59,26 @@ function SeverityIcon({ severity }: { severity: ErrorSeverity }) {
 export function ErrorsPage() {
   const {
     errors,
+    members,
     loading,
+    filterStatus,
+    setFilterStatus,
     filterSeverity,
     setFilterSeverity,
+    filterMember,
+    setFilterMember,
+    dateType,
+    setDateType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
     changeStatus,
     counts,
     isInvitado,
     reload,
   } = useErrors()
   const [selectedError, setSelectedError] = useState<AppError | null>(null)
-  const [members, setMembers] = useState<Profile[]>([])
-  const { profile } = useAuth()
-
-  useEffect(() => {
-    if (profile?.team_id) {
-      profilesService.getByTeam(profile.team_id).then(setMembers)
-    }
-  }, [profile?.team_id])
 
   return (
     <div className="flex flex-col h-full">
@@ -132,23 +136,77 @@ export function ErrorsPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0">
-        {severityFilters.map((f) => (
+      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0 flex-nowrap">
+        {statusFilters.map((f) => (
           <button
             key={f.value}
-            onClick={() => setFilterSeverity(f.value)}
+            onClick={() => setFilterStatus(f.value)}
             className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
-              filterSeverity === f.value
+              filterStatus === f.value
                 ? 'bg-indigo-600/20 text-indigo-400'
                 : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
             }`}
           >
             {f.label}
-            <span className="ml-1.5 text-slate-600">
-              {f.value === 'todas' ? counts.todas : counts[f.value]}
-            </span>
+            <span className="ml-1.5 text-slate-600">{counts[f.value]}</span>
           </button>
         ))}
+        <select
+          value={filterSeverity}
+          onChange={(e) => setFilterSeverity(e.target.value as ErrorSeverity | 'todas')}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+        >
+          {severityOptions.map((s) => (
+            <option key={s} value={s}>
+              {s === 'todas' ? 'Toda severidad' : severityLabels[s]}
+            </option>
+          ))}
+        </select>
+        <select
+          value={filterMember}
+          onChange={(e) => setFilterMember(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+        >
+          <option value="todas">Todo el equipo</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.full_name}
+            </option>
+          ))}
+        </select>
+        <div className="w-px bg-slate-700 mx-1" />
+        <select
+          value={dateType}
+          onChange={(e) => setDateType(e.target.value as typeof dateType)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+        >
+          <option value="reportadas">Reportadas</option>
+          <option value="cerradas">Cerradas</option>
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+        />
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => {
+              setDateFrom('')
+              setDateTo('')
+            }}
+            className="px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+          >
+            Limpiar
+          </button>
+        )}
+        <div className="flex-1" />
       </div>
 
       {/* Error list */}

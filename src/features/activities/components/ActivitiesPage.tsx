@@ -12,6 +12,7 @@ import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { exportToCSV } from '@shared/utils/export'
 import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
+import { DatePicker } from '@shared/components/ui/DatePicker'
 import type { Activity, ActivityStatus } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 
@@ -65,6 +66,11 @@ export function ActivitiesPage() {
   const [editingPriority, setEditingPriority] = useState(false)
   const { profile } = useAuth()
   const isAdminOrJefe = profile?.role === 'admin' || profile?.role === 'jefatura'
+  // Solo se pueden editar actividades NO cerradas (estado != completado), y por quien corresponde.
+  const canEdit =
+    !!selectedActivity &&
+    selectedActivity.status !== 'completado' &&
+    (selectedActivity.responsible_id === profile?.id || isAdminOrJefe)
 
   return (
     <div className="flex flex-col h-full">
@@ -347,7 +353,10 @@ export function ActivitiesPage() {
       {/* Detail modal */}
       <Modal
         open={!!selectedActivity}
-        onClose={() => setSelectedActivity(null)}
+        onClose={() => {
+          setSelectedActivity(null)
+          setEditingPriority(false)
+        }}
         title={selectedActivity?.title}
         size="md"
       >
@@ -355,7 +364,7 @@ export function ActivitiesPage() {
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
             <div>
               <p className="text-xs text-slate-500 mb-1">Descripcion</p>
-              {isAdminOrJefe || selectedActivity.responsible_id === profile?.id ? (
+              {canEdit ? (
                 <textarea
                   defaultValue={selectedActivity.description || ''}
                   onBlur={async (e) => {
@@ -387,8 +396,7 @@ export function ActivitiesPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">Prioridad</p>
-                {(isAdminOrJefe || selectedActivity.responsible_id === profile?.id) &&
-                editingPriority ? (
+                {canEdit && editingPriority ? (
                   <div className="flex gap-1">
                     {[1, 2, 3].map((p) => (
                       <button
@@ -414,15 +422,12 @@ export function ActivitiesPage() {
                 ) : (
                   <div
                     className="flex items-center gap-1"
-                    onClick={() =>
-                      (isAdminOrJefe || selectedActivity.responsible_id === profile?.id) &&
-                      setEditingPriority(true)
-                    }
+                    onClick={() => canEdit && setEditingPriority(true)}
                   >
                     {[1, 2, 3].map((p) => (
                       <div
                         key={p}
-                        className={`w-2 h-4 rounded-sm ${p >= selectedActivity.priority ? priorityColors[p] : 'bg-slate-700'} ${isAdminOrJefe || selectedActivity.responsible_id === profile?.id ? 'cursor-pointer' : ''}`}
+                        className={`w-2 h-4 rounded-sm ${p >= selectedActivity.priority ? priorityColors[p] : 'bg-slate-700'} ${canEdit ? 'cursor-pointer' : ''}`}
                       />
                     ))}
                     <span className="text-xs text-slate-400 ml-1">
@@ -439,17 +444,16 @@ export function ActivitiesPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">Fecha entrega</p>
-                {isAdminOrJefe || selectedActivity.responsible_id === profile?.id ? (
-                  <input
-                    type="date"
-                    defaultValue={selectedActivity.due_date.split('T')[0]}
-                    onChange={async (e) => {
-                      const newDate = new Date(e.target.value).toISOString()
+                {canEdit ? (
+                  <DatePicker
+                    value={selectedActivity.due_date.split('T')[0]}
+                    onChange={async (v) => {
+                      if (!v) return
+                      const newDate = new Date(v).toISOString()
                       await activitiesService.update(selectedActivity.id, { due_date: newDate })
                       setSelectedActivity({ ...selectedActivity, due_date: newDate })
                       reload()
                     }}
-                    className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
                   />
                 ) : (
                   <p
@@ -461,7 +465,7 @@ export function ActivitiesPage() {
               </div>
             </div>
 
-            {(isAdminOrJefe || selectedActivity.responsible_id === profile?.id) && (
+            {canEdit && (
               <div>
                 <p className="text-xs text-slate-500 mb-1">Horas estimadas</p>
                 <div className="flex gap-1">

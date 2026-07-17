@@ -16,7 +16,11 @@ import {
   type ActivityListItem,
 } from '@features/chat/components/ActivityListMessage'
 import type { ActivityStatus } from '@shared/types'
-import type { PendingActivity, PendingUpdate } from '@features/chat/hooks/useChatMessages'
+import type {
+  PendingActivity,
+  PendingUpdate,
+  PendingCategory,
+} from '@features/chat/hooks/useChatMessages'
 
 type NameConfirm = { candidates: { id: string; name: string }[]; pending: PendingActivity }
 type ActivityPick = { candidates: { id: string; title: string }[]; pending: PendingUpdate }
@@ -36,6 +40,11 @@ export function ChatPage() {
   const [overloadData, setOverloadData] = useState<Record<string, unknown> | null>(null)
   const [nameConfirm, setNameConfirm] = useState<NameConfirm | null>(null)
   const [activityPick, setActivityPick] = useState<ActivityPick | null>(null)
+  const [categoryConfirm, setCategoryConfirm] = useState<{
+    pending: PendingCategory
+    messageId: string
+  } | null>(null)
+  const [savingCategory, setSavingCategory] = useState(false)
   const [editTarget, setEditTarget] = useState<ActivityListItem | null>(null)
   const [editForm, setEditForm] = useState<{
     priority: number
@@ -74,6 +83,7 @@ export function ChatPage() {
     parseBulk,
     bulkCreate,
     createResolvedActivity,
+    confirmCategory,
     quickUpdate,
     applyPendingUpdate,
     editActivityFields,
@@ -119,6 +129,22 @@ export function ChatPage() {
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
+  }, [messages])
+
+  // Abrir el popout de categoria automaticamente (sin que el usuario tenga que tocar el mensaje):
+  // asi no cree que ya se creo y se olvide de elegir/asignar. El mensaje queda clickeable por si cancela.
+  const autoOpenedRef = useRef<Set<string>>(new Set())
+  useEffect(() => {
+    const pendingMsg = messages.find(
+      (m) => m.metadata?.type === 'category_confirm' && !autoOpenedRef.current.has(m.id),
+    )
+    if (pendingMsg) {
+      autoOpenedRef.current.add(pendingMsg.id)
+      setCategoryConfirm({
+        pending: (pendingMsg.metadata as unknown as { pending: PendingCategory }).pending,
+        messageId: pendingMsg.id,
+      })
+    }
   }, [messages])
 
   const handleSend = useCallback(async () => {
@@ -350,6 +376,33 @@ export function ChatPage() {
                     <button
                       onClick={() => setActivityPick(msg.metadata as unknown as ActivityPick)}
                       className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-indigo-500/20"
+                    >
+                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
+                    </button>
+                    <span className="text-[10px] text-slate-500 mt-1 ml-1">
+                      {new Date(msg.created_at).toLocaleTimeString('es-CL', {
+                        hour: '2-digit',
+                        minute: '2-digit',
+                      })}
+                    </span>
+                  </div>
+                </div>
+              ) : msg.metadata?.type === 'category_confirm' ? (
+                <div key={msg.id} className="flex gap-3 max-w-[85%]">
+                  <div className="w-7 h-7 rounded-full bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5">
+                    <span className="text-[11px] font-semibold text-indigo-400">L</span>
+                  </div>
+                  <div className="flex flex-col">
+                    <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
+                    <button
+                      onClick={() =>
+                        setCategoryConfirm({
+                          pending: (msg.metadata as unknown as { pending: PendingCategory })
+                            .pending,
+                          messageId: msg.id,
+                        })
+                      }
+                      className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-amber-500/20"
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.content}</p>
                     </button>
@@ -808,6 +861,66 @@ export function ChatPage() {
                 </div>
               </>
             )}
+          </div>
+        </div>
+      )}
+
+      {/* Confirmacion de categoria ambigua (actividad vs error/ingesta).
+          No se cierra tocando afuera: obliga a elegir una opcion o Cancelar, para que nunca quede a medias. */}
+      {categoryConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4">
+            <p className="text-sm font-medium text-amber-400 mb-1">¿Que tipo es?</p>
+            <p className="text-xs text-slate-400 mb-3 leading-snug">
+              "{categoryConfirm.pending.title}"
+            </p>
+            <div className="space-y-2">
+              {[
+                { value: 'actividad' as const, label: 'Actividad', hint: 'lo mas comun' },
+                ...categoryConfirm.pending.options.map((o) =>
+                  o === 'ingesta'
+                    ? {
+                        value: 'ingesta' as const,
+                        label: 'Ingesta de datos',
+                        hint: 'carga/proceso de datos',
+                      }
+                    : { value: 'error' as const, label: 'Error', hint: 'reportar una falla' },
+                ),
+              ].map((opt) => (
+                <button
+                  key={opt.value}
+                  disabled={savingCategory}
+                  onClick={async () => {
+                    setSavingCategory(true)
+                    try {
+                      await confirmCategory(
+                        categoryConfirm.pending,
+                        opt.value,
+                        categoryConfirm.messageId,
+                      )
+                      setCategoryConfirm(null)
+                    } finally {
+                      setSavingCategory(false)
+                    }
+                  }}
+                  className={`w-full text-left px-3 py-2 rounded-lg transition-colors disabled:opacity-50 ${
+                    opt.value === 'actividad'
+                      ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/40 hover:bg-indigo-600/30'
+                      : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                  }`}
+                >
+                  <span className="text-sm font-medium">{opt.label}</span>
+                  <span className="block text-[11px] text-slate-400">{opt.hint}</span>
+                </button>
+              ))}
+              <button
+                disabled={savingCategory}
+                onClick={() => setCategoryConfirm(null)}
+                className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-red-400 transition-colors disabled:opacity-50"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

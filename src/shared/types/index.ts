@@ -57,6 +57,32 @@ export interface AppError {
   observations: string
 }
 
+export type MinuteEstado = 'pendiente' | 'en_desarrollo' | 'resuelto' | 'definir'
+
+export interface PlazoHistoryEntry {
+  date: string // YYYY-MM-DD
+  at: string // ISO timestamp del cambio
+}
+
+export interface MinuteItem {
+  id: string
+  team_id: string
+  orden: number
+  tema: string
+  para_todos: boolean // tema colectivo/seguimiento: sin responsable individual, no genera actividad
+  responsables: string[] // ids de miembros asignados (uno o varios)
+  responsables_text: string // fallback libre (externos, etc.)
+  estado: MinuteEstado
+  plazo: string | null // YYYY-MM-DD
+  plazo_change_count: number
+  plazo_history: PlazoHistoryEntry[]
+  comentarios: string
+  linked_activity_ids: string[]
+  created_by: string
+  created_at: string
+  updated_at: string
+}
+
 export interface Meeting {
   id: string
   title: string

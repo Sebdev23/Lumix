@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { formatDateLocal } from '@shared/utils/date'
 
 export interface ActivityCardMeta {
   activityId: string
@@ -64,10 +65,9 @@ export function ActivityCard({
   const [busy, setBusy] = useState(false)
 
   const isDone = meta.status === 'completado'
-  const dueLabel = new Date(meta.dueDate).toLocaleDateString('es-CL', {
-    day: '2-digit',
-    month: '2-digit',
-  })
+  // formatDateLocal: formato familiar en Chile DD-MM-AAAA y ademas interpreta la fecha como
+  // local (evita el corrimiento de 1 dia por zona horaria). Coincide con el listado.
+  const dueLabel = formatDateLocal(meta.dueDate)
 
   const openAssign = async () => {
     if (panel === 'assign') {

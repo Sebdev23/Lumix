@@ -6,6 +6,7 @@ import { getDaysRemaining, getDaysColor } from '@features/activities/hooks/useAc
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { formatDateLocal } from '@shared/utils/date'
+import { DatePicker } from '@shared/components/ui/DatePicker'
 import type { Activity } from '@shared/types'
 
 const priorityColors: Record<number, string> = {
@@ -361,15 +362,14 @@ export function GanttPage() {
               <div>
                 <p className="text-xs text-slate-500 mb-1">Entrega</p>
                 {canEdit ? (
-                  <input
-                    type="date"
-                    defaultValue={selectedActivity.due_date.split('T')[0]}
-                    onChange={async (e) => {
-                      const newDate = new Date(e.target.value).toISOString()
+                  <DatePicker
+                    value={selectedActivity.due_date.split('T')[0]}
+                    onChange={async (v) => {
+                      if (!v) return
+                      const newDate = new Date(v).toISOString()
                       await activitiesService.update(selectedActivity.id, { due_date: newDate })
                       setSelectedActivity({ ...selectedActivity, due_date: newDate })
                     }}
-                    className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
                   />
                 ) : (
                   <p

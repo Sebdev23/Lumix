@@ -40,6 +40,7 @@ export const teamsService = {
       .from('team_members')
       .select('*, profile:profiles(full_name, email)')
       .eq('team_id', teamId)
+      .neq('role', 'admin')
     if (error) throw error
     return data as unknown as (TeamMember & { profile: { full_name: string; email: string } })[]
   },

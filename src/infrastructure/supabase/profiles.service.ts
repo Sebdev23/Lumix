@@ -15,10 +15,10 @@ export const profilesService = {
       .eq('team_id', teamId)
 
     if (error) throw error
-    return (data ?? []).map((row: { user: unknown }) => {
-      const p = row.user as Profile
-      return p
-    })
+    // El admin es supervisor global, no miembro de los equipos: no se lista como integrante.
+    return (data ?? [])
+      .map((row: { user: unknown }) => row.user as Profile)
+      .filter((p) => p && p.role !== 'admin')
   },
 
   async update(id: string, updates: Partial<Profile>): Promise<Profile> {

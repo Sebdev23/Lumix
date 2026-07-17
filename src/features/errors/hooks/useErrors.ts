@@ -1,13 +1,23 @@
 import { useState, useEffect } from 'react'
 import { errorsService } from '@infrastructure/supabase/errors.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
+import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
-import type { AppError, ErrorSeverity, ErrorStatus } from '@shared/types'
+import { parseDateLocal } from '@shared/utils/date'
+import type { AppError, ErrorSeverity, ErrorStatus, Profile } from '@shared/types'
+
+const SEVERITY_ORDER: Record<ErrorSeverity, number> = { critica: 0, alta: 1, media: 2, baja: 3 }
 
 export function useErrors() {
   const [errors, setErrors] = useState<AppError[]>([])
+  const [members, setMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
+  const [filterStatus, setFilterStatus] = useState<ErrorStatus | 'todas' | 'activos'>('todas')
   const [filterSeverity, setFilterSeverity] = useState<ErrorSeverity | 'todas'>('todas')
+  const [filterMember, setFilterMember] = useState<string>('todas')
+  const [dateType, setDateType] = useState<'reportadas' | 'cerradas'>('reportadas')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
   const isInvitado = profile?.role === 'invitado'
@@ -19,14 +29,7 @@ export function useErrors() {
     let cancelled = false
 
     async function load() {
-      const data = filterSeverity === 'todas'
-        ? isInvitado
-          ? await errorsService.getAll()
-          : await errorsService.getByTeam(teamId)
-        : isInvitado
-          ? await errorsService.getAllBySeverity(filterSeverity)
-          : await errorsService.getBySeverity(teamId, filterSeverity)
-
+      const data = isInvitado ? await errorsService.getAll() : await errorsService.getByTeam(teamId)
       if (cancelled) return
       setErrors(data)
       setLoading(false)
@@ -34,20 +37,95 @@ export function useErrors() {
 
     load()
 
+    if (teamId) {
+      profilesService.getByTeam(teamId).then((m) => {
+        if (!cancelled) setMembers(m)
+      })
+    }
+
     if (!isInvitado && teamId) {
       let channel: Awaited<ReturnType<typeof errorsService.subscribeToTeam>>
-      errorsService.subscribeToTeam(teamId, () => {
-        if (!cancelled) load()
-      }).then((ch) => { channel = ch })
-
+      errorsService
+        .subscribeToTeam(teamId, () => {
+          if (!cancelled) load()
+        })
+        .then((ch) => {
+          channel = ch
+        })
       return () => {
         cancelled = true
         channel?.unsubscribe()
       }
     }
 
-    return () => { cancelled = true }
-  }, [filterSeverity, user, teamId, isInvitado])
+    return () => {
+      cancelled = true
+    }
+  }, [user, teamId, isInvitado])
+
+  // Filtrado client-side (igual que Actividades)
+  let filtered = errors
+  if (filterStatus === 'activos') {
+    filtered = filtered.filter((e) => e.status !== 'cerrado')
+  } else if (filterStatus !== 'todas') {
+    filtered = filtered.filter((e) => e.status === filterStatus)
+  }
+
+  // Base de contadores: aplica severidad/responsable/fecha, pero NO el filtro de estado
+  let countBase = errors
+
+  if (filterSeverity !== 'todas') {
+    filtered = filtered.filter((e) => e.severity === filterSeverity)
+    countBase = countBase.filter((e) => e.severity === filterSeverity)
+  }
+
+  if (filterMember !== 'todas') {
+    filtered = filtered.filter((e) => e.responsible_id === filterMember)
+    countBase = countBase.filter((e) => e.responsible_id === filterMember)
+  }
+
+  if (dateFrom && dateTo) {
+    const datePredicate = (e: AppError) => {
+      const field = dateType === 'cerradas' ? e.resolved_at : e.date
+      if (!field) return false
+      const d = parseDateLocal(field)
+      const from = parseDateLocal(dateFrom + 'T00:00:00')
+      const to = parseDateLocal(dateTo + 'T23:59:59')
+      return d >= from && d <= to
+    }
+    filtered = filtered.filter(datePredicate)
+    countBase = countBase.filter(datePredicate)
+  }
+
+  // Orden: mas recientes primero; a igualdad de fecha, mayor severidad primero
+  filtered = [...filtered].sort((a, b) => {
+    const byDate = parseDateLocal(b.date).getTime() - parseDateLocal(a.date).getTime()
+    if (byDate !== 0) return byDate
+    return (SEVERITY_ORDER[a.severity] ?? 9) - (SEVERITY_ORDER[b.severity] ?? 9)
+  })
+
+  const allStatuses: (ErrorStatus | 'todas' | 'activos')[] = [
+    'todas',
+    'activos',
+    'abierto',
+    'en_revision',
+    'resuelto',
+    'cerrado',
+  ]
+  const counts = {} as Record<ErrorStatus | 'todas' | 'activos', number>
+  for (const s of allStatuses) {
+    counts[s] =
+      s === 'todas'
+        ? countBase.length
+        : s === 'activos'
+          ? countBase.filter((e) => e.status !== 'cerrado').length
+          : countBase.filter((e) => e.status === s).length
+  }
+
+  async function reloadErrors() {
+    const data = isInvitado ? await errorsService.getAll() : await errorsService.getByTeam(teamId)
+    setErrors(data)
+  }
 
   const changeStatus = async (id: string, newStatus: ErrorStatus) => {
     await errorsService.update(id, { status: newStatus })
@@ -64,41 +142,42 @@ export function useErrors() {
       }
     }
 
-    const data = filterSeverity === 'todas'
-      ? isInvitado
-        ? await errorsService.getAll()
-        : await errorsService.getByTeam(teamId)
-      : isInvitado
-        ? await errorsService.getAllBySeverity(filterSeverity)
-        : await errorsService.getBySeverity(teamId, filterSeverity)
-    setErrors(data)
+    await reloadErrors()
   }
 
-  const counts: Record<ErrorSeverity | 'todas', number> = {
-    todas: 0, baja: 0, media: 0, alta: 0, critica: 0,
+  return {
+    errors: filtered,
+    members,
+    loading,
+    filterStatus,
+    setFilterStatus,
+    filterSeverity,
+    setFilterSeverity,
+    filterMember,
+    setFilterMember,
+    dateType,
+    setDateType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    changeStatus,
+    counts,
+    isInvitado,
+    reload: reloadErrors,
   }
-
-  errors.forEach((e) => {
-    counts.todas++
-    if (counts[e.severity] !== undefined) counts[e.severity]++
-  })
-
-  return { errors, loading, filterSeverity, setFilterSeverity, changeStatus, counts, isInvitado, reload: async () => {
-    const data = filterSeverity === 'todas'
-      ? isInvitado
-        ? await errorsService.getAll()
-        : await errorsService.getByTeam(teamId)
-      : isInvitado
-        ? await errorsService.getAllBySeverity(filterSeverity)
-        : await errorsService.getBySeverity(teamId, filterSeverity)
-    setErrors(data)
-  }}
 }
 
 export const severityLabels: Record<ErrorSeverity, string> = {
-  baja: 'Baja', media: 'Media', alta: 'Alta', critica: 'Critica',
+  baja: 'Baja',
+  media: 'Media',
+  alta: 'Alta',
+  critica: 'Critica',
 }
 
 export const errorStatusLabels: Record<ErrorStatus, string> = {
-  abierto: 'Abierto', en_revision: 'En revision', resuelto: 'Resuelto', cerrado: 'Cerrado',
+  abierto: 'Abierto',
+  en_revision: 'En revision',
+  resuelto: 'Resuelto',
+  cerrado: 'Cerrado',
 }

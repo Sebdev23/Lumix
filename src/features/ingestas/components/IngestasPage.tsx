@@ -1,17 +1,23 @@
-import { useState, useEffect } from 'react'
+import { useState } from 'react'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
 import { useIngestas, statusLabels } from '@features/ingestas/hooks/useIngestas'
 import { getDaysRemaining, getDaysColor } from '@features/activities/hooks/useActivities'
-import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
-import { useAuth } from '@core/auth/hooks/useAuth'
 import { exportToCSV } from '@shared/utils/export'
 import { formatDateLocal } from '@shared/utils/date'
+import { DatePicker } from '@shared/components/ui/DatePicker'
 import type { Activity, ActivityStatus } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
-import type { Profile } from '@shared/types'
+
+const statusFilters: { value: ActivityStatus | 'todas' | 'activas'; label: string }[] = [
+  { value: 'todas', label: 'Todas' },
+  { value: 'activas', label: 'Activas' },
+  { value: 'pendiente', label: 'Pendientes' },
+  { value: 'en_proceso', label: 'En proceso' },
+  { value: 'completado', label: 'Completadas' },
+]
 
 const statusColors: Record<ActivityStatus, BadgeVariant> = {
   pendiente: 'warning',
@@ -29,16 +35,24 @@ const priorityColors: Record<number, string> = {
 }
 
 export function IngestasPage() {
-  const { activities, loading, changeStatus } = useIngestas()
+  const {
+    activities,
+    members,
+    loading,
+    filterStatus,
+    setFilterStatus,
+    filterMember,
+    setFilterMember,
+    dateType,
+    setDateType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
+    counts,
+    changeStatus,
+  } = useIngestas()
   const [selected, setSelected] = useState<Activity | null>(null)
-  const [members, setMembers] = useState<Profile[]>([])
-  const { profile } = useAuth()
-
-  useEffect(() => {
-    if (profile?.team_id) {
-      profilesService.getByTeam(profile.team_id).then(setMembers)
-    }
-  }, [profile?.team_id])
 
   return (
     <div className="flex flex-col h-full">
@@ -77,8 +91,72 @@ export function IngestasPage() {
             </svg>
             Excel
           </button>
-          <span className="text-xs text-slate-500">{activities.length} total</span>
+          <span className="text-xs text-slate-500">{counts.todas} total</span>
         </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0 flex-nowrap">
+        {statusFilters.map((f) => (
+          <button
+            key={f.value}
+            onClick={() => setFilterStatus(f.value)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
+              filterStatus === f.value
+                ? 'bg-indigo-600/20 text-indigo-400'
+                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+            }`}
+          >
+            {f.label}
+            <span className="ml-1.5 text-slate-600">{counts[f.value]}</span>
+          </button>
+        ))}
+        <select
+          value={filterMember}
+          onChange={(e) => setFilterMember(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+        >
+          <option value="todas">Todo el equipo</option>
+          {members.map((m) => (
+            <option key={m.id} value={m.id}>
+              {m.full_name}
+            </option>
+          ))}
+        </select>
+        <div className="w-px bg-slate-700 mx-1" />
+        <select
+          value={dateType}
+          onChange={(e) => setDateType(e.target.value as typeof dateType)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+        >
+          <option value="entrega">Entrega</option>
+          <option value="creadas">Creadas</option>
+          <option value="cerradas">Cerradas</option>
+        </select>
+        <input
+          type="date"
+          value={dateFrom}
+          onChange={(e) => setDateFrom(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+        />
+        <input
+          type="date"
+          value={dateTo}
+          onChange={(e) => setDateTo(e.target.value)}
+          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+        />
+        {(dateFrom || dateTo) && (
+          <button
+            onClick={() => {
+              setDateFrom('')
+              setDateTo('')
+            }}
+            className="px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+          >
+            Limpiar
+          </button>
+        )}
+        <div className="flex-1" />
       </div>
 
       <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
@@ -265,15 +343,14 @@ export function IngestasPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">Entrega</p>
-                <input
-                  type="date"
-                  defaultValue={selected.due_date.split('T')[0]}
-                  onChange={async (e) => {
-                    const d = new Date(e.target.value).toISOString()
+                <DatePicker
+                  value={selected.due_date.split('T')[0]}
+                  onChange={async (v) => {
+                    if (!v) return
+                    const d = new Date(v).toISOString()
                     await activitiesService.update(selected.id, { due_date: d })
                     setSelected({ ...selected, due_date: d })
                   }}
-                  className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
                 />
               </div>
               <div>

@@ -10,7 +10,7 @@ export function useActivities() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [members, setMembers] = useState<Profile[]>([])
   const [loading, setLoading] = useState(true)
-  const [filterStatus, setFilterStatus] = useState<ActivityStatus | 'todas' | 'activas'>('todas')
+  const [filterStatus, setFilterStatus] = useState<ActivityStatus | 'todas' | 'activas'>('activas')
   const [filterDate, setFilterDate] = useState<'todas' | 'hoy' | 'semana' | 'mes'>('todas')
   const [dateType, setDateType] = useState<'creadas' | 'cerradas' | 'entrega'>('entrega')
   const [dateFrom, setDateFrom] = useState('')

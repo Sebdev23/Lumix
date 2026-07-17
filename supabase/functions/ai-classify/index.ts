@@ -51,10 +51,27 @@ REGLAS PARA LA DESCRIPCION:
 - Si el mensaje menciona personas especificas, sistemas, KPIs, o fechas, incluyelos
 
 REGLAS PARA CLASIFICAR LA CATEGORIA:
-- ERROR: el mensaje describe una falla, bug, mal funcionamiento o problema tecnico. Palabras clave: "error", "falla", "no funciona", "bug", "roto", "caido", "no carga", "no responde", "se cayo", "duplicado", "no se visualiza", "no se actualiza". Si el mensaje empieza con "Error"/"error" es ERROR.
-- INGESTA: el mensaje pide cargar, procesar, mover o transformar DATOS. Palabras clave: "ingesta", "ingestar", "ingerir", "cargar datos", "subir datos", "descargar datos", "importar datos", "exportar datos", "migrar datos", "ETL", "pipeline de datos", "poblar tabla", "actualizar base de datos".
-- ACTIVIDAD: todo lo demas: tareas, solicitudes, pedidos, reportes, ajustes, revisiones, creaciones, modificaciones.
-- Si no estas seguro entre actividad e ingesta, usa ACTIVIDAD. Si no estas seguro entre actividad y error, usa ACTIVIDAD.
+- ERROR: el mensaje REPORTA que algo YA esta fallando ahora (estado presente de falla). Palabras clave: "error", "falla", "no funciona", "bug", "roto", "caido", "no carga", "no responde", "se cayo", "duplicado", "no se visualiza", "no se actualiza", "esta mal", "arroja error". Si el mensaje empieza con "Error"/"error" es ERROR.
+  - OJO: pedir REVISAR, ARREGLAR o INVESTIGAR algo que podria fallar NO es error por si solo; si el foco es la accion a realizar es ACTIVIDAD. Ej: "el reporte esta duplicado" = ERROR; "revisar por que el reporte sale duplicado" = ACTIVIDAD.
+- INGESTA: trabajo TECNICO de datos del ingeniero de datos: cargar/mover/transformar datos hacia (o desde) un SISTEMA o DESTINO tecnico explicito. Debe mencionar (o implicar claramente) uno de estos destinos/herramientas: "tabla", "base de datos", "datawarehouse", "data lake", "BI", "Power BI", "pipeline", "ETL", "SAP", "sistema", "esquema", "query", "SQL". Palabras clave: "ingesta", "ingestar", "ingerir", "cargar datos a...", "importar/exportar/migrar datos", "poblar tabla", "actualizar base de datos", "cruzar datos".
+  - OJO 1: "cargar/mover" cosas FISICAS (camion, producto, pallet, congelado) NO es ingesta, es ACTIVIDAD.
+  - OJO 2: "cargar/preparar/subir" KPIs, indicadores, cifras, reportes o planillas SIN un destino tecnico de datos explicito es una TAREA de negocio => ACTIVIDAD, no ingesta. Solo es ingesta si dice claramente a que tabla/base/sistema van esos datos. Ante la duda, ACTIVIDAD.
+- ACTIVIDAD: todo lo demas: tareas, solicitudes, pedidos, reportes, ajustes, revisiones, coordinaciones, reuniones, creaciones, modificaciones operativas.
+- Ante la duda: entre actividad e ingesta usa ACTIVIDAD; entre actividad y error usa ACTIVIDAD. El campo "confidence" debe reflejar tu certeza real (usa <0.6 cuando dudas).
+
+EJEMPLOS (mensaje -> category):
+- "Sebastian, preparar el reporte de ventas para el viernes" -> actividad (responsible: "Sebastian")
+- "Revisar utilizacion del frigorifico Rosario con Emilio Ruiz" -> actividad
+- "El tablero de produccion no carga desde ayer" -> error (severity segun impacto)
+- "Error: el reporte SAP PM muestra ordenes duplicadas" -> error
+- "Revisar por que el tablero de produccion sale lento" -> actividad (la accion es revisar)
+- "Cargar los datos de ventas de junio a la tabla de BI" -> ingesta (tiene destino tecnico: tabla de BI)
+- "Cargar KPIs estrategicos de junio" -> actividad (no hay destino tecnico de datos; es preparar indicadores)
+- "Subir los indicadores del mes al reporte de gerencia" -> actividad (reporte de negocio, no sistema de datos)
+- "Ingestar el maestro de clientes al datawarehouse" -> ingesta
+- "Coordinar la carga del camion de congelado para manana" -> actividad (carga fisica, no datos)
+- "Actualizar la base de datos de precios con el archivo nuevo" -> ingesta
+- "Agendar reunion de planificacion semanal con el equipo" -> actividad
 
 REGLAS PARA EL RESPONSABLE:
 - Se te entrega la lista de miembros del equipo. Si el mensaje menciona a una persona, devuelve en "responsible" su NOMBRE EXACTO tal como aparece en la lista (respetando mayusculas y tildes).

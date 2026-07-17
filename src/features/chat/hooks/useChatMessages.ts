@@ -14,6 +14,7 @@ import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { formatDateLocal } from '@shared/utils/date'
 import type { ChatMessage, SendMessagePayload } from '@features/chat/types'
 import type { Activity, ActivityStatus } from '@shared/types'
 
@@ -30,6 +31,12 @@ const STATUS_LABELS: Record<string, string> = {
 // antes de llamar a la IA de actualizacion). La IA decide en definitiva (isUpdate).
 const UPDATE_VERBS =
   /(\blist[oa]s?\b|complet|termin|finaliz|\bhech[oa]\b|mueve|p[aá]sala|p[aá]sale|reprogram|posterg|adelant|reasign|as[ií]gnal|bloque|desbloque|en proceso|falta info|esperando aprob|prioridad|cambia)/i
+
+// Primer filtro para el popout: si el texto MENCIONA la palabra "error" o "ingesta",
+// en modo Auto siempre preguntamos que tipo es (actividad / error / ingesta). Solo se salta
+// si el usuario ya eligio el tipo con el selector del chat (ahi es explicito y no hay duda).
+const MENTIONS_ERROR = /\berror(es)?\b/i
+const MENTIONS_INGESTA = /\bingest(a|ar|as|ando|amos)\b/i
 
 function addBusinessDays(date: Date, days: number): Date {
   const result = new Date(date)
@@ -261,6 +268,19 @@ export interface PendingUpdate {
   reply: string
 }
 
+export interface PendingCategory {
+  content: string
+  title: string
+  priority: number
+  dueDate: string
+  severity: string | null
+  responsibleHint: string | null
+  senderId: string
+  // Opciones no-actividad a ofrecer en el popout, segun las palabras encontradas en el texto.
+  options: ('error' | 'ingesta')[]
+  sourceMessageId: string
+}
+
 export interface QuickChanges {
   status?: ActivityStatus
   due_date?: string
@@ -305,11 +325,16 @@ export function useChatMessages() {
             return { ...msg, sender: { full_name: 'Lumix', avatar_url: null }, sender_id: 'ai' }
           }
           const member = members.find((m) => m.id === msg.sender_id)
+          // El admin no esta en la lista de miembros: resolvemos su propio nombre con su perfil.
+          const ownFallback =
+            msg.sender_id === user?.id
+              ? { full_name: profile?.full_name ?? 'Yo', avatar_url: profile?.avatar_url ?? null }
+              : null
           return {
             ...msg,
             sender: member
               ? { full_name: member.full_name, avatar_url: member.avatar_url ?? null }
-              : null,
+              : ownFallback,
           }
         }),
       )
@@ -353,7 +378,12 @@ export function useChatMessages() {
                   ? { full_name: 'Lumix', avatar_url: null }
                   : member
                     ? { full_name: member.full_name, avatar_url: member.avatar_url }
-                    : null,
+                    : newMsg.sender_id === user?.id
+                      ? {
+                          full_name: profile?.full_name ?? 'Yo',
+                          avatar_url: profile?.avatar_url ?? null,
+                        }
+                      : null,
               },
             ]
           })
@@ -515,7 +545,7 @@ export function useChatMessages() {
       try {
         await notificationsService.send(opts.responsibleId, {
           title: 'Nueva actividad asignada',
-          body: `"${cleanTitle}" - Entrega: ${new Date(opts.dueDate).toLocaleDateString('es-CL')}`,
+          body: `"${cleanTitle}" - Entrega: ${formatDateLocal(opts.dueDate)}`,
           type: 'deadline_soon',
           metadata: { activity_id: activity.id },
         })
@@ -530,7 +560,8 @@ export function useChatMessages() {
         : isIngesta
           ? `Ingesta "${cleanTitle}" registrada.`
           : `Actividad "${cleanTitle}" creada.`
-      await emitActivityCard(activity, opts.responsibleName, reply)
+      // Confirmacion simple en texto (se persiste igual que se ve, sin discrepancia al recargar).
+      await aiSay(reply)
       if (assignedToOther) {
         await aiSay(`📨 Notificacion enviada a ${opts.responsibleName}`)
       }
@@ -606,7 +637,7 @@ export function useChatMessages() {
       try {
         await notificationsService.send(updates.responsible_id, {
           title: 'Actividad reasignada',
-          body: `"${updated.title}" - Entrega: ${new Date(updated.due_date).toLocaleDateString('es-CL')}`,
+          body: `"${updated.title}" - Entrega: ${formatDateLocal(updated.due_date)}`,
           type: 'deadline_soon',
           metadata: { activity_id: updated.id },
         })
@@ -820,6 +851,202 @@ export function useChatMessages() {
     })
   }
 
+  // Registra un error en la bitacora a partir de un mensaje ya clasificado como error.
+  async function createErrorFromMessage(opts: {
+    content: string
+    title: string
+    severity: string
+    senderId: string
+    sourceMessageId?: string
+  }) {
+    const error = await errorsService.create({
+      title: opts.title,
+      description: opts.content,
+      severity: (opts.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
+      responsible_id: opts.senderId,
+      status: 'abierto',
+      date: new Date().toISOString().split('T')[0],
+      time: new Date().toTimeString().slice(0, 8),
+      team_id: teamId,
+      created_by: opts.senderId,
+    })
+    await aiSay(
+      `Error "${error.title}" registrado en bitacora. Severidad: ${error.severity}.`,
+      'error',
+    )
+    if (opts.sourceMessageId) {
+      setMessages((prev) =>
+        prev.map((m) => (m.id === opts.sourceMessageId ? { ...m, category: 'error' } : m)),
+      )
+    }
+    return error
+  }
+
+  // Crea actividad o ingesta: resuelve responsable, chequea sobrecarga y persiste.
+  // Puede abrir popouts (name_confirm / overload) si hace falta antes de crear.
+  async function createActivityOrIngesta(opts: {
+    content: string
+    title: string
+    actCategory: 'actividad' | 'ingesta'
+    priority: number
+    dueDate: string
+    senderId: string
+    responsibleHint?: string | null
+    sourceMessageId?: string
+  }) {
+    const { content, title, actCategory, priority, dueDate, senderId } = opts
+    const members = await ensureMembers()
+
+    let responsibleId = senderId
+    let responsibleName = profile?.full_name ?? ''
+
+    if (canAssignOthers && opts.responsibleHint) {
+      const matches = matchMembers(opts.responsibleHint, members)
+      if (matches.length === 1) {
+        responsibleId = matches[0].id
+        responsibleName = matches[0].full_name
+      } else {
+        // 0 o >1 coincidencias => preguntar en el chat y NO crear todavia
+        const notFound = matches.length === 0
+        const candidates = (notFound ? members : matches).map((m) => ({
+          id: m.id,
+          name: m.full_name,
+        }))
+        const pending: PendingActivity = {
+          title,
+          description: content,
+          priority,
+          dueDate,
+          category: actCategory,
+          senderId,
+        }
+        await appendAndSave(
+          {
+            id: `ai-nameconfirm-${Date.now()}`,
+            content: notFound
+              ? `No encontre a "${opts.responsibleHint}" en el equipo. ¿A quien asigno "${title}"? Toca para elegir.`
+              : `Hay varias personas que coinciden con "${opts.responsibleHint}". ¿A quien asigno "${title}"? Toca para elegir.`,
+            sender_id: 'ai',
+            category: null,
+            created_at: new Date().toISOString(),
+            team_id: teamId,
+            sender: { full_name: 'Lumix', avatar_url: null },
+            metadata: { type: 'name_confirm', candidates, pending },
+          },
+          false,
+        )
+        if (opts.sourceMessageId) {
+          setMessages((prev) =>
+            prev.map((m) => (m.id === opts.sourceMessageId ? { ...m, category: 'actividad' } : m)),
+          )
+        }
+        return
+      }
+    }
+
+    // Chequeo de sobrecarga antes de crear (solo actividad normal, no ingesta)
+    if (actCategory === 'actividad' && teamId) {
+      try {
+        const userActivities = await activitiesService.getByTeam(teamId)
+        const dueDateStr = dueDate.split('T')[0]
+        const sameDay = userActivities.filter(
+          (a) =>
+            a.responsible_id === responsibleId &&
+            a.status !== 'completado' &&
+            a.due_date.startsWith(dueDateStr),
+        )
+        if (sameDay.length >= 2) {
+          await appendAndSave(
+            {
+              id: `ai-warn-${Date.now()}`,
+              content: `⚠️ ${responsibleName} ya tiene ${sameDay.length} actividades para el ${formatDateLocal(dueDate)}. Clic para decidir.`,
+              sender_id: 'ai',
+              category: null,
+              created_at: new Date().toISOString(),
+              team_id: teamId,
+              sender: { full_name: 'Lumix', avatar_url: null },
+              metadata: {
+                type: 'overload',
+                pendingTitle: title,
+                pendingDesc: content,
+                pendingResponsibleId: responsibleId,
+                pendingResponsibleName: responsibleName,
+                pendingPriority: priority,
+                pendingDueDate: dueDate,
+                pendingSenderId: senderId,
+                pendingIsColaborador: isColaborador,
+              },
+            },
+            false,
+          )
+          if (opts.sourceMessageId) {
+            setMessages((prev) =>
+              prev.map((m) =>
+                m.id === opts.sourceMessageId ? { ...m, category: 'actividad' } : m,
+              ),
+            )
+          }
+          return
+        }
+      } catch (err) {
+        console.error('Overload check failed:', err)
+      }
+    }
+
+    await persistActivity({
+      title,
+      description: content,
+      priority,
+      dueDate,
+      category: actCategory,
+      responsibleId,
+      responsibleName,
+      senderId,
+    })
+
+    if (opts.sourceMessageId) {
+      setMessages((prev) =>
+        prev.map((m) =>
+          m.id === opts.sourceMessageId
+            ? { ...m, category: actCategory === 'ingesta' ? null : 'actividad' }
+            : m,
+        ),
+      )
+    }
+  }
+
+  // Resuelve el popout de categoria ambigua: el usuario elige que es realmente el mensaje.
+  // confirmMessageId es el mensaje-pregunta de Lumix: se elimina al resolver para que NO se
+  // pueda volver a tocar y crear duplicados.
+  const confirmCategory = async (
+    pending: PendingCategory,
+    choice: 'actividad' | 'ingesta' | 'error',
+    confirmMessageId?: string,
+  ) => {
+    if (confirmMessageId) {
+      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
+    }
+    if (choice === 'error') {
+      return createErrorFromMessage({
+        content: pending.content,
+        title: pending.title,
+        severity: pending.severity ?? 'media',
+        senderId: pending.senderId,
+        sourceMessageId: pending.sourceMessageId,
+      })
+    }
+    return createActivityOrIngesta({
+      content: pending.content,
+      title: pending.title,
+      actCategory: choice,
+      priority: pending.priority,
+      dueDate: pending.dueDate,
+      senderId: pending.senderId,
+      responsibleHint: pending.responsibleHint,
+      sourceMessageId: pending.sourceMessageId,
+    })
+  }
+
   const classifyAndAct = async (message: ChatMessage, forcedType?: string) => {
     if (!message.content || message.category) return
     setAiProcessing(true)
@@ -1023,144 +1250,69 @@ export function useChatMessages() {
       const priority = result.entities.priority ?? 2
       const title = result.entities.title || content.slice(0, 100)
 
+      // Primer filtro: si el texto menciona la palabra "error" o "ingesta", en modo Auto
+      // siempre preguntamos que tipo es (actividad / error / ingesta). Si el usuario ya eligio
+      // el tipo con el selector del chat, forcedType != 'auto' y no entra aca (es explicito).
+      const mentionsError = MENTIONS_ERROR.test(content)
+      const mentionsIngesta = MENTIONS_INGESTA.test(content)
+      if (isAutoMode && (mentionsError || mentionsIngesta)) {
+        const options: ('error' | 'ingesta')[] = []
+        if (mentionsError) options.push('error')
+        if (mentionsIngesta) options.push('ingesta')
+        const pending: PendingCategory = {
+          content,
+          title,
+          priority,
+          dueDate,
+          severity: (result.entities.severity as string) ?? null,
+          responsibleHint: result.entities.responsible ?? null,
+          senderId: message.sender_id,
+          options,
+          sourceMessageId: message.id,
+        }
+        const optLabel = options
+          .map((o) => (o === 'ingesta' ? 'una ingesta de datos' : 'un error'))
+          .join(' o ')
+        await appendAndSave(
+          {
+            id: `ai-catconfirm-${Date.now()}`,
+            content: `¿"${title}" es una actividad o ${optLabel}?`,
+            sender_id: 'ai',
+            category: null,
+            created_at: new Date().toISOString(),
+            team_id: teamId,
+            sender: { full_name: 'Lumix', avatar_url: null },
+            metadata: { type: 'category_confirm', pending },
+          },
+          false,
+        )
+        return
+      }
+
       // ERROR
       if (category === 'error') {
-        const error = await errorsService.create({
+        await createErrorFromMessage({
+          content,
           title,
-          description: content,
-          severity: (result.entities.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
-          responsible_id: message.sender_id,
-          status: 'abierto',
-          date: new Date().toISOString().split('T')[0],
-          time: new Date().toTimeString().slice(0, 8),
-          team_id: teamId,
-          created_by: message.sender_id,
+          severity: (result.entities.severity as string) || 'media',
+          senderId: message.sender_id,
+          sourceMessageId: message.id,
         })
-        await aiSay(
-          `Error "${error.title}" registrado en bitacora. Severidad: ${error.severity}.`,
-          'error',
-        )
-        setMessages((prev) =>
-          prev.map((m) => (m.id === message.id ? { ...m, category: 'error' } : m)),
-        )
-        setAiProcessing(false)
         return
       }
 
       // ACTIVIDAD / INGESTA
       const actCategory: 'actividad' | 'ingesta' = category === 'ingesta' ? 'ingesta' : 'actividad'
-
-      // Resolucion de responsable (solo jefatura/admin pueden asignar a terceros)
-      let responsibleId = message.sender_id
-      let responsibleName = profile?.full_name ?? ''
-
-      if (canAssignOthers && result.entities.responsible) {
-        const matches = matchMembers(result.entities.responsible, members)
-        if (matches.length === 1) {
-          responsibleId = matches[0].id
-          responsibleName = matches[0].full_name
-        } else {
-          // 0 o >1 coincidencias => preguntar en el chat y NO crear todavia
-          const notFound = matches.length === 0
-          const candidates = (notFound ? members : matches).map((m) => ({
-            id: m.id,
-            name: m.full_name,
-          }))
-          const pending: PendingActivity = {
-            title,
-            description: content,
-            priority,
-            dueDate,
-            category: actCategory,
-            senderId: message.sender_id,
-          }
-          await appendAndSave(
-            {
-              id: `ai-nameconfirm-${Date.now()}`,
-              content: notFound
-                ? `No encontre a "${result.entities.responsible}" en el equipo. ¿A quien asigno "${title}"? Toca para elegir.`
-                : `Hay varias personas que coinciden con "${result.entities.responsible}". ¿A quien asigno "${title}"? Toca para elegir.`,
-              sender_id: 'ai',
-              category: null,
-              created_at: new Date().toISOString(),
-              team_id: teamId,
-              sender: { full_name: 'Lumix', avatar_url: null },
-              metadata: { type: 'name_confirm', candidates, pending },
-            },
-            false,
-          )
-          setMessages((prev) =>
-            prev.map((m) => (m.id === message.id ? { ...m, category: 'actividad' } : m)),
-          )
-          setAiProcessing(false)
-          return
-        }
-      }
-
-      // Chequeo de sobrecarga antes de crear (solo actividad normal, no ingesta)
-      if (actCategory === 'actividad' && teamId) {
-        try {
-          const userActivities = await activitiesService.getByTeam(teamId)
-          const dueDateStr = dueDate.split('T')[0]
-          const sameDay = userActivities.filter(
-            (a) =>
-              a.responsible_id === responsibleId &&
-              a.status !== 'completado' &&
-              a.due_date.startsWith(dueDateStr),
-          )
-          if (sameDay.length >= 2) {
-            await appendAndSave(
-              {
-                id: `ai-warn-${Date.now()}`,
-                content: `⚠️ ${responsibleName} ya tiene ${sameDay.length} actividades para el ${new Date(dueDate).toLocaleDateString('es-CL')}. Clic para decidir.`,
-                sender_id: 'ai',
-                category: null,
-                created_at: new Date().toISOString(),
-                team_id: teamId,
-                sender: { full_name: 'Lumix', avatar_url: null },
-                metadata: {
-                  type: 'overload',
-                  pendingTitle: title,
-                  pendingDesc: content,
-                  pendingResponsibleId: responsibleId,
-                  pendingResponsibleName: responsibleName,
-                  pendingPriority: priority,
-                  pendingDueDate: dueDate,
-                  pendingSenderId: message.sender_id,
-                  pendingIsColaborador: isColaborador,
-                },
-              },
-              false,
-            )
-            setMessages((prev) =>
-              prev.map((m) => (m.id === message.id ? { ...m, category: 'actividad' } : m)),
-            )
-            setAiProcessing(false)
-            return
-          }
-        } catch (err) {
-          console.error('Overload check failed:', err)
-        }
-      }
-
-      await persistActivity({
+      await createActivityOrIngesta({
+        content,
         title,
-        description: content,
+        actCategory,
         priority,
         dueDate,
-        category: actCategory,
-        responsibleId,
-        responsibleName,
         senderId: message.sender_id,
+        responsibleHint: result.entities.responsible,
+        sourceMessageId: message.id,
       })
-
-      setMessages((prev) =>
-        prev.map((m) =>
-          m.id === message.id
-            ? { ...m, category: actCategory === 'ingesta' ? null : 'actividad' }
-            : m,
-        ),
-      )
     } catch (err) {
       console.error('AI processing failed:', err)
       await aiSay('Ocurrio un problema al procesar tu mensaje. Intentalo de nuevo.')
@@ -1189,6 +1341,7 @@ export function useChatMessages() {
     parseBulk,
     bulkCreate,
     createResolvedActivity,
+    confirmCategory,
     quickUpdate,
     applyPendingUpdate,
     editActivityFields,
