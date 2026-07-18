@@ -4,6 +4,7 @@ import { notificationsService } from '@infrastructure/supabase/notifications.ser
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { parseDateLocal } from '@shared/utils/date'
+import { useToast } from '@shared/components/ui/Toast'
 import type { AppError, ErrorSeverity, ErrorStatus, Profile } from '@shared/types'
 
 const SEVERITY_ORDER: Record<ErrorSeverity, number> = { critica: 0, alta: 1, media: 2, baja: 3 }
@@ -21,6 +22,7 @@ export function useErrors() {
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
   const isInvitado = profile?.role === 'invitado'
+  const toast = useToast()
 
   useEffect(() => {
     if (!user) return
@@ -128,21 +130,26 @@ export function useErrors() {
   }
 
   const changeStatus = async (id: string, newStatus: ErrorStatus) => {
-    await errorsService.update(id, { status: newStatus })
+    try {
+      await errorsService.update(id, { status: newStatus })
 
-    if (newStatus === 'abierto') {
-      const error = errors.find((e) => e.id === id)
-      if (error) {
-        await notificationsService.sendToTeam(teamId, {
-          title: 'Error reabierto',
-          body: error.title,
-          type: 'critical_error',
-          metadata: { error_id: id },
-        })
+      if (newStatus === 'abierto') {
+        const error = errors.find((e) => e.id === id)
+        if (error) {
+          await notificationsService.sendToTeam(teamId, {
+            title: 'Error reabierto',
+            body: error.title,
+            type: 'critical_error',
+            metadata: { error_id: id },
+          })
+        }
       }
-    }
 
-    await reloadErrors()
+      await reloadErrors()
+      toast.success('Estado actualizado')
+    } catch {
+      toast.error('No se pudo actualizar el estado')
+    }
   }
 
   return {

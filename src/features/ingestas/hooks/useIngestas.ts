@@ -3,6 +3,7 @@ import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { parseDateLocal } from '@shared/utils/date'
+import { useToast } from '@shared/components/ui/Toast'
 import type { Activity, ActivityStatus, Profile } from '@shared/types'
 
 const isIngesta = (a: Activity) =>
@@ -19,6 +20,7 @@ export function useIngestas() {
   const [dateTo, setDateTo] = useState('')
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
+  const toast = useToast()
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -106,8 +108,13 @@ export function useIngestas() {
   }
 
   const changeStatus = async (id: string, status: ActivityStatus) => {
-    await activitiesService.update(id, { status })
-    await reloadIngestas()
+    try {
+      await activitiesService.update(id, { status })
+      await reloadIngestas()
+      toast.success('Estado actualizado')
+    } catch {
+      toast.error('No se pudo actualizar el estado')
+    }
   }
 
   return {

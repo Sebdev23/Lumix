@@ -7,6 +7,21 @@ import { useAuth } from '@core/auth/hooks/useAuth'
 import { formatDateLocal } from '@shared/utils/date'
 import type { Activity, MinuteEstado, MinuteItem, Profile } from '@shared/types'
 
+const MESES_ABBR = [
+  'ene',
+  'feb',
+  'mar',
+  'abr',
+  'may',
+  'jun',
+  'jul',
+  'ago',
+  'sep',
+  'oct',
+  'nov',
+  'dic',
+]
+
 export const estadoLabels: Record<MinuteEstado, string> = {
   pendiente: 'Pendiente',
   en_desarrollo: 'En desarrollo',
@@ -46,6 +61,8 @@ export function useMinuta() {
   const [view, setView] = useState<'pendientes' | 'resueltos' | 'todos'>('pendientes')
   const [filterMember, setFilterMember] = useState<string>('todas')
   const [search, setSearch] = useState('')
+  const [weekMode, setWeekMode] = useState(false)
+  const [weekOffset, setWeekOffset] = useState(0) // 0 = semana actual, -1 = anterior, etc.
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
   const canManage = profile?.role === 'admin' || profile?.role === 'jefatura'
@@ -77,9 +94,20 @@ export function useMinuta() {
       .then((ch) => {
         channel = ch
       })
+    // Tambien escuchamos cambios en actividades: si una actividad vinculada cambia de estado
+    // (ej. "en proceso" / "completado") en otro modulo, el estado del tema se re-sincroniza.
+    let actChannel: Awaited<ReturnType<typeof activitiesService.subscribeToTeam>>
+    activitiesService
+      .subscribeToTeam(teamId, () => {
+        if (!cancelled) load()
+      })
+      .then((ch) => {
+        actChannel = ch
+      })
     return () => {
       cancelled = true
       channel?.unsubscribe()
+      actChannel?.unsubscribe()
     }
   }, [user, teamId, load])
 
@@ -90,11 +118,41 @@ export function useMinuta() {
     linkedActivities: it.linked_activity_ids.map((id) => activitiesById[id]).filter(Boolean),
   }))
 
-  // Filtro base: responsable + busqueda de texto (aplica a los contadores)
+  // Rango de la semana seleccionada (modo semana)
+  let weekFrom: Date | null = null
+  let weekTo: Date | null = null
+  let weekLabel = ''
+  if (weekMode) {
+    const d = new Date()
+    d.setDate(d.getDate() + weekOffset * 7)
+    const diffToMon = (d.getDay() + 6) % 7
+    weekFrom = new Date(d)
+    weekFrom.setDate(d.getDate() - diffToMon)
+    weekFrom.setHours(0, 0, 0, 0)
+    weekTo = new Date(weekFrom)
+    weekTo.setDate(weekFrom.getDate() + 6)
+    weekTo.setHours(23, 59, 59, 999)
+    weekLabel = `${weekFrom.getDate()} ${MESES_ABBR[weekFrom.getMonth()]} – ${weekTo.getDate()} ${MESES_ABBR[weekTo.getMonth()]}`
+  }
+  const inWeek = (ts?: string | null) => {
+    if (!ts || !weekFrom || !weekTo) return false
+    const t = new Date(ts).getTime()
+    return t >= weekFrom.getTime() && t <= weekTo.getTime()
+  }
+  // Un tema tuvo "actividad esa semana" si se creo/edito, o una actividad vinculada cambio/completo.
+  const hadActivityInWeek = (it: DecoratedItem) =>
+    inWeek(it.created_at) ||
+    inWeek(it.updated_at) ||
+    it.linkedActivities.some(
+      (a) => inWeek(a.created_at) || inWeek(a.updated_at) || inWeek(a.completed_at),
+    )
+
+  // Filtro base: responsable + busqueda + (semana si esta activo). Aplica a los contadores.
   const q = search.trim().toLowerCase()
   const base = decorated.filter((it) => {
     if (filterMember !== 'todas' && !it.responsables.includes(filterMember)) return false
     if (q && !`${it.tema} ${it.comentarios}`.toLowerCase().includes(q)) return false
+    if (weekMode && !hadActivityInWeek(it)) return false
     return true
   })
 
@@ -218,6 +276,11 @@ export function useMinuta() {
     setFilterMember,
     search,
     setSearch,
+    weekMode,
+    setWeekMode,
+    weekOffset,
+    setWeekOffset,
+    weekLabel,
     canManage,
     addItem,
     updateItem,

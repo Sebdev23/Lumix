@@ -7,6 +7,8 @@ import { MemberMultiSelect } from '@shared/components/ui/MemberMultiSelect'
 import { useMinuta, estadoLabels, type DecoratedItem } from '@features/minuta/hooks/useMinuta'
 import { statusLabels } from '@features/activities/hooks/useActivities'
 import { exportToCSV } from '@shared/utils/export'
+import { useToast } from '@shared/components/ui/Toast'
+import { SkeletonRows } from '@shared/components/ui/Skeleton'
 import { formatDateLocal } from '@shared/utils/date'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 import type { MinuteEstado } from '@shared/types'
@@ -30,6 +32,11 @@ export function MinutaPage() {
     setFilterMember,
     search,
     setSearch,
+    weekMode,
+    setWeekMode,
+    weekOffset,
+    setWeekOffset,
+    weekLabel,
     canManage,
     addItem,
     updateItem,
@@ -44,6 +51,7 @@ export function MinutaPage() {
   const [createPriority, setCreatePriority] = useState(2)
   const [createDue, setCreateDue] = useState('')
   const [busy, setBusy] = useState(false)
+  const toast = useToast()
 
   const memberName = (id: string) => members.find((m) => m.id === id)?.full_name || 'Desconocido'
 
@@ -93,27 +101,33 @@ export function MinutaPage() {
         </div>
       </div>
 
-      {/* Toolbar de filtros */}
-      <div className="flex flex-wrap items-center gap-2 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 flex-shrink-0">
-        {(
-          [
-            { v: 'pendientes', label: 'Pendientes', n: counts.pendientes },
-            { v: 'resueltos', label: 'Resueltos', n: counts.resueltos },
-            { v: 'todos', label: 'Todos', n: counts.todos },
-          ] as const
-        ).map((f) => (
-          <button
-            key={f.v}
-            onClick={() => setView(f.v)}
-            className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
-              view === f.v
-                ? 'bg-indigo-600/20 text-indigo-400'
-                : 'text-slate-400 hover:bg-slate-800'
-            }`}
-          >
-            {f.label} <span className="ml-1 text-slate-600">{f.n}</span>
-          </button>
-        ))}
+      {/* Toolbar de filtros (fondo solido y anclado) */}
+      <div className="flex flex-wrap items-center gap-2 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900 flex-shrink-0">
+        {/* Control segmentado de estado */}
+        <div className="inline-flex rounded-lg bg-slate-800 p-0.5">
+          {(
+            [
+              { v: 'pendientes', label: 'Pendientes', n: counts.pendientes },
+              { v: 'resueltos', label: 'Resueltos', n: counts.resueltos },
+              { v: 'todos', label: 'Todos', n: counts.todos },
+            ] as const
+          ).map((f) => (
+            <button
+              key={f.v}
+              onClick={() => setView(f.v)}
+              className={`px-3 py-1 rounded-md text-xs font-medium transition-colors ${
+                view === f.v
+                  ? 'bg-slate-700 text-indigo-300 shadow-sm'
+                  : 'text-slate-400 hover:text-slate-200'
+              }`}
+            >
+              {f.label}
+              <span className={`ml-1.5 ${view === f.v ? 'text-slate-400' : 'text-slate-600'}`}>
+                {f.n}
+              </span>
+            </button>
+          ))}
+        </div>
 
         <select
           value={filterMember}
@@ -128,22 +142,74 @@ export function MinutaPage() {
           ))}
         </select>
 
-        <div className="relative flex-1 min-w-[160px] max-w-xs">
+        <div className="relative flex-1 min-w-[150px] max-w-xs">
+          <svg
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"
+            />
+          </svg>
           <input
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar tema..."
-            className="w-full rounded-lg bg-slate-800 border border-slate-700 pl-3 pr-7 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="w-full rounded-lg bg-slate-800 border border-slate-700 pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           />
           {search && (
             <button
               onClick={() => setSearch('')}
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-xs"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-sm"
             >
               ×
             </button>
           )}
         </div>
+
+        {/* Navegador de semana */}
+        {weekMode ? (
+          <div className="flex items-center gap-1 rounded-lg bg-slate-800 px-1 py-0.5">
+            <button
+              onClick={() => setWeekOffset(weekOffset - 1)}
+              aria-label="Semana anterior"
+              className="w-6 h-6 rounded text-slate-400 hover:bg-slate-700"
+            >
+              ‹
+            </button>
+            <span className="text-[11px] text-slate-200 px-1 whitespace-nowrap">
+              {weekOffset === 0 ? `Esta semana · ${weekLabel}` : weekLabel}
+            </span>
+            <button
+              onClick={() => setWeekOffset(weekOffset + 1)}
+              aria-label="Semana siguiente"
+              className="w-6 h-6 rounded text-slate-400 hover:bg-slate-700"
+            >
+              ›
+            </button>
+            <button
+              onClick={() => {
+                setWeekMode(false)
+                setWeekOffset(0)
+              }}
+              className="text-[11px] text-slate-500 hover:text-slate-300 px-1"
+            >
+              ✕
+            </button>
+          </div>
+        ) : (
+          <button
+            onClick={() => setWeekMode(true)}
+            className="px-2.5 py-1.5 rounded-lg text-xs font-medium text-slate-400 hover:text-slate-200 hover:bg-slate-800 border border-slate-700"
+          >
+            📅 Por semana
+          </button>
+        )}
 
         <div className="flex-1" />
         {canManage && (
@@ -154,136 +220,127 @@ export function MinutaPage() {
       </div>
 
       {/* Tabla editable inline (scroll con encabezado fijo) */}
-      <div className="flex-1 overflow-auto px-3 sm:px-4 py-3">
+      <div className="flex-1 overflow-auto px-3 sm:px-4 pb-3">
         {loading ? (
-          <div className="flex items-center justify-center py-12">
-            <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-          </div>
+          <SkeletonRows rows={6} />
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
             <p className="text-sm text-slate-400">
-              {search || filterMember !== 'todas'
-                ? 'No hay temas que coincidan con el filtro'
-                : view === 'resueltos'
-                  ? 'No hay temas resueltos'
-                  : view === 'todos'
-                    ? 'No hay temas en la minuta'
-                    : 'No hay temas pendientes'}
+              {weekMode
+                ? 'No hubo temas con actividad en esa semana'
+                : search || filterMember !== 'todas'
+                  ? 'No hay temas que coincidan con el filtro'
+                  : view === 'resueltos'
+                    ? 'No hay temas resueltos'
+                    : view === 'todos'
+                      ? 'No hay temas en la minuta'
+                      : 'No hay temas pendientes'}
             </p>
             {canManage && (
               <p className="text-xs text-slate-600 mt-1">Toca "+ Nuevo tema" para empezar</p>
             )}
           </div>
         ) : (
-          <table className="w-full text-xs border-collapse">
-            <thead>
-              <tr className="text-slate-400 align-bottom [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-slate-900 [&>th]:border-b [&>th]:border-slate-700">
-                <th className="text-left py-2 px-2 font-medium w-[38%] min-w-[340px]">Tema</th>
-                <th className="text-left py-2 px-2 font-medium min-w-[170px]">Responsable(s)</th>
-                <th className="text-left py-2 px-2 font-medium">Estado</th>
-                <th className="text-left py-2 px-2 font-medium">Plazo</th>
-                <th className="text-left py-2 px-2 font-medium min-w-[180px]">Comentarios</th>
-                <th className="text-right py-2 px-2 font-medium">Accion</th>
-              </tr>
-            </thead>
-            <tbody>
+          <>
+            {/* Movil: tarjetas apiladas */}
+            <div className="space-y-3 lg:hidden">
               {items.map((it) => (
-                <tr key={it.id} className="border-b border-slate-800 align-top">
-                  {/* Tema (texto completo, editable inline) */}
-                  <td className="py-2 px-2">
-                    {canManage ? (
-                      <textarea
-                        defaultValue={it.tema}
-                        onBlur={(e) => {
-                          if (e.target.value.trim() && e.target.value !== it.tema)
-                            updateItem(it.id, { tema: e.target.value })
-                        }}
-                        rows={Math.max(1, Math.ceil(it.tema.length / 48))}
-                        spellCheck={false}
-                        className="w-full resize-none rounded bg-transparent px-1 py-0.5 text-sm text-slate-100 font-medium leading-snug focus:outline-none focus:bg-slate-800 focus:ring-1 focus:ring-indigo-500/40"
-                      />
-                    ) : (
-                      <span className="text-slate-100 font-medium whitespace-pre-wrap">
-                        {it.tema}
-                      </span>
-                    )}
-                    {it.linkedActivities.length > 0 && (
-                      <span className="block text-[10px] text-indigo-400 mt-0.5">
-                        {it.linkedActivities.filter((a) => a.status === 'completado').length}/
-                        {it.linkedActivities.length} actividades
-                      </span>
-                    )}
-                  </td>
+                <div
+                  key={it.id}
+                  className="rounded-xl border border-slate-700 bg-slate-800/60 p-3 space-y-3"
+                >
+                  {/* Tema */}
+                  {canManage ? (
+                    <textarea
+                      defaultValue={it.tema}
+                      onBlur={(e) => {
+                        if (e.target.value.trim() && e.target.value !== it.tema)
+                          updateItem(it.id, { tema: e.target.value })
+                      }}
+                      rows={2}
+                      spellCheck={false}
+                      className="w-full resize-none rounded bg-transparent px-1 py-0.5 text-sm text-slate-100 font-medium leading-snug focus:outline-none focus:bg-slate-800 focus:ring-1 focus:ring-indigo-500/40"
+                    />
+                  ) : (
+                    <p className="text-sm font-medium text-slate-100 whitespace-pre-wrap px-1">
+                      {it.tema}
+                    </p>
+                  )}
+                  {it.linkedActivities.length > 0 && (
+                    <span className="block text-[10px] text-indigo-400 px-1 -mt-1">
+                      {it.linkedActivities.filter((a) => a.status === 'completado').length}/
+                      {it.linkedActivities.length} actividades
+                    </span>
+                  )}
 
-                  {/* Responsable(s): selector multiple */}
-                  <td className="py-2 px-2">
-                    {canManage ? (
-                      <MemberMultiSelect
-                        members={members}
-                        selected={it.responsables}
-                        paraTodos={it.para_todos}
-                        onChange={(next) => updateItem(it.id, next)}
-                      />
-                    ) : (
-                      <span className="text-slate-400">{responsablesLabel(it)}</span>
-                    )}
-                  </td>
-
-                  {/* Estado */}
-                  <td className="py-2 px-2">
-                    {it.linkedActivities.length > 0 ? (
-                      <span title="Sincronizado con actividades">
+                  <div className="grid grid-cols-2 gap-3">
+                    {/* Responsable */}
+                    <div>
+                      <p className="text-[10px] text-slate-500 mb-1">Responsable(s)</p>
+                      {canManage ? (
+                        <MemberMultiSelect
+                          members={members}
+                          selected={it.responsables}
+                          paraTodos={it.para_todos}
+                          onChange={(next) => updateItem(it.id, next)}
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-400">{responsablesLabel(it)}</span>
+                      )}
+                    </div>
+                    {/* Estado */}
+                    <div>
+                      <p className="text-[10px] text-slate-500 mb-1">Estado</p>
+                      {it.linkedActivities.length > 0 ? (
                         <Badge variant={estadoColors[it.effectiveEstado]}>
                           {estadoLabels[it.effectiveEstado]}
                         </Badge>
-                      </span>
-                    ) : canManage ? (
-                      <select
-                        value={it.estado}
-                        onChange={(e) =>
-                          updateItem(it.id, { estado: e.target.value as MinuteEstado })
-                        }
-                        className="rounded border border-slate-700 bg-slate-800 px-1.5 py-1 text-[11px] text-slate-200"
-                      >
-                        {(Object.keys(estadoLabels) as MinuteEstado[]).map((s) => (
-                          <option key={s} value={s}>
-                            {estadoLabels[s]}
-                          </option>
-                        ))}
-                      </select>
-                    ) : (
-                      <Badge variant={estadoColors[it.effectiveEstado]}>
-                        {estadoLabels[it.effectiveEstado]}
-                      </Badge>
-                    )}
-                  </td>
+                      ) : canManage ? (
+                        <select
+                          value={it.estado}
+                          onChange={(e) =>
+                            updateItem(it.id, { estado: e.target.value as MinuteEstado })
+                          }
+                          className="w-full rounded border border-slate-700 bg-slate-800 px-1.5 py-1 text-[11px] text-slate-200"
+                        >
+                          {(Object.keys(estadoLabels) as MinuteEstado[]).map((s) => (
+                            <option key={s} value={s}>
+                              {estadoLabels[s]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Badge variant={estadoColors[it.effectiveEstado]}>
+                          {estadoLabels[it.effectiveEstado]}
+                        </Badge>
+                      )}
+                    </div>
+                    {/* Plazo */}
+                    <div>
+                      <p className="text-[10px] text-slate-500 mb-1">Plazo</p>
+                      {canManage ? (
+                        <DatePicker
+                          value={it.plazo}
+                          onChange={(v) => changePlazo(it, v)}
+                          placeholder="+ fecha"
+                        />
+                      ) : (
+                        <span className="text-xs text-slate-300">
+                          {it.plazo ? formatDateLocal(it.plazo) : '-'}
+                        </span>
+                      )}
+                      {it.plazo_change_count > 0 && (
+                        <span className="block text-[10px] text-amber-400 mt-0.5">
+                          cambiada {it.plazo_change_count}{' '}
+                          {it.plazo_change_count === 1 ? 'vez' : 'veces'}
+                        </span>
+                      )}
+                    </div>
+                  </div>
 
-                  {/* Plazo + trazabilidad */}
-                  <td className="py-2 px-2">
-                    {canManage ? (
-                      <DatePicker
-                        value={it.plazo}
-                        onChange={(v) => changePlazo(it, v)}
-                        placeholder="+ fecha"
-                      />
-                    ) : (
-                      <span className="text-slate-300">
-                        {it.plazo ? formatDateLocal(it.plazo) : '-'}
-                      </span>
-                    )}
-                    {it.plazo_change_count > 0 && (
-                      <span
-                        className="block text-[10px] text-amber-400 mt-0.5"
-                        title={it.plazo_history.map((h) => formatDateLocal(h.date)).join(' → ')}
-                      >
-                        cambiada {it.plazo_change_count}{' '}
-                        {it.plazo_change_count === 1 ? 'vez' : 'veces'}
-                      </span>
-                    )}
-                  </td>
-
-                  {/* Comentarios (texto completo, editable inline) */}
-                  <td className="py-2 px-2">
+                  {/* Comentarios */}
+                  <div>
+                    <p className="text-[10px] text-slate-500 mb-1">Comentarios</p>
                     {canManage ? (
                       <textarea
                         defaultValue={it.comentarios}
@@ -291,52 +348,214 @@ export function MinutaPage() {
                           if (e.target.value !== it.comentarios)
                             updateItem(it.id, { comentarios: e.target.value })
                         }}
-                        rows={Math.max(1, Math.ceil((it.comentarios.length || 1) / 34))}
-                        placeholder="Notas..."
+                        rows={2}
                         spellCheck={false}
-                        className="w-full resize-none rounded bg-transparent px-1 py-0.5 text-slate-300 leading-snug focus:outline-none focus:bg-slate-800 focus:ring-1 focus:ring-indigo-500/40 placeholder:text-slate-600"
+                        placeholder="Notas..."
+                        className="w-full resize-none rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/40"
                       />
                     ) : (
-                      <span className="text-slate-300 whitespace-pre-wrap">
+                      <p className="text-xs text-slate-300 whitespace-pre-wrap">
                         {it.comentarios || '-'}
-                      </span>
+                      </p>
                     )}
-                  </td>
+                  </div>
 
                   {/* Acciones */}
-                  <td className="py-2 px-2 text-right whitespace-nowrap">
-                    {canManage && (
-                      <div className="flex flex-col items-end gap-1.5">
-                        {!it.para_todos &&
-                          it.responsables.length > 0 &&
-                          (it.linkedActivities.length > 0 ? (
-                            <span
-                              title="Este tema ya tiene actividad(es) asignada(s)"
-                              className="px-2 py-1 rounded-lg bg-slate-800 text-slate-500 text-[11px] font-medium cursor-not-allowed"
-                            >
-                              Actividad asignada
-                            </span>
-                          ) : (
-                            <button
-                              onClick={() => openCreate(it)}
-                              className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium transition-colors"
-                            >
-                              Asignar actividad
-                            </button>
-                          ))}
-                        <button
-                          onClick={() => setConfirmDeleteId(it.id)}
-                          className="text-[11px] text-slate-500 hover:text-red-400"
-                        >
-                          Eliminar
-                        </button>
-                      </div>
-                    )}
-                  </td>
-                </tr>
+                  {canManage && (
+                    <div className="flex items-center gap-3 pt-1 border-t border-slate-700/60">
+                      {!it.para_todos &&
+                        it.responsables.length > 0 &&
+                        (it.linkedActivities.length > 0 ? (
+                          <span className="text-[11px] text-slate-500">Actividad asignada</span>
+                        ) : (
+                          <button
+                            onClick={() => openCreate(it)}
+                            className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium"
+                          >
+                            Asignar actividad
+                          </button>
+                        ))}
+                      <div className="flex-1" />
+                      <button
+                        onClick={() => setConfirmDeleteId(it.id)}
+                        className="text-[11px] text-slate-500 hover:text-red-400"
+                      >
+                        Eliminar
+                      </button>
+                    </div>
+                  )}
+                </div>
               ))}
-            </tbody>
-          </table>
+            </div>
+
+            {/* Escritorio: tabla */}
+            <table className="hidden lg:table w-full text-xs border-collapse">
+              <thead>
+                <tr className="text-slate-400 align-bottom [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-slate-900 [&>th]:border-b [&>th]:border-slate-700 [&>th]:shadow-[0_2px_4px_-2px_rgba(0,0,0,0.5)]">
+                  <th className="text-left py-2 px-2 font-medium min-w-[220px] sm:w-[38%] sm:min-w-[340px]">
+                    Tema
+                  </th>
+                  <th className="text-left py-2 px-2 font-medium min-w-[150px]">Responsable(s)</th>
+                  <th className="text-left py-2 px-2 font-medium">Estado</th>
+                  <th className="text-left py-2 px-2 font-medium">Plazo</th>
+                  <th className="text-left py-2 px-2 font-medium min-w-[140px] sm:min-w-[180px]">
+                    Comentarios
+                  </th>
+                  <th className="text-right py-2 px-2 font-medium">Accion</th>
+                </tr>
+              </thead>
+              <tbody>
+                {items.map((it) => (
+                  <tr key={it.id} className="border-b border-slate-800 align-top">
+                    {/* Tema (texto completo, editable inline) */}
+                    <td className="py-2 px-2">
+                      {canManage ? (
+                        <textarea
+                          defaultValue={it.tema}
+                          onBlur={(e) => {
+                            if (e.target.value.trim() && e.target.value !== it.tema)
+                              updateItem(it.id, { tema: e.target.value })
+                          }}
+                          rows={Math.max(1, Math.ceil(it.tema.length / 48))}
+                          spellCheck={false}
+                          className="w-full resize-none rounded bg-transparent px-1 py-0.5 text-sm text-slate-100 font-medium leading-snug focus:outline-none focus:bg-slate-800 focus:ring-1 focus:ring-indigo-500/40"
+                        />
+                      ) : (
+                        <span className="text-slate-100 font-medium whitespace-pre-wrap">
+                          {it.tema}
+                        </span>
+                      )}
+                      {it.linkedActivities.length > 0 && (
+                        <span className="block text-[10px] text-indigo-400 mt-0.5">
+                          {it.linkedActivities.filter((a) => a.status === 'completado').length}/
+                          {it.linkedActivities.length} actividades
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Responsable(s): selector multiple */}
+                    <td className="py-2 px-2">
+                      {canManage ? (
+                        <MemberMultiSelect
+                          members={members}
+                          selected={it.responsables}
+                          paraTodos={it.para_todos}
+                          onChange={(next) => updateItem(it.id, next)}
+                        />
+                      ) : (
+                        <span className="text-slate-400">{responsablesLabel(it)}</span>
+                      )}
+                    </td>
+
+                    {/* Estado */}
+                    <td className="py-2 px-2">
+                      {it.linkedActivities.length > 0 ? (
+                        <span title="Sincronizado con actividades">
+                          <Badge variant={estadoColors[it.effectiveEstado]}>
+                            {estadoLabels[it.effectiveEstado]}
+                          </Badge>
+                        </span>
+                      ) : canManage ? (
+                        <select
+                          value={it.estado}
+                          onChange={(e) =>
+                            updateItem(it.id, { estado: e.target.value as MinuteEstado })
+                          }
+                          className="rounded border border-slate-700 bg-slate-800 px-1.5 py-1 text-[11px] text-slate-200"
+                        >
+                          {(Object.keys(estadoLabels) as MinuteEstado[]).map((s) => (
+                            <option key={s} value={s}>
+                              {estadoLabels[s]}
+                            </option>
+                          ))}
+                        </select>
+                      ) : (
+                        <Badge variant={estadoColors[it.effectiveEstado]}>
+                          {estadoLabels[it.effectiveEstado]}
+                        </Badge>
+                      )}
+                    </td>
+
+                    {/* Plazo + trazabilidad */}
+                    <td className="py-2 px-2">
+                      {canManage ? (
+                        <DatePicker
+                          value={it.plazo}
+                          onChange={(v) => changePlazo(it, v)}
+                          placeholder="+ fecha"
+                        />
+                      ) : (
+                        <span className="text-slate-300">
+                          {it.plazo ? formatDateLocal(it.plazo) : '-'}
+                        </span>
+                      )}
+                      {it.plazo_change_count > 0 && (
+                        <span
+                          className="block text-[10px] text-amber-400 mt-0.5"
+                          title={it.plazo_history.map((h) => formatDateLocal(h.date)).join(' → ')}
+                        >
+                          cambiada {it.plazo_change_count}{' '}
+                          {it.plazo_change_count === 1 ? 'vez' : 'veces'}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Comentarios (texto completo, editable inline) */}
+                    <td className="py-2 px-2">
+                      {canManage ? (
+                        <textarea
+                          defaultValue={it.comentarios}
+                          onBlur={(e) => {
+                            if (e.target.value !== it.comentarios)
+                              updateItem(it.id, { comentarios: e.target.value })
+                          }}
+                          rows={Math.max(1, Math.ceil((it.comentarios.length || 1) / 34))}
+                          placeholder="Notas..."
+                          spellCheck={false}
+                          className="w-full resize-none rounded bg-transparent px-1 py-0.5 text-slate-300 leading-snug focus:outline-none focus:bg-slate-800 focus:ring-1 focus:ring-indigo-500/40 placeholder:text-slate-600"
+                        />
+                      ) : (
+                        <span className="text-slate-300 whitespace-pre-wrap">
+                          {it.comentarios || '-'}
+                        </span>
+                      )}
+                    </td>
+
+                    {/* Acciones */}
+                    <td className="py-2 px-2 text-right whitespace-nowrap">
+                      {canManage && (
+                        <div className="flex flex-col items-end gap-1.5">
+                          {!it.para_todos &&
+                            it.responsables.length > 0 &&
+                            (it.linkedActivities.length > 0 ? (
+                              <span
+                                title="Este tema ya tiene actividad(es) asignada(s)"
+                                className="px-2 py-1 rounded-lg bg-slate-800 text-slate-500 text-[11px] font-medium cursor-not-allowed"
+                              >
+                                Actividad asignada
+                              </span>
+                            ) : (
+                              <button
+                                onClick={() => openCreate(it)}
+                                className="px-2 py-1 rounded-lg bg-indigo-600 hover:bg-indigo-500 text-white text-[11px] font-medium transition-colors"
+                              >
+                                Asignar actividad
+                              </button>
+                            ))}
+                          <button
+                            onClick={() => setConfirmDeleteId(it.id)}
+                            className="text-[11px] text-slate-500 hover:text-red-400"
+                          >
+                            Eliminar
+                          </button>
+                        </div>
+                      )}
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </>
         )}
       </div>
 
@@ -421,6 +640,11 @@ export function MinutaPage() {
                       dueDate: createDue || null,
                     })
                     setCreateForId(null)
+                    toast.success(
+                      `${createResp.length} actividad${createResp.length === 1 ? '' : 'es'} creada${createResp.length === 1 ? '' : 's'}`,
+                    )
+                  } catch {
+                    toast.error('No se pudo crear la actividad')
                   } finally {
                     setBusy(false)
                   }
@@ -468,7 +692,12 @@ export function MinutaPage() {
                 onClick={async () => {
                   const id = deleteItem.id
                   setConfirmDeleteId(null)
-                  await removeItem(id)
+                  try {
+                    await removeItem(id)
+                    toast.success('Tema eliminado')
+                  } catch {
+                    toast.error('No se pudo eliminar')
+                  }
                 }}
               >
                 Eliminar

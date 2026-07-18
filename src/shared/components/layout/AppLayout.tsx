@@ -1,6 +1,7 @@
 import { useState } from 'react'
 import { Outlet } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
+import { BottomNav } from './BottomNav'
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -37,6 +38,7 @@ export function AppLayout() {
         >
           <button
             onClick={() => setSidebarOpen(true)}
+            aria-label="Abrir menu"
             className="p-1.5 -ml-1 rounded-lg hover:bg-slate-800 text-slate-400"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
@@ -52,12 +54,12 @@ export function AppLayout() {
         </header>
 
         {/* Page content */}
-        <main
-          className="flex-1 overflow-hidden"
-          style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
-        >
+        <main className="flex-1 overflow-hidden">
           <Outlet />
         </main>
+
+        {/* Navegacion inferior (solo movil) */}
+        <BottomNav />
       </div>
     </div>
   )

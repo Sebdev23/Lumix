@@ -4,6 +4,7 @@ import { notificationsService } from '@infrastructure/supabase/notifications.ser
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { parseDateLocal } from '@shared/utils/date'
+import { useToast } from '@shared/components/ui/Toast'
 import type { Activity, ActivityStatus, Profile } from '@shared/types'
 
 export function useActivities() {
@@ -21,6 +22,7 @@ export function useActivities() {
   const teamId = profile?.team_id ?? ''
 
   const isColaborador = profile?.role === 'colaborador'
+  const toast = useToast()
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -96,22 +98,27 @@ export function useActivities() {
   }
 
   const changeStatus = async (id: string, newStatus: ActivityStatus) => {
-    await activitiesService.update(id, { status: newStatus })
+    try {
+      await activitiesService.update(id, { status: newStatus })
 
-    if (newStatus === 'bloqueado') {
-      const activity = activities.find((a) => a.id === id)
-      if (activity) {
-        await notificationsService.sendToTeam(teamId, {
-          title: 'Actividad bloqueada',
-          body: `"${activity.title}" ha sido bloqueada`,
-          type: 'activity_blocked',
-          metadata: { activity_id: id },
-        })
+      if (newStatus === 'bloqueado') {
+        const activity = activities.find((a) => a.id === id)
+        if (activity) {
+          await notificationsService.sendToTeam(teamId, {
+            title: 'Actividad bloqueada',
+            body: `"${activity.title}" ha sido bloqueada`,
+            type: 'activity_blocked',
+            metadata: { activity_id: id },
+          })
+        }
       }
-    }
 
-    const data = await activitiesService.getByTeam(teamId)
-    setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
+      const data = await activitiesService.getByTeam(teamId)
+      setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
+      toast.success('Estado actualizado')
+    } catch {
+      toast.error('No se pudo actualizar el estado')
+    }
   }
 
   filtered.sort((a, b) => {
