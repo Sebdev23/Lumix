@@ -130,10 +130,12 @@ export function ShieldIcon({ className }: { className?: string }) {
   )
 }
 
+import type { ReactNode } from 'react'
+
 export interface NavItem {
   to: string
   label: string
-  icon: (props: { className?: string }) => JSX.Element
+  icon: (props: { className?: string }) => ReactNode
 }
 
 export const navItems: NavItem[] = [

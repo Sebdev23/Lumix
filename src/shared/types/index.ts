@@ -39,6 +39,7 @@ export interface Activity {
   created_by: string
   completed_at: string | null
   estimated_hours?: number
+  updated_at?: string
 }
 
 export interface AppError {
