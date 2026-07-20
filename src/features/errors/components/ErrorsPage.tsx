@@ -73,6 +73,8 @@ export function ErrorsPage() {
     setDateFrom,
     dateTo,
     setDateTo,
+    search,
+    setSearch,
     changeStatus,
     counts,
     isInvitado,
@@ -207,6 +209,36 @@ export function ErrorsPage() {
           </button>
         )}
         <div className="flex-1" />
+        <div className="relative min-w-[160px] max-w-xs w-full sm:w-auto">
+          <svg
+            className="absolute left-2.5 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-slate-500 pointer-events-none"
+            fill="none"
+            viewBox="0 0 24 24"
+            stroke="currentColor"
+          >
+            <path
+              strokeLinecap="round"
+              strokeLinejoin="round"
+              strokeWidth={2}
+              d="M21 21l-4.35-4.35M17 11a6 6 0 11-12 0 6 6 0 0112 0z"
+            />
+          </svg>
+          <input
+            value={search}
+            onChange={(e) => setSearch(e.target.value)}
+            placeholder="Buscar error..."
+            className="w-full rounded-lg bg-slate-800 border border-slate-700 pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          />
+          {search && (
+            <button
+              onClick={() => setSearch('')}
+              aria-label="Limpiar busqueda"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-sm"
+            >
+              ×
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Error list */}

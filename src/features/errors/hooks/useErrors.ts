@@ -19,6 +19,7 @@ export function useErrors() {
   const [dateType, setDateType] = useState<'reportadas' | 'cerradas'>('reportadas')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [search, setSearch] = useState('')
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
   const isInvitado = profile?.role === 'invitado'
@@ -99,6 +100,14 @@ export function useErrors() {
     countBase = countBase.filter(datePredicate)
   }
 
+  if (search.trim()) {
+    const q = search.trim().toLowerCase()
+    const matches = (e: AppError) =>
+      `${e.title} ${e.description ?? ''} ${e.observations ?? ''}`.toLowerCase().includes(q)
+    filtered = filtered.filter(matches)
+    countBase = countBase.filter(matches)
+  }
+
   // Orden: mas recientes primero; a igualdad de fecha, mayor severidad primero
   filtered = [...filtered].sort((a, b) => {
     const byDate = parseDateLocal(b.date).getTime() - parseDateLocal(a.date).getTime()
@@ -168,6 +177,8 @@ export function useErrors() {
     setDateFrom,
     dateTo,
     setDateTo,
+    search,
+    setSearch,
     changeStatus,
     counts,
     isInvitado,

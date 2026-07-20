@@ -18,6 +18,7 @@ export function useActivities() {
   const [dateTo, setDateTo] = useState('')
   const [showMine, setShowMine] = useState(false)
   const [filterMember, setFilterMember] = useState<string>('todas')
+  const [search, setSearch] = useState('')
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
 
@@ -97,6 +98,14 @@ export function useActivities() {
     countBase = countBase.filter(datePredicate)
   }
 
+  if (search.trim()) {
+    const q = search.trim().toLowerCase()
+    const matches = (a: Activity) =>
+      `${a.title} ${a.description ?? ''} ${a.observations ?? ''}`.toLowerCase().includes(q)
+    filtered = filtered.filter(matches)
+    countBase = countBase.filter(matches)
+  }
+
   const changeStatus = async (id: string, newStatus: ActivityStatus) => {
     try {
       await activitiesService.update(id, { status: newStatus })
@@ -165,6 +174,8 @@ export function useActivities() {
     isColaborador,
     filterMember,
     setFilterMember,
+    search,
+    setSearch,
     filterDate,
     setFilterDate,
     dateType,

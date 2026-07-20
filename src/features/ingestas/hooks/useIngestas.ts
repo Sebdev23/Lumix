@@ -18,6 +18,7 @@ export function useIngestas() {
   const [dateType, setDateType] = useState<'entrega' | 'creadas' | 'cerradas'>('entrega')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  const [search, setSearch] = useState('')
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
   const toast = useToast()
@@ -78,6 +79,14 @@ export function useIngestas() {
     countBase = countBase.filter(datePredicate)
   }
 
+  if (search.trim()) {
+    const q = search.trim().toLowerCase()
+    const matches = (a: Activity) =>
+      `${a.title} ${a.description ?? ''} ${a.observations ?? ''}`.toLowerCase().includes(q)
+    filtered = filtered.filter(matches)
+    countBase = countBase.filter(matches)
+  }
+
   // Orden: por fecha de entrega ascendente; a igualdad, mayor prioridad primero
   filtered = [...filtered].sort((a, b) => {
     const byDate = parseDateLocal(a.due_date).getTime() - parseDateLocal(b.due_date).getTime()
@@ -131,6 +140,8 @@ export function useIngestas() {
     setDateFrom,
     dateTo,
     setDateTo,
+    search,
+    setSearch,
     counts,
     changeStatus,
     reload: reloadIngestas,
