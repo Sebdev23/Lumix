@@ -27,6 +27,12 @@ interface PriorityCount {
   baja: number
 }
 
+interface TrendDay {
+  label: string
+  date: string
+  count: number
+}
+
 interface DashboardData {
   pendingActivities: number
   criticalActivities: number
@@ -38,6 +44,7 @@ interface DashboardData {
   memberWorkloads: MemberWorkload[]
   statusCounts: StatusCount
   priorityCounts: PriorityCount
+  weeklyTrend: TrendDay[]
 }
 
 export function useDashboard() {
@@ -52,6 +59,7 @@ export function useDashboard() {
     memberWorkloads: [],
     statusCounts: { pendiente: 0, en_proceso: 0, bloqueado: 0, completado: 0 },
     priorityCounts: { alta: 0, media: 0, baja: 0 },
+    weeklyTrend: [],
   })
   const [loading, setLoading] = useState(true)
   const { user, profile } = useAuth()
@@ -100,6 +108,17 @@ export function useDashboard() {
       today.setHours(0, 0, 0, 0)
       const overdue = notCompleted.filter((a) => parseDateLocal(a.due_date) < today).length
 
+      // Tendencia: completadas por dia en los ultimos 7 dias (por completed_at)
+      const DOW = ['do', 'lu', 'ma', 'mi', 'ju', 'vi', 'sa']
+      const weeklyTrend: TrendDay[] = []
+      for (let i = 6; i >= 0; i--) {
+        const d = new Date(today.getTime() - i * 86400000)
+        const count = completed.filter(
+          (a) => a.completed_at && parseDateLocal(a.completed_at).getTime() === d.getTime(),
+        ).length
+        weeklyTrend.push({ label: DOW[d.getDay()], date: d.toISOString().split('T')[0], count })
+      }
+
       const threeDaysFromNow = new Date(today.getTime() + 3 * 86400000)
       const upcomingDeadlines = notCompleted
         .filter((a) => {
@@ -130,6 +149,7 @@ export function useDashboard() {
           media: notCompleted.filter((a) => a.priority === 2).length,
           baja: notCompleted.filter((a) => a.priority === 3).length,
         },
+        weeklyTrend,
       })
 
       setLoading(false)
