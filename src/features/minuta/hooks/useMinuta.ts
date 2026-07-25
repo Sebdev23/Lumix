@@ -4,6 +4,7 @@ import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
 import type { Activity, MinuteEstado, MinuteItem, Profile } from '@shared/types'
 
@@ -64,8 +65,8 @@ export function useMinuta() {
   const [weekMode, setWeekMode] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0) // 0 = semana actual, -1 = anterior, etc.
   const { user, profile } = useAuth()
+  const { canManageMinuta, canDeleteMinuta, canAssignMinuta } = useCapabilities()
   const teamId = profile?.team_id ?? ''
-  const canManage = profile?.role === 'admin' || profile?.role === 'jefatura'
 
   const load = useCallback(async () => {
     if (!teamId) return
@@ -281,7 +282,9 @@ export function useMinuta() {
     weekOffset,
     setWeekOffset,
     weekLabel,
-    canManage,
+    canManage: canManageMinuta,
+    canDelete: canDeleteMinuta,
+    canAssign: canAssignMinuta,
     addItem,
     updateItem,
     changePlazo,

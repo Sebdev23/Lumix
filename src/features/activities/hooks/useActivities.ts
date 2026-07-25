@@ -1,63 +1,69 @@
-import { useState, useEffect } from 'react'
+import { useState, useEffect, useCallback } from 'react'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
+import { teamsService } from '@infrastructure/supabase/teams.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { parseDateLocal } from '@shared/utils/date'
 import { useToast } from '@shared/components/ui/Toast'
 import type { Activity, ActivityStatus, Profile } from '@shared/types'
 
+// Actividades PERSONALES + de los equipos que lidero (cross-equipo). Privacidad:
+// veo TODAS las mias (en cualquier equipo) y, de terceros, solo en equipos donde soy jefe.
 export function useActivities() {
   const [activities, setActivities] = useState<Activity[]>([])
   const [members, setMembers] = useState<Profile[]>([])
+  const [teamNames, setTeamNames] = useState<Record<string, string>>({})
+  const [managedIds, setManagedIds] = useState<string[]>([])
   const [loading, setLoading] = useState(true)
   const [filterStatus, setFilterStatus] = useState<ActivityStatus | 'todas' | 'activas'>('activas')
-  const [filterDate, setFilterDate] = useState<'todas' | 'hoy' | 'semana' | 'mes'>('todas')
   const [dateType, setDateType] = useState<'creadas' | 'cerradas' | 'entrega'>('entrega')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
-  const [showMine, setShowMine] = useState(false)
+  const [filterTeam, setFilterTeam] = useState<string>('todas')
   const [filterMember, setFilterMember] = useState<string>('todas')
   const [search, setSearch] = useState('')
   const { user, profile } = useAuth()
-  const teamId = profile?.team_id ?? ''
-
-  const isColaborador = profile?.role === 'colaborador'
   const toast = useToast()
 
+  const load = useCallback(async () => {
+    if (!user) return
+    const [myTeams, managed] = await Promise.all([
+      teamsService.getMyTeams(user.id),
+      teamsService.getManagedTeams(user.id),
+    ])
+    const mIds = managed.map((t) => t.id)
+    setManagedIds(mIds)
+    const names: Record<string, string> = {}
+    ;[...myTeams, ...managed].forEach((t) => (names[t.id] = t.name))
+    setTeamNames(names)
+
+    // Mis actividades (todos los equipos) + todas las de los equipos que lidero. Deduplicado.
+    const [mine, managedActs] = await Promise.all([
+      activitiesService.getByResponsibleAll(user.id),
+      activitiesService.getByTeams(mIds),
+    ])
+    const map = new Map<string, Activity>()
+    ;[...mine, ...managedActs].forEach((a) => map.set(a.id, a))
+    setActivities([...map.values()].filter((a) => !a.title.startsWith('[Ingesta]')))
+
+    // Miembros (para nombres/filtro): de los equipos que lidero + yo mismo.
+    const memberLists = await Promise.all(mIds.map((id) => profilesService.getByTeam(id)))
+    const memberMap = new Map<string, Profile>()
+    memberLists.flat().forEach((m) => memberMap.set(m.id, m))
+    if (profile && !memberMap.has(profile.id)) memberMap.set(profile.id, profile as Profile)
+    setMembers([...memberMap.values()])
+    setLoading(false)
+  }, [user, profile])
+
   useEffect(() => {
-    if (!user || !teamId) return
-
-    let cancelled = false
-
-    async function load() {
-      const [data, membersData] = await Promise.all([
-        activitiesService.getByTeam(teamId),
-        profilesService.getByTeam(teamId),
-      ])
-      if (cancelled) return
-      setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
-      setMembers(membersData)
-      setLoading(false)
-    }
-
+    if (!user) return
+    // load() es async: los setState ocurren tras el await, no sincronicamente en el effect.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
     load()
+  }, [user, load])
 
-    let channel: Awaited<ReturnType<typeof activitiesService.subscribeToTeam>>
-
-    activitiesService
-      .subscribeToTeam(teamId, () => {
-        if (!cancelled) load()
-      })
-      .then((ch) => {
-        channel = ch
-      })
-
-    return () => {
-      cancelled = true
-      channel?.unsubscribe()
-    }
-  }, [user])
+  const isManager = managedIds.length > 0
 
   let filtered = activities
 
@@ -67,12 +73,12 @@ export function useActivities() {
     filtered = filtered.filter((a) => a.status === filterStatus)
   }
 
-  // Base para contadores: incluye filtros de miembro y fecha, pero NO el filtro de estado
+  // Base para contadores: aplica equipo/miembro/fecha/busqueda, pero NO el filtro de estado.
   let countBase = activities
 
-  if (showMine || isColaborador) {
-    filtered = filtered.filter((a) => a.responsible_id === user?.id)
-    countBase = countBase.filter((a) => a.responsible_id === user?.id)
+  if (filterTeam !== 'todas') {
+    filtered = filtered.filter((a) => a.team_id === filterTeam)
+    countBase = countBase.filter((a) => a.team_id === filterTeam)
   }
 
   if (filterMember !== 'todas') {
@@ -109,11 +115,10 @@ export function useActivities() {
   const changeStatus = async (id: string, newStatus: ActivityStatus) => {
     try {
       await activitiesService.update(id, { status: newStatus })
-
       if (newStatus === 'bloqueado') {
         const activity = activities.find((a) => a.id === id)
         if (activity) {
-          await notificationsService.sendToTeam(teamId, {
+          await notificationsService.sendToTeam(activity.team_id, {
             title: 'Actividad bloqueada',
             body: `"${activity.title}" ha sido bloqueada`,
             type: 'activity_blocked',
@@ -121,16 +126,14 @@ export function useActivities() {
           })
         }
       }
-
-      const data = await activitiesService.getByTeam(teamId)
-      setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
+      await load()
       toast.success('Estado actualizado')
     } catch {
       toast.error('No se pudo actualizar el estado')
     }
   }
 
-  filtered.sort((a, b) => {
+  filtered = [...filtered].sort((a, b) => {
     const dateA = parseDateLocal(a.due_date).getTime()
     const dateB = parseDateLocal(b.due_date).getTime()
     if (dateA !== dateB) return dateA - dateB
@@ -164,30 +167,27 @@ export function useActivities() {
     activities: filtered,
     allActivities: activities,
     members,
+    teamNames,
+    managedIds,
+    isManager,
     loading,
     filterStatus,
     setFilterStatus,
     changeStatus,
     counts,
-    showMine,
-    setShowMine,
-    isColaborador,
+    filterTeam,
+    setFilterTeam,
     filterMember,
     setFilterMember,
     search,
     setSearch,
-    filterDate,
-    setFilterDate,
     dateType,
     setDateType,
     dateFrom,
     setDateFrom,
     dateTo,
     setDateTo,
-    reload: async () => {
-      const data = await activitiesService.getByTeam(teamId)
-      setActivities(data.filter((a) => !a.title.startsWith('[Ingesta]')))
-    },
+    reload: load,
   }
 }
 

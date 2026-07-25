@@ -3,6 +3,7 @@ import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
 import { useErrors, severityLabels, errorStatusLabels } from '@features/errors/hooks/useErrors'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { errorsService } from '@infrastructure/supabase/errors.service'
 import { exportToCSV } from '@shared/utils/export'
 import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
@@ -80,6 +81,7 @@ export function ErrorsPage() {
     isInvitado,
     reload,
   } = useErrors()
+  const { canManageErrors } = useCapabilities()
   const [selectedError, setSelectedError] = useState<AppError | null>(null)
 
   return (
@@ -320,7 +322,7 @@ export function ErrorsPage() {
                     </td>
                     <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
                       <div className="flex gap-1 justify-end">
-                        {error.status === 'abierto' && (
+                        {canManageErrors && error.status === 'abierto' && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -329,7 +331,7 @@ export function ErrorsPage() {
                             Revisar
                           </Button>
                         )}
-                        {error.status === 'en_revision' && (
+                        {canManageErrors && error.status === 'en_revision' && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -338,7 +340,7 @@ export function ErrorsPage() {
                             Resolver
                           </Button>
                         )}
-                        {error.status === 'resuelto' && (
+                        {canManageErrors && error.status === 'resuelto' && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -347,15 +349,16 @@ export function ErrorsPage() {
                             Cerrar
                           </Button>
                         )}
-                        {(error.status === 'cerrado' || error.status === 'resuelto') && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => changeStatus(error.id, 'abierto')}
-                          >
-                            Reabrir
-                          </Button>
-                        )}
+                        {canManageErrors &&
+                          (error.status === 'cerrado' || error.status === 'resuelto') && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              onClick={() => changeStatus(error.id, 'abierto')}
+                            >
+                              Reabrir
+                            </Button>
+                          )}
                       </div>
                     </td>
                   </tr>
@@ -408,39 +411,51 @@ export function ErrorsPage() {
 
             <div>
               <p className="text-xs text-slate-500 mb-1">Tipo de error</p>
-              <select
-                value={selectedError.error_type || 'funcional'}
-                onChange={async (e) => {
-                  await errorsService.update(selectedError.id, { error_type: e.target.value })
-                  setSelectedError({ ...selectedError, error_type: e.target.value })
-                  reload()
-                }}
-                className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
-              >
-                <option value="funcional">Funcional</option>
-                <option value="tecnico">Tecnico</option>
-                <option value="datos">Datos</option>
-                <option value="integracion">Integracion</option>
-                <option value="rendimiento">Rendimiento</option>
-                <option value="seguridad">Seguridad</option>
-                <option value="otro">Otro</option>
-              </select>
+              {canManageErrors ? (
+                <select
+                  value={selectedError.error_type || 'funcional'}
+                  onChange={async (e) => {
+                    await errorsService.update(selectedError.id, { error_type: e.target.value })
+                    setSelectedError({ ...selectedError, error_type: e.target.value })
+                    reload()
+                  }}
+                  className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                >
+                  <option value="funcional">Funcional</option>
+                  <option value="tecnico">Tecnico</option>
+                  <option value="datos">Datos</option>
+                  <option value="integracion">Integracion</option>
+                  <option value="rendimiento">Rendimiento</option>
+                  <option value="seguridad">Seguridad</option>
+                  <option value="otro">Otro</option>
+                </select>
+              ) : (
+                <p className="text-sm text-slate-300 capitalize">
+                  {selectedError.error_type || 'funcional'}
+                </p>
+              )}
             </div>
 
             <div>
               <p className="text-xs text-slate-500 mb-1">Comentarios</p>
-              <textarea
-                defaultValue={selectedError.observations || ''}
-                onBlur={async (e) => {
-                  if (e.target.value !== (selectedError.observations || '')) {
-                    await errorsService.update(selectedError.id, { observations: e.target.value })
-                    reload()
-                  }
-                }}
-                rows={2}
-                placeholder="Agregar comentario..."
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
-              />
+              {canManageErrors ? (
+                <textarea
+                  defaultValue={selectedError.observations || ''}
+                  onBlur={async (e) => {
+                    if (e.target.value !== (selectedError.observations || '')) {
+                      await errorsService.update(selectedError.id, { observations: e.target.value })
+                      reload()
+                    }
+                  }}
+                  rows={2}
+                  placeholder="Agregar comentario..."
+                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                />
+              ) : (
+                <p className="text-sm text-slate-300 whitespace-pre-wrap">
+                  {selectedError.observations || 'Sin comentarios'}
+                </p>
+              )}
             </div>
 
             <div className="grid grid-cols-2 gap-4">
@@ -515,57 +530,59 @@ export function ErrorsPage() {
             </div>
 
             {/* Status actions */}
-            <div className="flex gap-2 pt-2 border-t border-slate-700">
-              {selectedError.status === 'abierto' && (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    changeStatus(selectedError.id, 'en_revision')
-                    reload()
-                    setSelectedError(null)
-                  }}
-                >
-                  Poner en revision
-                </Button>
-              )}
-              {selectedError.status === 'en_revision' && (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    changeStatus(selectedError.id, 'resuelto')
-                    reload()
-                    setSelectedError(null)
-                  }}
-                >
-                  Marcar como resuelto
-                </Button>
-              )}
-              {selectedError.status === 'resuelto' && (
-                <Button
-                  size="sm"
-                  onClick={() => {
-                    changeStatus(selectedError.id, 'cerrado')
-                    reload()
-                    setSelectedError(null)
-                  }}
-                >
-                  Cerrar error
-                </Button>
-              )}
-              {(selectedError.status === 'cerrado' || selectedError.status === 'resuelto') && (
-                <Button
-                  size="sm"
-                  variant="danger"
-                  onClick={() => {
-                    changeStatus(selectedError.id, 'abierto')
-                    reload()
-                    setSelectedError(null)
-                  }}
-                >
-                  Reabrir
-                </Button>
-              )}
-            </div>
+            {canManageErrors && (
+              <div className="flex gap-2 pt-2 border-t border-slate-700">
+                {selectedError.status === 'abierto' && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      changeStatus(selectedError.id, 'en_revision')
+                      reload()
+                      setSelectedError(null)
+                    }}
+                  >
+                    Poner en revision
+                  </Button>
+                )}
+                {selectedError.status === 'en_revision' && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      changeStatus(selectedError.id, 'resuelto')
+                      reload()
+                      setSelectedError(null)
+                    }}
+                  >
+                    Marcar como resuelto
+                  </Button>
+                )}
+                {selectedError.status === 'resuelto' && (
+                  <Button
+                    size="sm"
+                    onClick={() => {
+                      changeStatus(selectedError.id, 'cerrado')
+                      reload()
+                      setSelectedError(null)
+                    }}
+                  >
+                    Cerrar error
+                  </Button>
+                )}
+                {(selectedError.status === 'cerrado' || selectedError.status === 'resuelto') && (
+                  <Button
+                    size="sm"
+                    variant="danger"
+                    onClick={() => {
+                      changeStatus(selectedError.id, 'abierto')
+                      reload()
+                      setSelectedError(null)
+                    }}
+                  >
+                    Reabrir
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Modal>

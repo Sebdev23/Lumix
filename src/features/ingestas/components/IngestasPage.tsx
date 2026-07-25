@@ -3,6 +3,7 @@ import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
 import { useIngestas, statusLabels } from '@features/ingestas/hooks/useIngestas'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { getDaysRemaining, getDaysColor } from '@features/activities/hooks/useActivities'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { exportToCSV } from '@shared/utils/export'
@@ -54,6 +55,7 @@ export function IngestasPage() {
     counts,
     changeStatus,
   } = useIngestas()
+  const { canManageIngestas } = useCapabilities()
   const [selected, setSelected] = useState<Activity | null>(null)
 
   return (
@@ -264,7 +266,7 @@ export function IngestasPage() {
                         <Badge variant={statusColors[a.status]}>{statusLabels[a.status]}</Badge>
                       </td>
                       <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                        {a.status === 'pendiente' && (
+                        {canManageIngestas && a.status === 'pendiente' && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -273,7 +275,7 @@ export function IngestasPage() {
                             Iniciar
                           </Button>
                         )}
-                        {a.status === 'en_proceso' && (
+                        {canManageIngestas && a.status === 'en_proceso' && (
                           <Button
                             size="sm"
                             variant="ghost"
@@ -440,30 +442,32 @@ export function IngestasPage() {
                 ))}
               </div>
             </div>
-            <div className="flex gap-2 pt-2 border-t border-slate-700">
-              {selected.status === 'pendiente' && (
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    await activitiesService.update(selected.id, { status: 'en_proceso' })
-                    setSelected({ ...selected, status: 'en_proceso' })
-                  }}
-                >
-                  Iniciar ingesta
-                </Button>
-              )}
-              {selected.status === 'en_proceso' && (
-                <Button
-                  size="sm"
-                  onClick={async () => {
-                    await activitiesService.update(selected.id, { status: 'completado' })
-                    setSelected({ ...selected, status: 'completado' })
-                  }}
-                >
-                  Marcar completada
-                </Button>
-              )}
-            </div>
+            {canManageIngestas && (
+              <div className="flex gap-2 pt-2 border-t border-slate-700">
+                {selected.status === 'pendiente' && (
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      await activitiesService.update(selected.id, { status: 'en_proceso' })
+                      setSelected({ ...selected, status: 'en_proceso' })
+                    }}
+                  >
+                    Iniciar ingesta
+                  </Button>
+                )}
+                {selected.status === 'en_proceso' && (
+                  <Button
+                    size="sm"
+                    onClick={async () => {
+                      await activitiesService.update(selected.id, { status: 'completado' })
+                      setSelected({ ...selected, status: 'completado' })
+                    }}
+                  >
+                    Marcar completada
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
         )}
       </Modal>

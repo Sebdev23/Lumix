@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
@@ -9,11 +9,17 @@ import {
   statusLabels,
 } from '@features/activities/hooks/useActivities'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
+import { teamsService } from '@infrastructure/supabase/teams.service'
+import { profilesService } from '@infrastructure/supabase/profiles.service'
+import { notificationsService } from '@infrastructure/supabase/notifications.service'
+import { minutesService } from '@infrastructure/supabase/minutes.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
+import { useToast } from '@shared/components/ui/Toast'
 import { exportToCSV } from '@shared/utils/export'
 import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 import { DatePicker } from '@shared/components/ui/DatePicker'
-import type { Activity, ActivityStatus } from '@shared/types'
+import type { Activity, ActivityStatus, Profile } from '@shared/types'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
 
 const statusFilters: { value: ActivityStatus | 'todas' | 'activas'; label: string }[] = [
@@ -49,7 +55,11 @@ export function ActivitiesPage() {
     setFilterStatus,
     changeStatus,
     counts,
-    isColaborador,
+    teamNames,
+    managedIds,
+    isManager,
+    filterTeam,
+    setFilterTeam,
     filterMember,
     setFilterMember,
     dateType,
@@ -66,13 +76,211 @@ export function ActivitiesPage() {
   const [observation, setObservation] = useState('')
   const [showBlockModal, setShowBlockModal] = useState(false)
   const [editingPriority, setEditingPriority] = useState(false)
-  const { profile } = useAuth()
-  const isAdminOrJefe = profile?.role === 'admin' || profile?.role === 'jefatura'
-  // Solo se pueden editar actividades NO cerradas (estado != completado), y por quien corresponde.
+  const { profile, user } = useAuth()
+  const { canAssignOthers } = useCapabilities()
+  const toast = useToast()
+
+  // Delegacion: equipos que el usuario lidera (distintos del activo) + estado del formulario.
+  const [managedTeams, setManagedTeams] = useState<{ id: string; name: string }[]>([])
+  const [showDelegate, setShowDelegate] = useState(false)
+  const [delTeam, setDelTeam] = useState('')
+  const [delMembers, setDelMembers] = useState<Profile[]>([])
+  const [delMember, setDelMember] = useState('')
+  const [delPriority, setDelPriority] = useState(2)
+  const [delDue, setDelDue] = useState('')
+  const [delBusy, setDelBusy] = useState(false)
+  const [delToMinuta, setDelToMinuta] = useState(false)
+  const [children, setChildren] = useState<Activity[]>([])
+  const [childNames, setChildNames] = useState<Record<string, string>>({})
+
+  // Asignacion normal (crear una actividad nueva en el equipo activo, opcionalmente a la minuta)
+  const [showAssign, setShowAssign] = useState(false)
+  const [asgTitle, setAsgTitle] = useState('')
+  const [asgDesc, setAsgDesc] = useState('')
+  const [asgMember, setAsgMember] = useState('')
+  const [asgPriority, setAsgPriority] = useState(2)
+  const [asgDue, setAsgDue] = useState('')
+  const [asgToMinuta, setAsgToMinuta] = useState(false)
+  const [asgBusy, setAsgBusy] = useState(false)
+
+  // Editable si NO esta cerrada y sos el responsable o lideras el equipo de esa actividad.
   const canEdit =
     !!selectedActivity &&
     selectedActivity.status !== 'completado' &&
-    (selectedActivity.responsible_id === profile?.id || isAdminOrJefe)
+    (selectedActivity.responsible_id === profile?.id ||
+      managedIds.includes(selectedActivity.team_id))
+
+  // Equipos que lidera (para delegar), excluyendo el equipo activo.
+  useEffect(() => {
+    if (!user) return
+    teamsService
+      .getManagedTeams(user.id)
+      .then((ts) => setManagedTeams(ts.filter((t) => t.id !== profile?.team_id)))
+      .catch(() => {})
+  }, [user, profile?.team_id])
+
+  // Al cambiar la actividad seleccionada: cargar sus delegaciones (hijos). El reset del
+  // formulario se hace en openActivity (handler), para no llamar setState sincronico en el effect.
+  useEffect(() => {
+    if (!selectedActivity) return
+    let cancelled = false
+    activitiesService
+      .getByParent(selectedActivity.id)
+      .then(async (kids) => {
+        if (cancelled) return
+        setChildren(kids)
+        const teamIds = [...new Set(kids.map((k) => k.team_id))]
+        const names: Record<string, string> = {}
+        for (const tid of teamIds) {
+          const ms = await profilesService.getByTeam(tid)
+          ms.forEach((m) => (names[m.id] = m.full_name))
+        }
+        if (!cancelled) setChildNames(names)
+      })
+      .catch(() => {})
+    return () => {
+      cancelled = true
+    }
+  }, [selectedActivity])
+
+  // Abrir el detalle de una actividad (resetea el estado del panel de delegar).
+  const openActivity = (a: Activity) => {
+    setSelectedActivity(a)
+    setObservation(a.observations || '')
+    setShowDelegate(false)
+    setDelTeam('')
+    setDelMembers([])
+    setDelMember('')
+    setChildren([])
+  }
+
+  const loadDelMembers = async (teamId: string) => {
+    setDelTeam(teamId)
+    setDelMember('')
+    if (!teamId) return setDelMembers([])
+    try {
+      setDelMembers(await profilesService.getByTeam(teamId))
+    } catch {
+      setDelMembers([])
+    }
+  }
+
+  // Crea una actividad asignada a un miembro y, opcionalmente, un tema vinculado en la
+  // minuta de ese equipo (estado sincronizado). Notifica al responsable.
+  const createWithMinuta = async (o: {
+    teamId: string
+    memberId: string
+    title: string
+    description: string
+    priority: number
+    dueISO: string
+    addToMinuta: boolean
+    parentId?: string
+  }): Promise<Activity> => {
+    const act = await activitiesService.create({
+      title: o.title,
+      description: o.description,
+      responsible_id: o.memberId,
+      priority: o.priority,
+      status: 'pendiente',
+      due_date: o.dueISO,
+      dependencies: [],
+      observations: o.parentId ? 'Delegada desde otro equipo' : '',
+      team_id: o.teamId,
+      created_by: user!.id,
+      parent_activity_id: o.parentId ?? null,
+    })
+    try {
+      await notificationsService.send(o.memberId, {
+        title: o.parentId ? 'Actividad delegada' : 'Nueva actividad asignada',
+        body: `"${o.title}" - Entrega: ${formatDateLocal(o.dueISO)}`,
+        type: 'deadline_soon',
+        metadata: { activity_id: act.id },
+      })
+    } catch {
+      /* ignore */
+    }
+    if (o.addToMinuta) {
+      try {
+        await minutesService.create({
+          team_id: o.teamId,
+          orden: 0,
+          tema: o.title,
+          para_todos: false,
+          responsables: [o.memberId],
+          responsables_text: '',
+          estado: 'en_desarrollo',
+          plazo: o.dueISO.split('T')[0],
+          comentarios: '',
+          linked_activity_ids: [act.id],
+          created_by: user!.id,
+        })
+      } catch {
+        /* ignore */
+      }
+    }
+    return act
+  }
+
+  const delegate = async () => {
+    if (!user || !selectedActivity || !delTeam || !delMember) return
+    setDelBusy(true)
+    try {
+      const due = delDue ? new Date(delDue).toISOString() : selectedActivity.due_date
+      const child = await createWithMinuta({
+        teamId: delTeam,
+        memberId: delMember,
+        title: selectedActivity.title,
+        description: selectedActivity.description,
+        priority: delPriority,
+        dueISO: due,
+        addToMinuta: delToMinuta,
+        parentId: selectedActivity.id,
+      })
+      setChildren((prev) => [...prev, child])
+      const nm = delMembers.find((m) => m.id === delMember)?.full_name
+      if (nm) setChildNames((prev) => ({ ...prev, [delMember]: nm }))
+      setShowDelegate(false)
+      toast.success(delToMinuta ? 'Delegada y agregada a la minuta' : 'Actividad delegada')
+    } catch {
+      toast.error('No se pudo delegar')
+    } finally {
+      setDelBusy(false)
+    }
+  }
+
+  const openAssign = () => {
+    setAsgTitle('')
+    setAsgDesc('')
+    setAsgMember('')
+    setAsgPriority(2)
+    setAsgDue('')
+    setAsgToMinuta(false)
+    setShowAssign(true)
+  }
+
+  const assignActivity = async () => {
+    if (!user || !profile?.team_id || !asgTitle.trim() || !asgMember) return
+    setAsgBusy(true)
+    try {
+      await createWithMinuta({
+        teamId: profile.team_id,
+        memberId: asgMember,
+        title: asgTitle.trim(),
+        description: asgDesc.trim(),
+        priority: asgPriority,
+        dueISO: asgDue ? new Date(asgDue).toISOString() : new Date().toISOString(),
+        addToMinuta: asgToMinuta,
+      })
+      setShowAssign(false)
+      reload()
+      toast.success(asgToMinuta ? 'Asignada y agregada a la minuta' : 'Actividad asignada')
+    } catch {
+      toast.error('No se pudo asignar')
+    } finally {
+      setAsgBusy(false)
+    }
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -121,6 +329,11 @@ export function ActivitiesPage() {
             </svg>
             Excel
           </button>
+          {canAssignOthers && (
+            <Button size="sm" onClick={openAssign}>
+              + Asignar
+            </Button>
+          )}
           <span className="text-xs text-slate-500">{counts.todas} total</span>
         </div>
       </div>
@@ -143,13 +356,27 @@ export function ActivitiesPage() {
             </span>
           </button>
         ))}
-        {!isColaborador && (
+        {Object.keys(teamNames).length > 1 && (
+          <select
+            value={filterTeam}
+            onChange={(e) => setFilterTeam(e.target.value)}
+            className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          >
+            <option value="todas">Todos los equipos</option>
+            {Object.entries(teamNames).map(([id, name]) => (
+              <option key={id} value={id}>
+                {name}
+              </option>
+            ))}
+          </select>
+        )}
+        {isManager && (
           <select
             value={filterMember}
             onChange={(e) => setFilterMember(e.target.value)}
             className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           >
-            <option value="todas">Todo el equipo</option>
+            <option value="todas">Cualquier responsable</option>
             {members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.full_name}
@@ -272,10 +499,7 @@ export function ActivitiesPage() {
                   return (
                     <tr
                       key={activity.id}
-                      onClick={() => {
-                        setSelectedActivity(activity)
-                        setObservation(activity.observations || '')
-                      }}
+                      onClick={() => openActivity(activity)}
                       className="border-b border-slate-800 hover:bg-slate-800/30 cursor-pointer transition-colors"
                     >
                       <td className="py-2.5 px-3">
@@ -294,9 +518,16 @@ export function ActivitiesPage() {
                               </svg>
                             </span>
                           )}
-                          <span className="text-slate-200 truncate max-w-[200px]">
-                            {activity.title}
-                          </span>
+                          <div className="min-w-0">
+                            <span className="text-slate-200 truncate max-w-[200px] block">
+                              {activity.title}
+                            </span>
+                            {teamNames[activity.team_id] && (
+                              <span className="text-[10px] text-slate-500">
+                                {teamNames[activity.team_id]}
+                              </span>
+                            )}
+                          </div>
                         </div>
                       </td>
                       <td className="py-2.5 px-3 hidden md:table-cell">
@@ -550,6 +781,132 @@ export function ActivitiesPage() {
               </button>
             )}
 
+            {/* Delegar a mi equipo */}
+            {managedTeams.length > 0 && (
+              <div className="pt-2 border-t border-slate-700">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">Delegar a mi equipo</p>
+                  {!showDelegate && (
+                    <button
+                      onClick={() => {
+                        setShowDelegate(true)
+                        setDelPriority(selectedActivity.priority)
+                        setDelDue(selectedActivity.due_date.split('T')[0])
+                      }}
+                      className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium"
+                    >
+                      → Delegar
+                    </button>
+                  )}
+                </div>
+
+                {/* Delegaciones existentes */}
+                {children.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {children.map((c) => (
+                      <div
+                        key={c.id}
+                        className="flex items-center justify-between text-[11px] px-2 py-1.5 rounded-lg bg-slate-800/60"
+                      >
+                        <span className="text-slate-300">
+                          {childNames[c.responsible_id] || 'Miembro'}
+                          <span className="text-slate-500">
+                            {' · '}
+                            {managedTeams.find((t) => t.id === c.team_id)?.name || 'equipo'}
+                          </span>
+                        </span>
+                        <Badge variant={c.status === 'completado' ? 'success' : 'info'}>
+                          {statusLabels[c.status]}
+                        </Badge>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {showDelegate && (
+                  <div className="mt-2 space-y-2 rounded-lg bg-slate-900/60 border border-indigo-500/20 p-3">
+                    <div>
+                      <p className="text-[11px] text-slate-500 mb-1">Equipo</p>
+                      <select
+                        value={delTeam}
+                        onChange={(e) => loadDelMembers(e.target.value)}
+                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                      >
+                        <option value="">Elegir equipo…</option>
+                        {managedTeams.map((t) => (
+                          <option key={t.id} value={t.id}>
+                            {t.name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    {delTeam && (
+                      <div>
+                        <p className="text-[11px] text-slate-500 mb-1">Asignar a</p>
+                        <select
+                          value={delMember}
+                          onChange={(e) => setDelMember(e.target.value)}
+                          className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        >
+                          <option value="">Elegir persona…</option>
+                          {delMembers.map((m) => (
+                            <option key={m.id} value={m.id}>
+                              {m.full_name}
+                            </option>
+                          ))}
+                        </select>
+                      </div>
+                    )}
+                    <div className="flex gap-3">
+                      <div>
+                        <p className="text-[11px] text-slate-500 mb-1">Prioridad</p>
+                        <div className="flex gap-1">
+                          {[1, 2, 3].map((p) => (
+                            <button
+                              key={p}
+                              onClick={() => setDelPriority(p)}
+                              className={`w-7 h-7 rounded text-xs font-bold text-white ${
+                                delPriority === p
+                                  ? p === 1
+                                    ? 'bg-red-600'
+                                    : p === 2
+                                      ? 'bg-amber-600'
+                                      : 'bg-emerald-600'
+                                  : 'bg-slate-700'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[11px] text-slate-500 mb-1">Fecha entrega</p>
+                        <DatePicker value={delDue || null} onChange={(v) => setDelDue(v ?? '')} />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={delToMinuta}
+                        onChange={(e) => setDelToMinuta(e.target.checked)}
+                        className="accent-indigo-500"
+                      />
+                      Tambien llevar a la minuta del equipo
+                    </label>
+                    <div className="flex gap-2">
+                      <Button size="sm" disabled={delBusy || !delMember} onClick={delegate}>
+                        {delBusy ? 'Delegando...' : 'Delegar'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setShowDelegate(false)}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
             {/* Status actions in modal */}
             <div className="flex gap-2 pt-2 border-t border-slate-700">
               {selectedActivity.status === 'pendiente' && (
@@ -653,6 +1010,99 @@ export function ActivitiesPage() {
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* Asignar actividad (nueva) al equipo actual */}
+      <Modal
+        open={showAssign}
+        onClose={() => setShowAssign(false)}
+        title="Asignar actividad"
+        size="sm"
+      >
+        <div className="space-y-3">
+          <div>
+            <p className="text-[11px] text-slate-500 mb-1">Titulo</p>
+            <input
+              value={asgTitle}
+              onChange={(e) => setAsgTitle(e.target.value)}
+              placeholder="Que hay que hacer..."
+              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            />
+          </div>
+          <div>
+            <p className="text-[11px] text-slate-500 mb-1">Descripcion (opcional)</p>
+            <textarea
+              value={asgDesc}
+              onChange={(e) => setAsgDesc(e.target.value)}
+              rows={2}
+              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+            />
+          </div>
+          <div>
+            <p className="text-[11px] text-slate-500 mb-1">Asignar a</p>
+            <select
+              value={asgMember}
+              onChange={(e) => setAsgMember(e.target.value)}
+              className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200"
+            >
+              <option value="">Elegir persona…</option>
+              {members.map((m) => (
+                <option key={m.id} value={m.id}>
+                  {m.full_name}
+                </option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-3">
+            <div>
+              <p className="text-[11px] text-slate-500 mb-1">Prioridad</p>
+              <div className="flex gap-1">
+                {[1, 2, 3].map((p) => (
+                  <button
+                    key={p}
+                    onClick={() => setAsgPriority(p)}
+                    className={`w-7 h-7 rounded text-xs font-bold text-white ${
+                      asgPriority === p
+                        ? p === 1
+                          ? 'bg-red-600'
+                          : p === 2
+                            ? 'bg-amber-600'
+                            : 'bg-emerald-600'
+                        : 'bg-slate-700'
+                    }`}
+                  >
+                    {p}
+                  </button>
+                ))}
+              </div>
+            </div>
+            <div className="flex-1">
+              <p className="text-[11px] text-slate-500 mb-1">Fecha entrega</p>
+              <DatePicker value={asgDue || null} onChange={(v) => setAsgDue(v ?? '')} />
+            </div>
+          </div>
+          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+            <input
+              type="checkbox"
+              checked={asgToMinuta}
+              onChange={(e) => setAsgToMinuta(e.target.checked)}
+              className="accent-indigo-500"
+            />
+            Tambien llevar a la minuta del equipo
+          </label>
+          <div className="flex gap-2 pt-1">
+            <Button
+              size="sm"
+              disabled={asgBusy || !asgTitle.trim() || !asgMember}
+              onClick={assignActivity}
+            >
+              {asgBusy ? 'Asignando...' : 'Asignar'}
+            </Button>
+            <Button size="sm" variant="ghost" onClick={() => setShowAssign(false)}>
+              Cancelar
+            </Button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

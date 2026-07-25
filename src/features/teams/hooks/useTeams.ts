@@ -15,6 +15,7 @@ interface Member {
   team_id: string
   user_id: string
   role: string
+  permissions?: Record<string, boolean>
   profile: { full_name: string; email: string }
 }
 
@@ -87,11 +88,23 @@ export function useTeamMembers(teamId: string) {
     setMembers(data)
   }
 
+  const changeRole = async (userId: string, role: string) => {
+    await teamsService.changeRole(teamId, userId, role)
+    setMembers(await teamsService.getMembers(teamId))
+  }
+
+  const updatePermissions = async (userId: string, permissions: Record<string, boolean>) => {
+    await teamsService.updatePermissions(teamId, userId, permissions)
+    setMembers(await teamsService.getMembers(teamId))
+  }
+
   return {
     members,
     loading,
     addMember,
     removeMember,
+    changeRole,
+    updatePermissions,
     reload: async () => {
       const data = await teamsService.getMembers(teamId)
       setMembers(data)

@@ -6,11 +6,16 @@ import { Input } from '@shared/components/ui/Input'
 import { Modal } from '@shared/components/ui/Modal'
 import { Avatar } from '@shared/components/ui/Avatar'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
+import { CAPABILITIES, ROLE_DEFAULTS } from '@core/auth/capabilities'
 import { useTeams, useTeamMembers } from '@features/teams/hooks/useTeams'
+
+const MEMBER_ROLES = ['jefatura', 'colaborador', 'invitado']
 
 export function TeamsPage() {
   const { teams, loading, createTeam } = useTeams()
   const { profile } = useAuth()
+  const { isGlobalAdmin } = useCapabilities()
   const isAdmin = profile?.role === 'admin'
   const [showCreate, setShowCreate] = useState(false)
   const [newName, setNewName] = useState('')
@@ -21,9 +26,18 @@ export function TeamsPage() {
     loading: membersLoading,
     addMember,
     removeMember,
+    changeRole,
+    updatePermissions,
   } = useTeamMembers(selectedTeam ?? '')
   const [inviteEmail, setInviteEmail] = useState('')
   const [error, setError] = useState('')
+
+  // Puede gestionar el equipo seleccionado el admin global o la jefatura de ESE equipo.
+  // Se exige que la membresia sea del equipo seleccionado (evita datos obsoletos al cambiar
+  // de equipo, que mostraban los controles donde el usuario es solo colaborador).
+  const myMembership = members.find((m) => m.user_id === profile?.id && m.team_id === selectedTeam)
+  const canManageThis =
+    isGlobalAdmin || myMembership?.role === 'jefatura' || myMembership?.role === 'admin'
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -85,33 +99,91 @@ export function TeamsPage() {
                   {membersLoading ? (
                     <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto" />
                   ) : (
-                    <div className="space-y-2 mb-3">
-                      {members.map((m) => (
-                        <div key={m.user_id} className="flex items-center justify-between">
-                          <div className="flex items-center gap-2">
-                            <Avatar name={m.profile.full_name} size="sm" />
-                            <div>
-                              <p className="text-xs text-slate-300">{m.profile.full_name}</p>
-                              <p className="text-[10px] text-slate-500">{m.profile.email}</p>
+                    <div className="space-y-3 mb-3">
+                      {members.map((m) => {
+                        const perms = m.permissions ?? {}
+                        const roleDefaults = ROLE_DEFAULTS[m.role] ?? []
+                        return (
+                          <div
+                            key={m.user_id}
+                            className="rounded-lg bg-slate-800/40 border border-slate-700/60 p-2.5 space-y-2"
+                          >
+                            <div className="flex items-center justify-between gap-2">
+                              <div className="flex items-center gap-2 min-w-0">
+                                <Avatar name={m.profile.full_name} size="sm" />
+                                <div className="min-w-0">
+                                  <p className="text-xs text-slate-300 truncate">
+                                    {m.profile.full_name}
+                                  </p>
+                                  <p className="text-[10px] text-slate-500 truncate">
+                                    {m.profile.email}
+                                  </p>
+                                </div>
+                              </div>
+                              <div className="flex items-center gap-2 flex-shrink-0">
+                                {canManageThis && m.user_id !== profile?.id ? (
+                                  <select
+                                    value={m.role}
+                                    onChange={(e) => changeRole(m.user_id, e.target.value)}
+                                    className="rounded border border-slate-700 bg-slate-800 px-1.5 py-1 text-[11px] text-slate-200"
+                                  >
+                                    {MEMBER_ROLES.map((r) => (
+                                      <option key={r} value={r}>
+                                        {r}
+                                      </option>
+                                    ))}
+                                  </select>
+                                ) : (
+                                  <Badge>{m.role}</Badge>
+                                )}
+                                {canManageThis && m.user_id !== profile?.id && (
+                                  <button
+                                    onClick={() => removeMember(m.user_id)}
+                                    className="text-[10px] text-red-400 hover:text-red-300"
+                                  >
+                                    Remover
+                                  </button>
+                                )}
+                              </div>
                             </div>
-                          </div>
-                          <div className="flex items-center gap-2">
-                            <Badge>{m.role}</Badge>
-                            {m.user_id !== profile?.id && isAdmin && (
-                              <button
-                                onClick={() => removeMember(m.user_id)}
-                                className="text-[10px] text-red-400 hover:text-red-300"
-                              >
-                                Remover
-                              </button>
+
+                            {/* Permisos por flag (los que ya trae el rol van marcados y bloqueados) */}
+                            {canManageThis && (
+                              <div className="grid grid-cols-1 sm:grid-cols-2 gap-x-3 gap-y-1 pt-1 border-t border-slate-700/50">
+                                {CAPABILITIES.map((cap) => {
+                                  const byRole = roleDefaults.includes(cap.key)
+                                  const checked = byRole || perms[cap.key] === true
+                                  return (
+                                    <label
+                                      key={cap.key}
+                                      className={`flex items-center gap-1.5 text-[11px] ${byRole ? 'text-slate-500' : 'text-slate-300 cursor-pointer'}`}
+                                      title={byRole ? 'Incluido por su rol' : cap.key}
+                                    >
+                                      <input
+                                        type="checkbox"
+                                        checked={checked}
+                                        disabled={byRole}
+                                        onChange={(e) =>
+                                          updatePermissions(m.user_id, {
+                                            ...perms,
+                                            [cap.key]: e.target.checked,
+                                          })
+                                        }
+                                        className="accent-indigo-500"
+                                      />
+                                      {cap.label}
+                                    </label>
+                                  )
+                                })}
+                              </div>
                             )}
                           </div>
-                        </div>
-                      ))}
+                        )
+                      })}
                     </div>
                   )}
 
-                  {isAdmin && (
+                  {canManageThis && (
                     <div className="flex flex-col sm:flex-row gap-2">
                       <input
                         value={inviteEmail}
@@ -128,21 +200,12 @@ export function TeamsPage() {
                 </div>
               )}
 
-              {isAdmin ? (
-                <button
-                  onClick={() => setSelectedTeam(selectedTeam === team.id ? null : team.id)}
-                  className="text-xs text-indigo-400 hover:text-indigo-300 mt-3"
-                >
-                  {selectedTeam === team.id ? 'Ocultar miembros' : 'Gestionar miembros'}
-                </button>
-              ) : (
-                <button
-                  onClick={() => setSelectedTeam(selectedTeam === team.id ? null : team.id)}
-                  className="text-xs text-slate-500 hover:text-slate-400 mt-3"
-                >
-                  {selectedTeam === team.id ? 'Ocultar miembros' : 'Ver miembros'}
-                </button>
-              )}
+              <button
+                onClick={() => setSelectedTeam(selectedTeam === team.id ? null : team.id)}
+                className="text-xs text-indigo-400 hover:text-indigo-300 mt-3"
+              >
+                {selectedTeam === team.id ? 'Ocultar miembros' : 'Ver / gestionar miembros'}
+              </button>
             </Card>
           ))
         )}

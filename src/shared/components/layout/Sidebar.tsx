@@ -20,15 +20,22 @@ export function Sidebar({ onClose }: SidebarProps) {
   const [teams, setTeams] = useState<{ id: string; name: string }[]>([])
   const [switching, setSwitching] = useState(false)
 
+  // Cualquier usuario puede pertenecer a varios equipos (jerarquia): cargamos los suyos
+  // para poder cambiar de contexto. El selector se muestra si tiene mas de uno.
   useEffect(() => {
-    if (!isAdmin || !user) return
+    if (!user) return
     teamsService.getMyTeams(user.id).then(setTeams)
-  }, [isAdmin, user])
+  }, [user])
 
   const switchTeam = async (teamId: string) => {
     if (!user || !profile || teamId === profile.team_id) return
     setSwitching(true)
-    await supabase.from('profiles').update({ team_id: teamId }).eq('id', user.id)
+    const { error } = await supabase.from('profiles').update({ team_id: teamId }).eq('id', user.id)
+    if (error) {
+      setSwitching(false)
+      alert('No se pudo cambiar de equipo: ' + error.message)
+      return
+    }
     window.location.reload()
   }
 
@@ -47,8 +54,8 @@ export function Sidebar({ onClose }: SidebarProps) {
         <span className="text-slate-200 font-semibold text-sm">Lumix</span>
       </div>
 
-      {/* Team selector - admin only */}
-      {isAdmin && teams.length > 0 && (
+      {/* Selector de equipo: admin (todos sus equipos) o cualquiera con mas de un equipo */}
+      {(isAdmin ? teams.length > 0 : teams.length > 1) && (
         <div className="px-3 py-2 border-b border-slate-800">
           <select
             value={profile?.team_id ?? ''}

@@ -38,6 +38,8 @@ export function MinutaPage() {
     setWeekOffset,
     weekLabel,
     canManage,
+    canDelete,
+    canAssign,
     addItem,
     updateItem,
     changePlazo,
@@ -361,9 +363,10 @@ export function MinutaPage() {
                   </div>
 
                   {/* Acciones */}
-                  {canManage && (
+                  {(canAssign || canDelete) && (
                     <div className="flex items-center gap-3 pt-1 border-t border-slate-700/60">
-                      {!it.para_todos &&
+                      {canAssign &&
+                        !it.para_todos &&
                         it.responsables.length > 0 &&
                         (it.linkedActivities.length > 0 ? (
                           <span className="text-[11px] text-slate-500">Actividad asignada</span>
@@ -376,12 +379,14 @@ export function MinutaPage() {
                           </button>
                         ))}
                       <div className="flex-1" />
-                      <button
-                        onClick={() => setConfirmDeleteId(it.id)}
-                        className="text-[11px] text-slate-500 hover:text-red-400"
-                      >
-                        Eliminar
-                      </button>
+                      {canDelete && (
+                        <button
+                          onClick={() => setConfirmDeleteId(it.id)}
+                          className="text-[11px] text-slate-500 hover:text-red-400"
+                        >
+                          Eliminar
+                        </button>
+                      )}
                     </div>
                   )}
                 </div>
@@ -523,9 +528,10 @@ export function MinutaPage() {
 
                     {/* Acciones */}
                     <td className="py-2 px-2 text-right whitespace-nowrap">
-                      {canManage && (
+                      {(canAssign || canDelete) && (
                         <div className="flex flex-col items-end gap-1.5">
-                          {!it.para_todos &&
+                          {canAssign &&
+                            !it.para_todos &&
                             it.responsables.length > 0 &&
                             (it.linkedActivities.length > 0 ? (
                               <span
@@ -542,12 +548,14 @@ export function MinutaPage() {
                                 Asignar actividad
                               </button>
                             ))}
-                          <button
-                            onClick={() => setConfirmDeleteId(it.id)}
-                            className="text-[11px] text-slate-500 hover:text-red-400"
-                          >
-                            Eliminar
-                          </button>
+                          {canDelete && (
+                            <button
+                              onClick={() => setConfirmDeleteId(it.id)}
+                              className="text-[11px] text-slate-500 hover:text-red-400"
+                            >
+                              Eliminar
+                            </button>
+                          )}
                         </div>
                       )}
                     </td>

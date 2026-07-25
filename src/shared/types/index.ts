@@ -40,6 +40,7 @@ export interface Activity {
   completed_at: string | null
   estimated_hours?: number
   updated_at?: string
+  parent_activity_id?: string | null
 }
 
 export interface AppError {

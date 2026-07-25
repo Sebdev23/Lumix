@@ -13,6 +13,7 @@ interface TeamMember {
   team_id: string
   user_id: string
   role: string
+  permissions?: Record<string, boolean>
   joined_at: string
 }
 
@@ -23,6 +24,17 @@ export const teamsService = {
       .select('team:teams(*)')
       .eq('user_id', userId)
 
+    if (error) throw error
+    return (data ?? []).map((d: { team: unknown }) => d.team as Team)
+  },
+
+  // Equipos donde el usuario es manager (jefatura/admin): destinos para delegar.
+  async getManagedTeams(userId: string): Promise<Team[]> {
+    const { data, error } = await supabase
+      .from('team_members')
+      .select('role, team:teams(*)')
+      .eq('user_id', userId)
+      .in('role', ['admin', 'jefatura'])
     if (error) throw error
     return (data ?? []).map((d: { team: unknown }) => d.team as Team)
   },
@@ -85,6 +97,19 @@ export const teamsService = {
     const { error } = await supabase
       .from('team_members')
       .update({ role })
+      .eq('team_id', teamId)
+      .eq('user_id', userId)
+    if (error) throw error
+  },
+
+  async updatePermissions(
+    teamId: string,
+    userId: string,
+    permissions: Record<string, boolean>,
+  ): Promise<void> {
+    const { error } = await supabase
+      .from('team_members')
+      .update({ permissions })
       .eq('team_id', teamId)
       .eq('user_id', userId)
     if (error) throw error

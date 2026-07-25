@@ -5,6 +5,7 @@ import { useGantt, getLoadColor, getLoadTextColor } from '@features/gantt/hooks/
 import { getDaysRemaining, getDaysColor } from '@features/activities/hooks/useActivities'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
 import { DatePicker } from '@shared/components/ui/DatePicker'
 import type { Activity } from '@shared/types'
@@ -39,10 +40,8 @@ export function GanttPage() {
   const [dragOverDate, setDragOverDate] = useState<string | null>(null)
   const [dropping, setDropping] = useState(false)
   const { profile } = useAuth()
-  const canEdit =
-    profile?.role === 'admin' ||
-    profile?.role === 'jefatura' ||
-    selectedActivity?.responsible_id === profile?.id
+  const { canEditAllActivities } = useCapabilities()
+  const canEdit = canEditAllActivities || selectedActivity?.responsible_id === profile?.id
 
   const handleDragStart = useCallback((e: React.DragEvent, activity: Activity) => {
     e.dataTransfer.effectAllowed = 'move'

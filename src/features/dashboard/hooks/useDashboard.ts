@@ -3,6 +3,7 @@ import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { parseDateLocal } from '@shared/utils/date'
 import type { Activity, Profile } from '@shared/types'
 
@@ -63,8 +64,8 @@ export function useDashboard() {
   })
   const [loading, setLoading] = useState(true)
   const { user, profile } = useAuth()
+  const { isColaborador } = useCapabilities()
   const teamId = profile?.team_id ?? ''
-  const isColaborador = profile?.role === 'colaborador'
 
   useEffect(() => {
     if (!user || !teamId) return

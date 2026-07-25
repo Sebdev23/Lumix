@@ -3,6 +3,7 @@ import { errorsService } from '@infrastructure/supabase/errors.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { parseDateLocal } from '@shared/utils/date'
 import { useToast } from '@shared/components/ui/Toast'
 import type { AppError, ErrorSeverity, ErrorStatus, Profile } from '@shared/types'
@@ -21,8 +22,8 @@ export function useErrors() {
   const [dateTo, setDateTo] = useState('')
   const [search, setSearch] = useState('')
   const { user, profile } = useAuth()
+  const { isInvitado } = useCapabilities()
   const teamId = profile?.team_id ?? ''
-  const isInvitado = profile?.role === 'invitado'
   const toast = useToast()
 
   useEffect(() => {

@@ -12,6 +12,38 @@ export const activitiesService = {
     return data ?? []
   },
 
+  // Todas las actividades donde el usuario es responsable, en CUALQUIER equipo (personales).
+  async getByResponsibleAll(userId: string): Promise<Activity[]> {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .eq('responsible_id', userId)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return data ?? []
+  },
+
+  // Todas las actividades de un conjunto de equipos (los que el usuario lidera).
+  async getByTeams(teamIds: string[]): Promise<Activity[]> {
+    if (teamIds.length === 0) return []
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .in('team_id', teamIds)
+      .order('created_at', { ascending: false })
+    if (error) throw error
+    return data ?? []
+  },
+
+  async getByParent(parentId: string): Promise<Activity[]> {
+    const { data, error } = await supabase
+      .from('activities')
+      .select('*')
+      .eq('parent_activity_id', parentId)
+    if (error) throw error
+    return data ?? []
+  },
+
   async getById(id: string): Promise<Activity | null> {
     const { data, error } = await supabase.from('activities').select('*').eq('id', id).single()
     if (error) throw error

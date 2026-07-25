@@ -13,7 +13,9 @@ import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
+import { minutesService } from '@infrastructure/supabase/minutes.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
 import type { ChatMessage, SendMessagePayload } from '@features/chat/types'
 import type { Activity, ActivityStatus } from '@shared/types'
@@ -298,10 +300,9 @@ export function useChatMessages() {
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const membersRef = useRef<Member[]>([])
   const teamId = profile?.team_id ?? ''
-  const isColaborador = profile?.role === 'colaborador'
-  const isAdmin = profile?.role === 'admin'
-  // Solo jefatura y admin pueden asignar a terceros. Colaborador e invitado se autoasignan.
-  const canAssignOthers = profile?.role === 'admin' || profile?.role === 'jefatura'
+  // Capacidades segun el rol del EQUIPO ACTIVO (una persona puede ser jefatura en un equipo
+  // y colaboradora en otro). isAdmin = admin global (ve toda la conversacion del equipo).
+  const { isColaborador, isGlobalAdmin: isAdmin, canAssignOthers } = useCapabilities()
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -1054,6 +1055,32 @@ export function useChatMessages() {
     const content = message.content.trim()
 
     try {
+      // MINUTA: tipo forzado desde el selector -> crea un tema en la minuta del equipo.
+      if (forcedType === 'minuta') {
+        try {
+          await minutesService.create({
+            team_id: teamId,
+            orden: 0,
+            tema: content,
+            para_todos: false,
+            responsables: [],
+            responsables_text: '',
+            estado: 'pendiente',
+            plazo: null,
+            comentarios: '',
+            linked_activity_ids: [],
+            created_by: message.sender_id,
+          })
+          await aiSay(`Tema agregado a la minuta: "${content}"`)
+        } catch (err) {
+          console.error('Minuta topic failed:', err)
+          await aiSay('No pude agregar el tema a la minuta (revisa tus permisos).')
+        }
+        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, category: null } : m)))
+        setAiProcessing(false)
+        return
+      }
+
       // PREGUNTAS: detectar con prefijo ? o palabras interrogativas
       const questionWords =
         /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|ver |mis |cuales son)\b/i

@@ -2,6 +2,7 @@ import { useState, useRef, useEffect, useCallback } from 'react'
 import { ChatBubble } from '@shared/components/ui/ChatBubble'
 import { Button } from '@shared/components/ui/Button'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { useChatMessages } from '@features/chat/hooks/useChatMessages'
 import { useTypingIndicator } from '@features/chat/hooks/useTypingIndicator'
 import { useFileUpload } from '@features/chat/hooks/useFileUpload'
@@ -62,7 +63,7 @@ export function ChatPage() {
   const [customDays, setCustomDays] = useState('')
   const [showCustomDays, setShowCustomDays] = useState(false)
   const [messageType, setMessageType] = useState<
-    'auto' | 'actividad' | 'error' | 'ingesta' | 'masivo'
+    'auto' | 'actividad' | 'error' | 'ingesta' | 'masivo' | 'minuta'
   >('auto')
   const [teamName, setTeamName] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
@@ -90,7 +91,7 @@ export function ChatPage() {
     listMembers,
   } = useChatMessages()
 
-  const canAssignOthers = profile?.role === 'admin' || profile?.role === 'jefatura'
+  const { canAssignOthers, canManageMinuta } = useCapabilities()
 
   const openEdit = (item: ActivityListItem) => {
     setEditForm({
@@ -496,27 +497,31 @@ export function ChatPage() {
         >
           {/* Type selector */}
           <div className="flex gap-1 mb-2">
-            {(['auto', 'actividad', 'error', 'ingesta', 'masivo'] as const).map((t) => (
-              <button
-                key={t}
-                onClick={() => setMessageType(t)}
-                className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${
-                  messageType === t
-                    ? t === 'ingesta'
-                      ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
-                      : t === 'error'
-                        ? 'bg-red-600/20 text-red-400 border border-red-500/30'
-                        : t === 'actividad'
-                          ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
-                          : t === 'masivo'
-                            ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                            : 'bg-slate-700 text-slate-200'
-                    : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
-                }`}
-              >
-                {t === 'auto' ? 'Auto' : t.charAt(0).toUpperCase() + t.slice(1)}
-              </button>
-            ))}
+            {(['auto', 'actividad', 'error', 'ingesta', 'masivo', 'minuta'] as const)
+              .filter((t) => t !== 'minuta' || canManageMinuta)
+              .map((t) => (
+                <button
+                  key={t}
+                  onClick={() => setMessageType(t)}
+                  className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                    messageType === t
+                      ? t === 'ingesta'
+                        ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
+                        : t === 'error'
+                          ? 'bg-red-600/20 text-red-400 border border-red-500/30'
+                          : t === 'actividad'
+                            ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
+                            : t === 'masivo'
+                              ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
+                              : t === 'minuta'
+                                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
+                                : 'bg-slate-700 text-slate-200'
+                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                  }`}
+                >
+                  {t === 'auto' ? 'Auto' : t.charAt(0).toUpperCase() + t.slice(1)}
+                </button>
+              ))}
           </div>
           <div className="flex items-end gap-2">
             {isSupported && (

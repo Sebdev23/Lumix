@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import type { Activity, Profile } from '@shared/types'
 
 interface DayCell {
@@ -48,8 +49,8 @@ export function useGantt() {
   const [weekOffset, setWeekOffset] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const { user, profile } = useAuth()
+  const { isColaborador } = useCapabilities()
   const teamId = profile?.team_id ?? ''
-  const isColaborador = profile?.role === 'colaborador'
 
   const referenceDate = new Date()
   referenceDate.setDate(referenceDate.getDate() + weekOffset * 7)
