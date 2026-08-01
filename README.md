@@ -39,7 +39,7 @@ Sistema Operativo Conversacional para Equipos de Trabajo.
 | ------------ | -------------------------------------------------------------- |
 | Frontend     | React 19, Vite, TypeScript, Tailwind CSS 4                     |
 | Backend      | Supabase (PostgreSQL, Auth, Realtime, Storage, Edge Functions) |
-| IA           | OpenAI GPT-4o mini (clasificacion), Whisper-1 (transcripcion)  |
+| IA           | OpenAI GPT-4o (clasificacion), Whisper-1 (transcripcion)       |
 | Hosting      | Netlify (frontend), Supabase (backend)                         |
 | Arquitectura | Clean Architecture + Feature-Based + DDD                       |
 
@@ -62,14 +62,28 @@ supabase/
 
 ## API / Edge Functions
 
-4 Edge Functions desplegadas en Supabase. La API key de OpenAI esta como secreto del servidor, nunca expuesta al cliente.
+7 Edge Functions desplegadas en Supabase. La API key de OpenAI esta como secreto del servidor, nunca expuesta al cliente.
 
-| Funcion         | Endpoint                           | Que hace                                                                                           |
-| --------------- | ---------------------------------- | -------------------------------------------------------------------------------------------------- |
-| `ai-classify`   | `POST /functions/v1/ai-classify`   | Clasifica mensajes con GPT-4o mini. Recibe `{ content }`, devuelve `{ category, entities, reply }` |
-| `ai-ask`        | `POST /functions/v1/ai-ask`        | Responde preguntas con datos del equipo. Recibe `{ question, teamData }`, devuelve `{ answer }`    |
-| `ai-transcribe` | `POST /functions/v1/ai-transcribe` | Transcribe audio con Whisper-1. Recibe `{ audioUrl }`, devuelve `{ transcript }`                   |
-| `admin-users`   | `POST /functions/v1/admin-users`   | Crea usuarios y cambia roles. Usa service_role key. Acciones: `create-user`, `change-role`         |
+**Todas las funciones de IA exigen un usuario autenticado.** La anon key viaja dentro del bundle que
+sirve Netlify (es publica por diseno: cualquier variable `VITE_*` queda escrita en el JavaScript
+compilado), asi que por si sola no basta para invocarlas: hace falta el token de sesion de alguien
+que inicio sesion en Lumix. Sin esta verificacion, cualquiera podria copiar la anon key del inspector
+y gastar la `OPENAI_API_KEY` del proyecto. RLS protege los datos, pero no protege el gasto.
+
+El codigo comun vive en `supabase/functions/_shared/`:
+
+| Archivo         | Que hace                                                                   |
+| --------------- | -------------------------------------------------------------------------- |
+| `cors.ts`       | Cabeceras CORS. Lee `ALLOWED_ORIGIN` (lista separada por comas)            |
+| `auth.ts`       | `getUser(req)`: valida el token de sesion. Devuelve null si no hay usuario |
+| `rate-limit.ts` | Limite por usuario. En memoria: ver limitacion documentada en el archivo   |
+
+| Funcion         | Endpoint                           | Que hace                                                                                             |
+| --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `ai-classify`   | `POST /functions/v1/ai-classify`   | Clasifica mensajes con GPT-4o. Recibe `{ content }`, devuelve `{ category, depth, entities, reply }` |
+| `ai-ask`        | `POST /functions/v1/ai-ask`        | Responde preguntas con datos del equipo. Recibe `{ question, teamData }`, devuelve `{ answer }`      |
+| `ai-transcribe` | `POST /functions/v1/ai-transcribe` | Transcribe audio con Whisper-1. Recibe `{ audioUrl }`, devuelve `{ transcript }`                     |
+| `admin-users`   | `POST /functions/v1/admin-users`   | Crea usuarios y cambia roles. Usa service_role key. Acciones: `create-user`, `change-role`           |
 
 ### Ejemplo ai-classify
 
@@ -85,6 +99,7 @@ Respuesta:
 ```json
 {
   "category": "actividad",
+  "depth": "superficial",
   "confidence": 1,
   "entities": {
     "title": "preparar reporte de ventas",
@@ -130,7 +145,7 @@ Respuesta:
 ### Crear actividad desde chat
 
 1. Usuario escribe en lenguaje natural
-2. Edge Function `ai-classify` analiza con GPT-4o mini
+2. Edge Function `ai-classify` analiza con GPT-4o
 3. Extrae: titulo, responsable, prioridad, fecha
 4. Si no hay fecha → +7 dias habiles
 5. Si hay sobrecarga → alerta interactiva (reprogramar)
@@ -166,7 +181,16 @@ VITE_SUPABASE_ANON_KEY=<anon-key>
 OPENAI_API_KEY=<api-key>
 SERVICE_ROLE_KEY=<service-role-key>
 PROJECT_URL=<url-de-tu-proyecto-supabase>
+AI_MODEL=<opcional: modelo de OpenAI>
 ```
+
+`AI_MODEL` controla el modelo que usan las 6 Edge Functions de IA. En produccion esta definido como
+`gpt-4o` (ver ADR-003). **Si no se define, todas caen al default del codigo, que tambien es `gpt-4o`**
+— no `gpt-4o-mini`. Conviene mantenerlo explicito para que el modelo no dependa de un default
+escondido en el codigo.
+
+`ai-classify` devuelve el modelo que uso en el campo `model` de su respuesta, y ese valor se guarda
+en `ai_decisions.model`. Asi, si se cambia `AI_MODEL`, se puede comparar la precision entre modelos.
 
 ---
 

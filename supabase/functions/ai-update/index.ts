@@ -1,26 +1,12 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import { buildCors, jsonResponse } from '../_shared/cors.ts'
+import { getUser } from '../_shared/auth.ts'
+import { checkRateLimit } from '../_shared/rate-limit.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
 const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
 
-const rateLimitMap = new Map<string, number[]>()
 const RATE_LIMIT_MAX = 30
-const RATE_LIMIT_WINDOW = 60000
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const timestamps = rateLimitMap.get(ip) || []
-  const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW)
-  if (recent.length >= RATE_LIMIT_MAX) return false
-  recent.push(now)
-  rateLimitMap.set(ip, recent)
-  return true
-}
 
 const SYSTEM_PROMPT = `Eres OPERA AI. El usuario escribe en lenguaje natural para MODIFICAR una actividad que YA EXISTE (completarla, moverle la fecha, reasignarla, cambiar su estado o su prioridad).
 
@@ -76,25 +62,29 @@ interface ActivityLite {
 }
 
 serve(async (req: Request) => {
+  const cors = buildCors(req)
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: cors })
   }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
 
-  const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown'
-  if (!checkRateLimit(ip)) {
-    return new Response(JSON.stringify({ error: 'Too many requests. Try again in a minute.' }), {
-      status: 429,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+  // La anon key es publica (viaja en el bundle). Sin esto, cualquiera puede
+  // gastar la OPENAI_API_KEY del proyecto.
+  const user = await getUser(req)
+  if (!user) {
+    return jsonResponse({ error: 'No autorizado' }, 401, cors)
   }
 
+  if (!checkRateLimit(user.id, RATE_LIMIT_MAX)) {
+    return jsonResponse({ error: 'Too many requests. Try again in a minute.' }, 429, cors)
+  }
   try {
     const {
       content,
@@ -107,7 +97,7 @@ serve(async (req: Request) => {
     if (!content || typeof content !== 'string') {
       return new Response(JSON.stringify({ error: 'Content is required' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
@@ -160,7 +150,7 @@ serve(async (req: Request) => {
       console.error('OpenAI API error:', error)
       return new Response(JSON.stringify({ error: 'AI service error' }), {
         status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
@@ -177,7 +167,7 @@ serve(async (req: Request) => {
 
     if (!aiText) {
       return new Response(JSON.stringify(fallback), {
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
@@ -194,13 +184,13 @@ serve(async (req: Request) => {
     }
 
     return new Response(JSON.stringify(parsed), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   } catch (err) {
     console.error('Function error:', err)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
 })

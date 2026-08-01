@@ -1,31 +1,41 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import { buildCors, jsonResponse } from '../_shared/cors.ts'
+import { getUser } from '../_shared/auth.ts'
+import { checkRateLimit } from '../_shared/rate-limit.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
 
 serve(async (req: Request) => {
+  const cors = buildCors(req)
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: cors })
   }
 
   if (req.method !== 'POST') {
     return new Response(JSON.stringify({ error: 'Method not allowed' }), {
       status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
 
+  // La anon key es publica (viaja en el bundle). Sin esto, cualquiera puede
+  // gastar la OPENAI_API_KEY del proyecto.
+  const user = await getUser(req)
+  if (!user) {
+    return jsonResponse({ error: 'No autorizado' }, 401, cors)
+  }
+
+  if (!checkRateLimit(user.id, 10)) {
+    return jsonResponse({ error: 'Too many requests. Try again in a minute.' }, 429, cors)
+  }
   try {
     const { audioUrl } = await req.json()
 
     if (!audioUrl || typeof audioUrl !== 'string') {
       return new Response(JSON.stringify({ error: 'audioUrl is required' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
@@ -33,7 +43,7 @@ serve(async (req: Request) => {
     if (!audioResponse.ok) {
       return new Response(JSON.stringify({ error: 'Failed to fetch audio file' }), {
         status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
@@ -57,20 +67,20 @@ serve(async (req: Request) => {
       console.error('Whisper API error:', error)
       return new Response(JSON.stringify({ error: 'Transcription failed' }), {
         status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
     const transcript = await transcriptionResponse.text()
 
     return new Response(JSON.stringify({ transcript }), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   } catch (err) {
     console.error('Function error:', err)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
 })

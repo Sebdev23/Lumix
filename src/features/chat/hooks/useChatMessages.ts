@@ -14,6 +14,7 @@ import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { minutesService } from '@infrastructure/supabase/minutes.service'
+import { aiDecisionsService } from '@infrastructure/supabase/ai-decisions.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
@@ -281,6 +282,9 @@ export interface PendingCategory {
   // Opciones no-actividad a ofrecer en el popout, segun las palabras encontradas en el texto.
   options: ('error' | 'ingesta')[]
   sourceMessageId: string
+  // Para registrar si el usuario termina corrigiendo lo que predijo la IA.
+  decisionId?: string | null
+  predictedCategory?: string
 }
 
 export interface QuickChanges {
@@ -1027,6 +1031,16 @@ export function useChatMessages() {
     if (confirmMessageId) {
       setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
     }
+
+    // Si el usuario eligio algo distinto a lo que predijo la IA, queda registrado.
+    // Esta es la senal mas valiosa que produce el chat: donde se equivoca el modelo.
+    if (pending.decisionId && pending.predictedCategory && pending.predictedCategory !== choice) {
+      void aiDecisionsService.markCorrection(pending.decisionId, {
+        finalCategory: choice,
+        source: 'popout',
+      })
+    }
+
     if (choice === 'error') {
       return createErrorFromMessage({
         content: pending.content,
@@ -1277,6 +1291,19 @@ export function useChatMessages() {
       const priority = result.entities.priority ?? 2
       const title = result.entities.title || content.slice(0, 100)
 
+      // Telemetria: que entendio la IA. Nunca lanza; si falla, el chat sigue igual.
+      const decisionId = await aiDecisionsService.log({
+        teamId,
+        userId: message.sender_id,
+        messageId: message.id,
+        sourceText: content,
+        model: result.model ?? null,
+        predictedCategory: result.category,
+        predictedDepth: result.depth ?? null,
+        confidence: result.confidence ?? null,
+        predictedEntities: result.entities,
+      })
+
       // Primer filtro: si el texto menciona la palabra "error" o "ingesta", en modo Auto
       // siempre preguntamos que tipo es (actividad / error / ingesta). Si el usuario ya eligio
       // el tipo con el selector del chat, forcedType != 'auto' y no entra aca (es explicito).
@@ -1296,6 +1323,8 @@ export function useChatMessages() {
           senderId: message.sender_id,
           options,
           sourceMessageId: message.id,
+          decisionId,
+          predictedCategory: result.category,
         }
         const optLabel = options
           .map((o) => (o === 'ingesta' ? 'una ingesta de datos' : 'un error'))

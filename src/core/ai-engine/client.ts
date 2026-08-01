@@ -1,9 +1,15 @@
 import { supabase } from '@infrastructure/supabase/client'
 
 export type ClassifyCategory = 'actividad' | 'error' | 'ingesta'
+export type ClassifyDepth = 'profunda' | 'superficial'
 
 export interface ClassifyResult {
   category: ClassifyCategory
+  // Trabajo profundo vs superficial (Newport). Opcional: si el modelo no lo
+  // devuelve, el resto del flujo funciona igual.
+  depth?: ClassifyDepth
+  // Modelo que produjo esta clasificacion (lo devuelve la Edge Function).
+  model?: string
   confidence: number
   entities: {
     title: string

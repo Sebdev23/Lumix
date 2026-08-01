@@ -1,32 +1,18 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
-
-const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
+import { buildCors, jsonResponse } from '../_shared/cors.ts'
+import { getUser } from '../_shared/auth.ts'
+import { checkRateLimit } from '../_shared/rate-limit.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
 const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
-
-const rateLimitMap = new Map<string, number[]>()
 const RATE_LIMIT_MAX = 30
-const RATE_LIMIT_WINDOW = 60000
-
-function checkRateLimit(ip: string): boolean {
-  const now = Date.now()
-  const timestamps = rateLimitMap.get(ip) || []
-  const recent = timestamps.filter((t) => now - t < RATE_LIMIT_WINDOW)
-  if (recent.length >= RATE_LIMIT_MAX) return false
-  recent.push(now)
-  rateLimitMap.set(ip, recent)
-  return true
-}
 
 const SYSTEM_PROMPT = `Eres OPERA AI, un asistente que clasifica mensajes de trabajo en lenguaje natural.
 
 Tu tarea es analizar el mensaje y devolver un JSON con esta estructura exacta:
 {
   "category": "actividad" | "error" | "ingesta",
+  "depth": "profunda" | "superficial",
   "confidence": 0.0 a 1.0,
   "entities": {
     "title": "titulo claro y descriptivo extraido del mensaje",
@@ -73,6 +59,12 @@ EJEMPLOS (mensaje -> category):
 - "Actualizar la base de datos de precios con el archivo nuevo" -> ingesta
 - "Agendar reunion de planificacion semanal con el equipo" -> actividad
 
+REGLAS PARA LA PROFUNDIDAD (campo "depth"):
+- PROFUNDA: exige concentracion sostenida sin interrupciones y crea valor nuevo. Analizar, disenar, modelar, construir, programar, investigar una causa raiz, redactar un informe de fondo, resolver un problema complejo.
+- SUPERFICIAL: logistica y coordinacion, se puede hacer distraido y no crea valor nuevo. Responder, avisar, enviar, agendar, coordinar, hacer seguimiento, actualizar un estado, subir un archivo, revisiones de rutina, reuniones de estado.
+- Ejemplos: "analizar la causa de la merma en planta" -> profunda; "mandarle los numeros a Emilio" -> superficial; "disenar el modelo de datos del reporte" -> profunda; "agendar la reunion de planificacion" -> superficial.
+- Ante la duda: SUPERFICIAL.
+
 REGLAS PARA EL RESPONSABLE:
 - Se te entrega la lista de miembros del equipo. Si el mensaje menciona a una persona, devuelve en "responsible" su NOMBRE EXACTO tal como aparece en la lista (respetando mayusculas y tildes).
 - Si el nombre mencionado no calza claramente con ningun miembro de la lista, devuelve el nombre tal como lo escribio el usuario (el sistema pedira confirmacion).
@@ -103,33 +95,32 @@ function stripFences(text: string): string {
 }
 
 serve(async (req: Request) => {
+  const cors = buildCors(req)
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: cors })
   }
 
   if (req.method !== 'POST') {
-    return new Response(JSON.stringify({ error: 'Method not allowed' }), {
-      status: 405,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+    return jsonResponse({ error: 'Method not allowed' }, 405, cors)
   }
 
-  const ip = req.headers.get('x-forwarded-for') || req.headers.get('x-real-ip') || 'unknown'
-  if (!checkRateLimit(ip)) {
-    return new Response(JSON.stringify({ error: 'Too many requests. Try again in a minute.' }), {
-      status: 429,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-    })
+  // La anon key es publica (viaja en el bundle). Sin esto, cualquiera puede
+  // gastar la OPENAI_API_KEY del proyecto.
+  const user = await getUser(req)
+  if (!user) {
+    return jsonResponse({ error: 'No autorizado' }, 401, cors)
+  }
+
+  if (!checkRateLimit(user.id, RATE_LIMIT_MAX)) {
+    return jsonResponse({ error: 'Too many requests. Try again in a minute.' }, 429, cors)
   }
 
   try {
     const { content, todayISO: clientISO, today: clientToday, members } = await req.json()
 
     if (!content || typeof content !== 'string') {
-      return new Response(JSON.stringify({ error: 'Content is required' }), {
-        status: 400,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-      })
+      return jsonResponse({ error: 'Content is required' }, 400, cors)
     }
 
     const today = clientISO || new Date().toISOString().split('T')[0]
@@ -173,7 +164,7 @@ serve(async (req: Request) => {
       console.error('OpenAI API error:', error)
       return new Response(JSON.stringify({ error: 'AI service error' }), {
         status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
@@ -183,7 +174,7 @@ serve(async (req: Request) => {
     if (!aiText) {
       return new Response(JSON.stringify({ error: 'No response from AI' }), {
         status: 502,
-        headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+        headers: { ...cors, 'Content-Type': 'application/json' },
       })
     }
 
@@ -199,6 +190,7 @@ serve(async (req: Request) => {
         console.error('Failed to parse AI JSON:', aiText)
         parsed = {
           category: 'actividad',
+          depth: 'superficial',
           confidence: 0,
           entities: {
             title: content.slice(0, 100),
@@ -213,14 +205,18 @@ serve(async (req: Request) => {
       }
     }
 
+    // Se etiqueta la respuesta con el modelo que la produjo. Sin esto no se puede
+    // comparar la precision entre modelos al cambiar AI_MODEL.
+    parsed.model = AI_MODEL
+
     return new Response(JSON.stringify(parsed), {
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   } catch (err) {
     console.error('Function error:', err)
     return new Response(JSON.stringify({ error: 'Internal server error' }), {
       status: 500,
-      headers: { ...corsHeaders, 'Content-Type': 'application/json' },
+      headers: { ...cors, 'Content-Type': 'application/json' },
     })
   }
 })

@@ -1,27 +1,25 @@
 import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
+import { buildCors } from '../_shared/cors.ts'
 
-const corsHeaders = {
-  'Access-Control-Allow-Origin': Deno.env.get('ALLOWED_ORIGIN') || '*',
-  'Access-Control-Allow-Headers': 'authorization, x-client-info, apikey, content-type',
-}
-
-function ok(body: Record<string, unknown>) {
-  return new Response(JSON.stringify(body), {
-    status: 200,
-    headers: { ...corsHeaders, 'Content-Type': 'application/json' },
-  })
-}
-
-function fail(error: string) {
-  return ok({ success: false, error })
-}
+// Esta funcion valida rol admin mas abajo (no solo sesion), asi que conserva su
+// propia verificacion en vez de usar el getUser() compartido.
 
 const SERVICE_ROLE_KEY = Deno.env.get('SERVICE_ROLE_KEY')
 const PROJECT_URL = Deno.env.get('PROJECT_URL')
 
 serve(async (req: Request) => {
+  const cors = buildCors(req)
+
+  // Definidas aca dentro para que tomen el cors de esta peticion.
+  const ok = (body: Record<string, unknown>) =>
+    new Response(JSON.stringify(body), {
+      status: 200,
+      headers: { ...cors, 'Content-Type': 'application/json' },
+    })
+  const fail = (error: string) => ok({ success: false, error })
+
   if (req.method === 'OPTIONS') {
-    return new Response('ok', { headers: corsHeaders })
+    return new Response('ok', { headers: cors })
   }
 
   try {
