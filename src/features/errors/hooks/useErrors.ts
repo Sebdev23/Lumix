@@ -146,12 +146,16 @@ export function useErrors() {
       if (newStatus === 'abierto') {
         const error = errors.find((e) => e.id === id)
         if (error) {
-          await notificationsService.sendToTeam(teamId, {
-            title: 'Error reabierto',
-            body: error.title,
-            type: 'critical_error',
-            metadata: { error_id: id },
-          })
+          await notificationsService.sendToTeam(
+            teamId,
+            {
+              title: 'Error reabierto',
+              body: error.title,
+              type: 'critical_error',
+              metadata: { error_id: id },
+            },
+            { exceptUserId: user?.id },
+          )
         }
       }
 

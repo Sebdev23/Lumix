@@ -1,9 +1,23 @@
+import { useNavigate } from 'react-router-dom'
 import { Card } from '@shared/components/ui/Card'
 import { useNotificationsContext } from '@core/notifications/NotificationContext'
 import {
   getNotificationIcon,
   getNotificationLabel,
 } from '@features/notifications/hooks/useNotifications'
+
+// A donde lleva una notificacion segun lo que trae en metadata. Cuando hay activity_id
+// se manda tambien por el state de la ruta: Actividades abre esa actividad en particular,
+// en vez de dejar al usuario buscandola en el listado.
+function destinationFor(
+  metadata: Record<string, unknown>,
+): { to: string; state?: { activityId: string } } | null {
+  if (typeof metadata?.activity_id === 'string')
+    return { to: '/activities', state: { activityId: metadata.activity_id } }
+  if (metadata?.error_id) return { to: '/errors' }
+  if (metadata?.minuta) return { to: '/minuta' }
+  return null
+}
 
 function formatTime(iso: string): string {
   const date = new Date(iso)
@@ -21,6 +35,15 @@ function formatTime(iso: string): string {
 export function NotificationsPage() {
   const { notifications, unreadCount, loading, markAsRead, markAllAsRead } =
     useNotificationsContext()
+  const navigate = useNavigate()
+
+  // Tocar la notificacion la marca leida (con lo que sale de la lista) y abre lo que
+  // referencia. Antes habia que apuntarle a un enlace chico y no llevaba a ninguna parte.
+  const open = (notif: (typeof notifications)[number]) => {
+    void markAsRead(notif.id)
+    const dest = destinationFor(notif.metadata)
+    if (dest) navigate(dest.to, dest.state ? { state: dest.state } : undefined)
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -65,17 +88,29 @@ export function NotificationsPage() {
                 d="M15 17h5l-1.405-1.405A2.032 2.032 0 0118 14.158V11a6.002 6.002 0 00-4-5.659V5a2 2 0 10-4 0v.341C7.67 6.165 6 8.388 6 11v3.159c0 .538-.214 1.055-.595 1.436L4 17h5m6 0v1a3 3 0 11-6 0v-1m6 0H9"
               />
             </svg>
-            <p className="text-sm text-slate-400">No hay notificaciones</p>
+            <p className="text-sm text-slate-400">No tienes notificaciones pendientes</p>
             <p className="text-xs text-slate-600 mt-1">Todo al dia</p>
           </div>
         ) : (
           notifications.map((notif) => (
+            // Todas las de la lista estan sin leer: no hay estado "leida" que representar.
             <Card
               key={notif.id}
               padding="md"
-              className={`transition-colors ${!notif.read ? 'border-indigo-500/30 bg-indigo-500/5' : ''}`}
+              className="transition-colors border-indigo-500/30 bg-indigo-500/5"
             >
-              <div className="flex items-start gap-3">
+              <div
+                role="button"
+                tabIndex={0}
+                onClick={() => open(notif)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' || e.key === ' ') {
+                    e.preventDefault()
+                    open(notif)
+                  }
+                }}
+                className="flex items-start gap-3 cursor-pointer"
+              >
                 <div
                   className={`w-2.5 h-2.5 rounded-full mt-1.5 flex-shrink-0 ${getNotificationIcon(notif.type)}`}
                 />
@@ -85,11 +120,7 @@ export function NotificationsPage() {
                       <span className="text-[10px] text-indigo-400 uppercase tracking-wider">
                         {getNotificationLabel(notif.type)}
                       </span>
-                      <h3
-                        className={`text-sm mt-0.5 ${!notif.read ? 'text-slate-100 font-medium' : 'text-slate-400'}`}
-                      >
-                        {notif.title}
-                      </h3>
+                      <h3 className="text-sm mt-0.5 text-slate-100 font-medium">{notif.title}</h3>
                     </div>
                     <span className="text-[10px] text-slate-600 flex-shrink-0">
                       {formatTime(notif.created_at)}
@@ -97,18 +128,18 @@ export function NotificationsPage() {
                   </div>
                   <p className="text-xs text-slate-500 mt-1 line-clamp-2">{notif.body}</p>
 
-                  {!notif.read && (
-                    <button
-                      onClick={() => markAsRead(notif.id)}
-                      className="text-[10px] text-indigo-400 hover:text-indigo-300 mt-2 transition-colors"
-                    >
-                      Marcar como leida
-                    </button>
-                  )}
+                  {/* Descartar: la saca de la lista sin abrir la actividad */}
+                  <button
+                    onClick={(e) => {
+                      e.stopPropagation()
+                      markAsRead(notif.id)
+                    }}
+                    className="text-[10px] text-indigo-400 hover:text-indigo-300 mt-2 transition-colors"
+                  >
+                    Marcar como leida
+                  </button>
                 </div>
-                {!notif.read && (
-                  <div className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0 mt-1.5" />
-                )}
+                <div className="w-2 h-2 rounded-full bg-indigo-500 flex-shrink-0 mt-1.5" />
               </div>
             </Card>
           ))

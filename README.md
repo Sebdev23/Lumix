@@ -39,7 +39,7 @@ Sistema Operativo Conversacional para Equipos de Trabajo.
 | ------------ | -------------------------------------------------------------- |
 | Frontend     | React 19, Vite, TypeScript, Tailwind CSS 4                     |
 | Backend      | Supabase (PostgreSQL, Auth, Realtime, Storage, Edge Functions) |
-| IA           | OpenAI GPT-4o (clasificacion), Whisper-1 (transcripcion)       |
+| IA           | OpenAI GPT-4o (clasificacion)                                  |
 | Hosting      | Netlify (frontend), Supabase (backend)                         |
 | Arquitectura | Clean Architecture + Feature-Based + DDD                       |
 
@@ -54,7 +54,7 @@ src/
 ├── shared/         # componentes UI, hooks, utils, types
 ├── infrastructure/ # supabase services
 supabase/
-├── functions/      # ai-classify, ai-ask, ai-transcribe, admin-users
+├── functions/      # ai-classify, ai-ask, ai-update, ai-bulk, ai-minutes, admin-users
 └── migrations/     # 12 migraciones SQL
 ```
 
@@ -62,7 +62,7 @@ supabase/
 
 ## API / Edge Functions
 
-7 Edge Functions desplegadas en Supabase. La API key de OpenAI esta como secreto del servidor, nunca expuesta al cliente.
+6 Edge Functions desplegadas en Supabase. La API key de OpenAI esta como secreto del servidor, nunca expuesta al cliente.
 
 **Todas las funciones de IA exigen un usuario autenticado.** La anon key viaja dentro del bundle que
 sirve Netlify (es publica por diseno: cualquier variable `VITE_*` queda escrita en el JavaScript
@@ -78,12 +78,14 @@ El codigo comun vive en `supabase/functions/_shared/`:
 | `auth.ts`       | `getUser(req)`: valida el token de sesion. Devuelve null si no hay usuario |
 | `rate-limit.ts` | Limite por usuario. En memoria: ver limitacion documentada en el archivo   |
 
-| Funcion         | Endpoint                           | Que hace                                                                                             |
-| --------------- | ---------------------------------- | ---------------------------------------------------------------------------------------------------- |
-| `ai-classify`   | `POST /functions/v1/ai-classify`   | Clasifica mensajes con GPT-4o. Recibe `{ content }`, devuelve `{ category, depth, entities, reply }` |
-| `ai-ask`        | `POST /functions/v1/ai-ask`        | Responde preguntas con datos del equipo. Recibe `{ question, teamData }`, devuelve `{ answer }`      |
-| `ai-transcribe` | `POST /functions/v1/ai-transcribe` | Transcribe audio con Whisper-1. Recibe `{ audioUrl }`, devuelve `{ transcript }`                     |
-| `admin-users`   | `POST /functions/v1/admin-users`   | Crea usuarios y cambia roles. Usa service_role key. Acciones: `create-user`, `change-role`           |
+| Funcion       | Endpoint                         | Que hace                                                                                             |
+| ------------- | -------------------------------- | ---------------------------------------------------------------------------------------------------- |
+| `ai-classify` | `POST /functions/v1/ai-classify` | Clasifica mensajes con GPT-4o. Recibe `{ content }`, devuelve `{ category, depth, entities, reply }` |
+| `ai-ask`      | `POST /functions/v1/ai-ask`      | Responde preguntas con datos del equipo. Recibe `{ question, teamData }`, devuelve `{ answer }`      |
+| `ai-update`   | `POST /functions/v1/ai-update`   | Decide si un mensaje modifica una actividad existente y que cambios aplicar                          |
+| `ai-bulk`     | `POST /functions/v1/ai-bulk`     | Modo masivo: parte un texto largo en varias actividades. Devuelve `{ activities }`                   |
+| `ai-minutes`  | `POST /functions/v1/ai-minutes`  | Genera una minuta a partir de un transcript. **Hoy sin uso** (ver ADR-003)                           |
+| `admin-users` | `POST /functions/v1/admin-users` | Crea usuarios y cambia roles. Usa service_role key. Acciones: `create-user`, `change-role`           |
 
 ### Ejemplo ai-classify
 
@@ -184,7 +186,7 @@ PROJECT_URL=<url-de-tu-proyecto-supabase>
 AI_MODEL=<opcional: modelo de OpenAI>
 ```
 
-`AI_MODEL` controla el modelo que usan las 6 Edge Functions de IA. En produccion esta definido como
+`AI_MODEL` controla el modelo que usan las 5 Edge Functions de IA. En produccion esta definido como
 `gpt-4o` (ver ADR-003). **Si no se define, todas caen al default del codigo, que tambien es `gpt-4o`**
 — no `gpt-4o-mini`. Conviene mantenerlo explicito para que el modelo no dependa de un default
 escondido en el codigo.

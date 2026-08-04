@@ -1,4 +1,5 @@
 import { useState, useEffect } from 'react'
+import { useLocation, useNavigate } from 'react-router-dom'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
@@ -79,6 +80,8 @@ export function ActivitiesPage() {
   const { profile, user } = useAuth()
   const { canAssignOthers } = useCapabilities()
   const toast = useToast()
+  const location = useLocation()
+  const navigate = useNavigate()
 
   // Delegacion: equipos que el usuario lidera (distintos del activo) + estado del formulario.
   const [managedTeams, setManagedTeams] = useState<{ id: string; name: string }[]>([])
@@ -153,6 +156,28 @@ export function ActivitiesPage() {
     setDelMember('')
     setChildren([])
   }
+
+  // Llegada desde una notificacion: abre esa actividad concreta.
+  // Se busca en la base y no en el listado ya cargado, porque puede estar filtrada fuera
+  // de la vista actual (completada, de otro equipo) y aun asi hay que poder verla.
+  // Sin bandera de cancelacion a proposito: abrir el detalle es idempotente, y con
+  // StrictMode (doble montaje en desarrollo) tanto un `cancelled` como un ref de "ya lo
+  // hice" se comen la unica ejecucion util. El state se limpia recien DESPUES de abrir:
+  // limpiarlo antes reejecuta este effect y aborta la apertura.
+  useEffect(() => {
+    const activityId = (location.state as { activityId?: string } | null)?.activityId
+    if (!activityId) return
+    activitiesService
+      .getById(activityId)
+      .then((a) => {
+        if (a) openActivity(a)
+        else toast.info('Esa actividad ya no existe')
+        navigate(location.pathname, { replace: true, state: null })
+      })
+      .catch(() => toast.error('No pude abrir la actividad'))
+    // openActivity/toast se recrean en cada render; solo importa el state de la ruta.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [location.state, location.pathname, navigate])
 
   const loadDelMembers = async (teamId: string) => {
     setDelTeam(teamId)

@@ -118,12 +118,21 @@ export function useActivities() {
       if (newStatus === 'bloqueado') {
         const activity = activities.find((a) => a.id === id)
         if (activity) {
-          await notificationsService.sendToTeam(activity.team_id, {
-            title: 'Actividad bloqueada',
-            body: `"${activity.title}" ha sido bloqueada`,
-            type: 'activity_blocked',
-            metadata: { activity_id: id },
-          })
+          // Solo a quien puede desbloquearla: jefatura del equipo y el responsable.
+          await notificationsService.sendToTeam(
+            activity.team_id,
+            {
+              title: 'Actividad bloqueada',
+              body: `"${activity.title}" ha sido bloqueada`,
+              type: 'activity_blocked',
+              metadata: { activity_id: id },
+            },
+            {
+              exceptUserId: user?.id,
+              roles: ['admin', 'jefatura'],
+              alsoUserIds: [activity.responsible_id],
+            },
+          )
         }
       }
       await load()

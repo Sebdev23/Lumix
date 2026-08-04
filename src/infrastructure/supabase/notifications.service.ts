@@ -1,4 +1,5 @@
 import { supabase } from '@infrastructure/supabase/client'
+import type { AppNotification } from '@shared/types'
 
 interface NotificationPayload {
   title: string
@@ -8,11 +9,15 @@ interface NotificationPayload {
 }
 
 export const notificationsService = {
-  async getForUser(userId: string): Promise<Notification[]> {
+  // La hoja de Notificaciones muestra SOLO las no leidas, asi que se filtran en la consulta
+  // y no en el cliente: con el tope de 50, traer tambien las leidas hacia que las viejas
+  // desplazaran a las nuevas fuera del listado.
+  async getUnreadForUser(userId: string): Promise<AppNotification[]> {
     const { data, error } = await supabase
       .from('notifications')
       .select('*')
       .eq('user_id', userId)
+      .eq('read', false)
       .order('created_at', { ascending: false })
       .limit(50)
     if (error) throw error
@@ -40,16 +45,42 @@ export const notificationsService = {
     if (error) throw error
   },
 
-  async sendToTeam(teamId: string, notification: NotificationPayload): Promise<void> {
+  // Avisa a un subconjunto del equipo. Sin opciones, le llega a todos (como antes).
+  //   roles       : solo esos roles dentro del equipo (ej. jefatura/admin)
+  //   alsoUserIds : se suman aunque no cumplan el filtro de rol (ej. el responsable)
+  //   exceptUserId: quien provoco el evento no necesita que le avisen de su propia accion
+  // Existe porque "Actividad bloqueada" le llegaba al equipo entero: era el 61% de todas
+  // las notificaciones del sistema y casi ninguna se leia.
+  async sendToTeam(
+    teamId: string,
+    notification: NotificationPayload,
+    opts: {
+      exceptUserId?: string
+      roles?: string[]
+      alsoUserIds?: (string | null | undefined)[]
+    } = {},
+  ): Promise<void> {
     const { data: members } = await supabase
       .from('team_members')
-      .select('user_id')
+      .select('user_id, role')
       .eq('team_id', teamId)
 
     if (!members) return
 
-    const notifications = members.map((m) => ({
-      user_id: m.user_id,
+    const byRole = opts.roles ? members.filter((m) => opts.roles!.includes(m.role)) : members
+    const ids = new Set(byRole.map((m) => m.user_id))
+
+    // Los sumados deben pertenecer al equipo: si no, la fila queda sin poder verse.
+    const enTeam = new Set(members.map((m) => m.user_id))
+    for (const extra of opts.alsoUserIds ?? []) {
+      if (extra && enTeam.has(extra)) ids.add(extra)
+    }
+
+    if (opts.exceptUserId) ids.delete(opts.exceptUserId)
+    if (ids.size === 0) return
+
+    const notifications = [...ids].map((userId) => ({
+      user_id: userId,
       title: notification.title,
       body: notification.body,
       type: notification.type,
@@ -77,21 +108,8 @@ export const notificationsService = {
     if (error) throw error
   },
 
-  subscribeToUser(userId: string, callback: (notification: Notification) => void) {
-    return supabase
-      .channel(`notifications-${userId}-${crypto.randomUUID()}`)
-      .on(
-        'postgres_changes',
-        {
-          event: 'INSERT',
-          schema: 'public',
-          table: 'notifications',
-          filter: `user_id=eq.${userId}`,
-        },
-        (payload) => {
-          callback(payload.new as Notification)
-        },
-      )
-      .subscribe()
-  },
+  // No hay subscribeToUser: las notificaciones se releen al navegar entre paginas
+  // (ver NotificationContext). Existia una suscripcion realtime que NUNCA recibio nada,
+  // porque la publicacion supabase_realtime del proyecto no tiene ninguna tabla. Un
+  // suscriptor que parece funcionar y no funciona es peor que no tenerlo.
 }

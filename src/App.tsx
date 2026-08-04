@@ -75,9 +75,12 @@ export function App() {
   return (
     <ErrorBoundary>
       <AuthProvider>
-        <NotificationProvider>
-          <ToastProvider>
-            <BrowserRouter>
+        {/* Orden: ToastProvider afuera porque NotificationProvider avisa con un toast.
+            NotificationProvider DENTRO del router porque relee las notificaciones en cada
+            cambio de ruta (necesita useLocation). */}
+        <ToastProvider>
+          <BrowserRouter>
+            <NotificationProvider>
               <Suspense fallback={<PageLoader />}>
                 <Routes>
                   <Route path="/login" element={<LoginPage />} />
@@ -106,9 +109,9 @@ export function App() {
                   </Route>
                 </Routes>
               </Suspense>
-            </BrowserRouter>
-          </ToastProvider>
-        </NotificationProvider>
+            </NotificationProvider>
+          </BrowserRouter>
+        </ToastProvider>
       </AuthProvider>
     </ErrorBoundary>
   )

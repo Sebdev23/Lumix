@@ -111,15 +111,6 @@ export async function classifyBulk(content: string, members: string[] = []): Pro
   return { activities: Array.isArray(result?.activities) ? result.activities : [] }
 }
 
-export async function transcribeAudio(audioUrl: string): Promise<string> {
-  const { data, error } = await supabase.functions.invoke('ai-transcribe', {
-    body: { audioUrl },
-  })
-
-  if (error) throw new Error(error.message)
-  return (data as { transcript: string }).transcript
-}
-
 export async function generateMinutes(transcript: string): Promise<string> {
   const { data, error } = await supabase.functions.invoke('ai-minutes', {
     body: { transcript },

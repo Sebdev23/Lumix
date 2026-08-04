@@ -1,66 +1,6 @@
-import { useState, useEffect } from 'react'
-import { notificationsService } from '@infrastructure/supabase/notifications.service'
-import { useAuth } from '@core/auth/hooks/useAuth'
-import type { AppNotification } from '@shared/types'
-
-export function useNotifications() {
-  const [notifications, setNotifications] = useState<AppNotification[]>([])
-  const [unreadCount, setUnreadCount] = useState(0)
-  const [loading, setLoading] = useState(true)
-  const { user } = useAuth()
-
-  useEffect(() => {
-    if (!user) return
-
-    let cancelled = false
-
-    async function load() {
-      const [data, count] = await Promise.all([
-        notificationsService.getForUser(user!.id),
-        notificationsService.getUnreadCount(user!.id),
-      ])
-      if (cancelled) return
-      setNotifications(data as unknown as AppNotification[])
-      setUnreadCount(count)
-      setLoading(false)
-    }
-
-    load()
-
-    const channel = notificationsService.subscribeToUser(user.id, () => {
-      if (!cancelled) load()
-    })
-
-    return () => {
-      cancelled = true
-      channel.unsubscribe()
-    }
-  }, [user])
-
-  const markAsRead = async (id: string) => {
-    await notificationsService.markAsRead(id)
-    if (!user) return
-    const [data, count] = await Promise.all([
-      notificationsService.getForUser(user.id),
-      notificationsService.getUnreadCount(user.id),
-    ])
-    setNotifications(data as unknown as AppNotification[])
-    setUnreadCount(count)
-  }
-
-  const markAllAsRead = async () => {
-    if (!user) return
-    await notificationsService.markAllAsRead(user.id)
-    const [data, count] = await Promise.all([
-      notificationsService.getForUser(user.id),
-      notificationsService.getUnreadCount(user.id),
-    ])
-    setNotifications(data as unknown as AppNotification[])
-    setUnreadCount(count)
-  }
-
-  return { notifications, unreadCount, loading, markAsRead, markAllAsRead }
-}
+// Etiquetas y colores por tipo de notificacion. El estado vive en NotificationContext:
+// tener ademas un hook con su propia copia significaba dos canales realtime abiertos y
+// un contador que no se enteraba de lo que hacia el otro.
 
 export function getNotificationIcon(type: string) {
   switch (type) {

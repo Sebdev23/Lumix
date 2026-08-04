@@ -23,7 +23,7 @@ Devuelve SOLO este JSON:
   "changes": {
     "status": "pendiente" | "en_proceso" | "bloqueado" | "falta_informacion" | "esperando_aprobacion" | "completado" | null,
     "due_date": "YYYY-MM-DD" | null,
-    "responsible": "nombre exacto del miembro (de la lista de miembros) o null",
+    "responsible": "nombre del nuevo responsable (exacto de la lista si calza) o null",
     "priority": 1 | 2 | 3 | null
   },
   "reply": "confirmacion breve en espanol de lo que se hizo"
@@ -38,6 +38,11 @@ REGLAS:
 - "esperando aprobacion", "para aprobar" => changes.status="esperando_aprobacion".
 - "muevela", "pasala", "para el ...", "reprograma", "posterga", "adelanta" => action="reschedule", changes.due_date con la fecha calculada.
 - "reasigna a X", "pasale a X", "que lo haga X" => action="reassign", changes.responsible=nombre exacto de X.
+- IMPORTANTE: si X NO esta en la lista de miembros, sigue siendo una reasignacion. Devuelve
+  isUpdate=true, action="reassign" y changes.responsible con el nombre TAL COMO lo escribio el
+  usuario. NO devuelvas isUpdate=false por esto: la app le pregunta al usuario a quien asignar.
+  Marcarlo como "no es un update" hace que la app cree una actividad nueva titulada con la
+  propia instruccion ("Reasignar informe a Pedro"), que es justo lo que hay que evitar.
 - "prioridad alta/urgente" => changes.priority=1; "prioridad media" => 2; "prioridad baja" => 3. action="priority".
 - Solo llena los campos de "changes" que el mensaje pide cambiar; el resto en null.
 

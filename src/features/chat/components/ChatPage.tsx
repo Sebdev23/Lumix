@@ -6,10 +6,7 @@ import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { useChatMessages } from '@features/chat/hooks/useChatMessages'
 import { useTypingIndicator } from '@features/chat/hooks/useTypingIndicator'
 import { useFileUpload } from '@features/chat/hooks/useFileUpload'
-import { useSpeechRecognition } from '@features/chat/hooks/useSpeechRecognition'
-import { transcribeAudio, type BulkActivity } from '@core/ai-engine/client'
-import { supabase } from '@infrastructure/supabase/client'
-import { activitiesService } from '@infrastructure/supabase/activities.service'
+import { type BulkActivity } from '@core/ai-engine/client'
 import { teamsService } from '@infrastructure/supabase/teams.service'
 import { ActivityCard, type ActivityCardMeta } from '@features/chat/components/ActivityCard'
 import {
@@ -21,10 +18,23 @@ import type {
   PendingActivity,
   PendingUpdate,
   PendingCategory,
+  PendingOverload,
+  PendingMinuta,
 } from '@features/chat/hooks/useChatMessages'
 
-type NameConfirm = { candidates: { id: string; name: string }[]; pending: PendingActivity }
+// Un mismo popout de "elegir persona" sirve para tres casos: crear una actividad,
+// reasignar una existente, o asignar un tema de minuta. El campo presente decide cual.
+type NameConfirm = {
+  candidates: { id: string; name: string }[]
+  pending?: PendingActivity
+  reassign?: { activityId: string; title: string }
+  minuta?: PendingMinuta
+}
 type ActivityPick = { candidates: { id: string; title: string }[]; pending: PendingUpdate }
+
+// Popouts que son una PREGUNTA: se abren solos, porque si quedan como una burbuja
+// mas el usuario cree que ya se creo la actividad y nunca las responde.
+const AUTO_OPEN_TYPES = ['category_confirm', 'overload', 'name_confirm', 'activity_pick']
 
 const STATUS_OPTIONS: { value: ActivityStatus; label: string }[] = [
   { value: 'pendiente', label: 'Pendiente' },
@@ -38,14 +48,26 @@ const STATUS_OPTIONS: { value: ActivityStatus; label: string }[] = [
 export function ChatPage() {
   const [input, setInput] = useState('')
   const [attachedFile, setAttachedFile] = useState<File | null>(null)
-  const [overloadData, setOverloadData] = useState<Record<string, unknown> | null>(null)
-  const [nameConfirm, setNameConfirm] = useState<NameConfirm | null>(null)
-  const [activityPick, setActivityPick] = useState<ActivityPick | null>(null)
+  const [overloadData, setOverloadData] = useState<{
+    pending: PendingOverload
+    messageId: string
+  } | null>(null)
+  const [creatingOverload, setCreatingOverload] = useState(false)
+  const [nameConfirm, setNameConfirm] = useState<{
+    data: NameConfirm
+    messageId: string
+  } | null>(null)
+  const [activityPick, setActivityPick] = useState<{
+    data: ActivityPick
+    messageId: string
+  } | null>(null)
   const [categoryConfirm, setCategoryConfirm] = useState<{
     pending: PendingCategory
     messageId: string
   } | null>(null)
   const [savingCategory, setSavingCategory] = useState(false)
+  const [savingAssign, setSavingAssign] = useState(false)
+  const [savingPick, setSavingPick] = useState(false)
   const [editTarget, setEditTarget] = useState<ActivityListItem | null>(null)
   const [editForm, setEditForm] = useState<{
     priority: number
@@ -60,6 +82,10 @@ export function ChatPage() {
   const [bulkParsing, setBulkParsing] = useState(false)
   const [bulkCreating, setBulkCreating] = useState(false)
   const [feedback, setFeedback] = useState('')
+  // Los popouts que se abren solos necesitan su propio mensaje de confirmacion: con uno
+  // compartido, resolver un popout dejaba al siguiente mostrando el exito del anterior.
+  const [assignFeedback, setAssignFeedback] = useState('')
+  const [overloadFeedback, setOverloadFeedback] = useState('')
   const [customDays, setCustomDays] = useState('')
   const [showCustomDays, setShowCustomDays] = useState(false)
   const [messageType, setMessageType] = useState<
@@ -84,6 +110,9 @@ export function ChatPage() {
     parseBulk,
     bulkCreate,
     createResolvedActivity,
+    createOverloadActivity,
+    createMinutaTopic,
+    reassignResolved,
     confirmCategory,
     quickUpdate,
     applyPendingUpdate,
@@ -110,41 +139,41 @@ export function ChatPage() {
   }
   const { typingUsers, broadcastTyping } = useTypingIndicator()
   const { upload, uploading } = useFileUpload()
-  const {
-    isListening,
-    isSupported,
-    startListening,
-    stopListening,
-    transcript,
-    error: recorderError,
-  } = useSpeechRecognition()
-  const [transcribing, setTranscribing] = useState(false)
-  const prevListeningRef = useRef(false)
-
-  useEffect(() => {
-    if (prevListeningRef.current && !isListening && transcript) {
-      setInput((prev) => prev + (prev ? ' ' : '') + transcript)
-    }
-    prevListeningRef.current = isListening
-  }, [isListening, transcript])
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
   }, [messages])
 
-  // Abrir el popout de categoria automaticamente (sin que el usuario tenga que tocar el mensaje):
-  // asi no cree que ya se creo y se olvide de elegir/asignar. El mensaje queda clickeable por si cancela.
+  // Abrir los popouts automaticamente (sin que el usuario tenga que tocar el mensaje):
+  // asi no cree que ya se creo y se olvide de elegir/asignar. El mensaje queda clickeable
+  // por si cancela. Se abre solo el mas reciente que aun no se haya mostrado.
   const autoOpenedRef = useRef<Set<string>>(new Set())
   useEffect(() => {
     const pendingMsg = messages.find(
-      (m) => m.metadata?.type === 'category_confirm' && !autoOpenedRef.current.has(m.id),
+      (m) =>
+        m.metadata?.type &&
+        AUTO_OPEN_TYPES.includes(m.metadata.type as string) &&
+        !autoOpenedRef.current.has(m.id),
     )
-    if (pendingMsg) {
-      autoOpenedRef.current.add(pendingMsg.id)
-      setCategoryConfirm({
-        pending: (pendingMsg.metadata as unknown as { pending: PendingCategory }).pending,
-        messageId: pendingMsg.id,
-      })
+    if (!pendingMsg) return
+    autoOpenedRef.current.add(pendingMsg.id)
+    const meta = pendingMsg.metadata as unknown as Record<string, unknown>
+    switch (pendingMsg.metadata!.type) {
+      case 'category_confirm':
+        setCategoryConfirm({
+          pending: meta.pending as PendingCategory,
+          messageId: pendingMsg.id,
+        })
+        break
+      case 'overload':
+        setOverloadData({ pending: meta.pending as PendingOverload, messageId: pendingMsg.id })
+        break
+      case 'name_confirm':
+        setNameConfirm({ data: meta as unknown as NameConfirm, messageId: pendingMsg.id })
+        break
+      case 'activity_pick':
+        setActivityPick({ data: meta as unknown as ActivityPick, messageId: pendingMsg.id })
+        break
     }
   }, [messages])
 
@@ -201,43 +230,6 @@ export function ChatPage() {
       handleSend()
     }
   }
-
-  const handleVoiceToggle = useCallback(async () => {
-    if (isListening || transcribing) {
-      if (transcribing) return
-      const blob = await stopListening()
-      if (blob) {
-        setTranscribing(true)
-        const filePath = `chat/voice-${Date.now()}.webm`
-        try {
-          const { error: uploadErr } = await supabase.storage
-            .from('chat-files')
-            .upload(filePath, blob, { contentType: 'audio/webm' })
-          if (uploadErr) throw uploadErr
-          // URL firmada de corta duracion (privada): solo vive lo que dura la transcripcion
-          const { data: urlData, error: signErr } = await supabase.storage
-            .from('chat-files')
-            .createSignedUrl(filePath, 120)
-          if (signErr || !urlData) throw signErr ?? new Error('No se pudo firmar el audio')
-          const text = await transcribeAudio(urlData.signedUrl)
-          setInput((prev) => prev + (prev ? ' ' : '') + text)
-        } catch {
-          /* ignore */
-        } finally {
-          // Borrar el audio: no se almacena nada (mas barato y privado)
-          try {
-            await supabase.storage.from('chat-files').remove([filePath])
-          } catch {
-            /* ignore */
-          }
-          setTranscribing(false)
-        }
-      }
-    } else {
-      setInput('')
-      startListening()
-    }
-  }, [isListening, transcribing, stopListening, startListening])
 
   const handleInputChange = (e: React.ChangeEvent<HTMLTextAreaElement>) => {
     setInput(e.target.value)
@@ -333,7 +325,13 @@ export function ChatPage() {
                   <div className="flex flex-col">
                     <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
                     <button
-                      onClick={() => setOverloadData(msg.metadata!)}
+                      onClick={() =>
+                        setOverloadData({
+                          pending: (msg.metadata as unknown as { pending: PendingOverload })
+                            .pending,
+                          messageId: msg.id,
+                        })
+                      }
                       className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-amber-500/20"
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -354,7 +352,12 @@ export function ChatPage() {
                   <div className="flex flex-col">
                     <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
                     <button
-                      onClick={() => setNameConfirm(msg.metadata as unknown as NameConfirm)}
+                      onClick={() =>
+                        setNameConfirm({
+                          data: msg.metadata as unknown as NameConfirm,
+                          messageId: msg.id,
+                        })
+                      }
                       className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-indigo-500/20"
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -375,7 +378,12 @@ export function ChatPage() {
                   <div className="flex flex-col">
                     <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
                     <button
-                      onClick={() => setActivityPick(msg.metadata as unknown as ActivityPick)}
+                      onClick={() =>
+                        setActivityPick({
+                          data: msg.metadata as unknown as ActivityPick,
+                          messageId: msg.id,
+                        })
+                      }
                       className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-indigo-500/20"
                     >
                       <p className="whitespace-pre-wrap break-words">{msg.content}</p>
@@ -524,35 +532,6 @@ export function ChatPage() {
               ))}
           </div>
           <div className="flex items-end gap-2">
-            {isSupported && (
-              <button
-                onClick={handleVoiceToggle}
-                disabled={transcribing}
-                className={`p-2 rounded-lg transition-colors flex-shrink-0 ${
-                  isListening
-                    ? 'bg-red-600 text-white animate-pulse'
-                    : transcribing
-                      ? 'bg-slate-700 text-slate-500 cursor-not-allowed'
-                      : 'hover:bg-slate-800 text-slate-400 hover:text-indigo-400'
-                }`}
-                title={
-                  isListening
-                    ? 'Detener grabacion'
-                    : transcribing
-                      ? 'Transcribiendo...'
-                      : 'Grabar mensaje de voz'
-                }
-              >
-                <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M19 11a7 7 0 01-7 7m0 0a7 7 0 01-7-7m7 7v4m0 0H8m4 0h4m-4-8a3 3 0 01-3-3V5a3 3 0 116 0v6a3 3 0 01-3 3z"
-                  />
-                </svg>
-              </button>
-            )}
             <textarea
               value={input}
               onChange={handleInputChange}
@@ -591,281 +570,276 @@ export function ChatPage() {
             </Button>
           </div>
           <p className="text-[10px] text-slate-600 mt-2 text-center">
-            {isListening
-              ? 'Grabando... toca el microfono para detener'
-              : recorderError
-                ? recorderError
-                : bulkParsing
-                  ? 'Analizando la lista de actividades...'
-                  : aiProcessing
-                    ? 'Lumix esta procesando tu mensaje...'
-                    : messageType === 'masivo'
-                      ? 'Modo masivo: pega varias actividades y confirma antes de crear.'
-                      : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
+            {bulkParsing
+              ? 'Analizando la lista de actividades...'
+              : aiProcessing
+                ? 'Lumix esta procesando tu mensaje...'
+                : messageType === 'masivo'
+                  ? 'Modo masivo: pega varias actividades y confirma antes de crear.'
+                  : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
           </p>
         </div>
       </div>
 
+      {/* Alerta de sobrecarga. Se abre sola al detectarla y no se cierra tocando afuera:
+          la actividad NO existe todavia, hay que decidir antes de seguir. */}
       {overloadData &&
         (() => {
-          const createOverloadActivity = async (extraDays: number) => {
-            const m = overloadData
-            const dueDate = new Date(m.pendingDueDate as string)
-            dueDate.setDate(dueDate.getDate() + extraDays)
-            await activitiesService.create({
-              title: m.pendingTitle as string,
-              description: m.pendingDesc as string,
-              responsible_id: m.pendingResponsibleId as string,
-              priority: m.pendingPriority as number,
-              status: 'pendiente',
-              due_date: dueDate.toISOString(),
-              dependencies: [],
-              observations: '',
-              team_id: teamId,
-              created_by: m.pendingSenderId as string,
-            })
+          const resolveOverload = async (extraBusinessDays: number) => {
+            setCreatingOverload(true)
+            try {
+              const when = await createOverloadActivity(
+                overloadData.pending,
+                extraBusinessDays,
+                overloadData.messageId,
+              )
+              // Confirmacion inmediata en el propio modal: el usuario acaba de elegir
+              // la fecha y tiene que ver que la actividad quedo creada con esa fecha.
+              setOverloadFeedback(when ? `Actividad creada para el ${when}` : '')
+              if (!when) setOverloadData(null)
+            } finally {
+              setCreatingOverload(false)
+              setShowCustomDays(false)
+              setCustomDays('')
+            }
+          }
+
+          const closeOverload = () => {
+            setOverloadData(null)
+            setShowCustomDays(false)
+            setCustomDays('')
+            setOverloadFeedback('')
           }
 
           return (
-            <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-              onClick={() => {
-                setOverloadData(null)
-                setShowCustomDays(false)
-                setCustomDays('')
-              }}
-            >
-              <div
-                className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4"
-                onClick={(e) => e.stopPropagation()}
-              >
-                <p className="text-sm font-medium text-amber-400 mb-1">Sobrecarga detectada</p>
-                <p className="text-xs text-slate-400 mb-3">Que queres hacer con esta actividad?</p>
-
-                {showCustomDays ? (
-                  <div className="space-y-3">
-                    <div className="flex items-center gap-2">
-                      <input
-                        type="number"
-                        min="1"
-                        max="365"
-                        value={customDays}
-                        onChange={(e) => setCustomDays(e.target.value)}
-                        placeholder="dias"
-                        autoFocus
-                        className="w-20 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-center"
-                      />
-                      <span className="text-sm text-slate-400">dias</span>
-                    </div>
-                    <div className="flex gap-2">
-                      <button
-                        onClick={async () => {
-                          const days = parseInt(customDays, 10)
-                          if (days && days > 0) {
-                            await createOverloadActivity(days)
-                            setOverloadData(null)
-                            setShowCustomDays(false)
-                            setCustomDays('')
-                          }
-                        }}
-                        disabled={!customDays || parseInt(customDays, 10) < 1}
-                        className="flex-1 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm text-white font-medium transition-colors"
-                      >
-                        Mover
-                      </button>
-                      <button
-                        onClick={() => {
-                          setShowCustomDays(false)
-                          setCustomDays('')
-                        }}
-                        className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 transition-colors"
-                      >
-                        Volver
-                      </button>
-                    </div>
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+              <div className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4">
+                {overloadFeedback ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-emerald-400 font-medium">{overloadFeedback}</p>
+                    <button
+                      onClick={closeOverload}
+                      className="text-xs text-slate-500 mt-3 hover:text-slate-400"
+                    >
+                      Cerrar
+                    </button>
                   </div>
                 ) : (
-                  <div className="space-y-2">
-                    <button
-                      onClick={async () => {
-                        await createOverloadActivity(0)
-                        setOverloadData(null)
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
-                    >
-                      Crear igual
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await createOverloadActivity(3)
-                        setOverloadData(null)
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
-                    >
-                      Mover +3 dias
-                    </button>
-                    <button
-                      onClick={async () => {
-                        await createOverloadActivity(7)
-                        setOverloadData(null)
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
-                    >
-                      Mover +7 dias
-                    </button>
-                    <button
-                      onClick={() => setShowCustomDays(true)}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-indigo-300 transition-colors"
-                    >
-                      Otros dias...
-                    </button>
-                    <button
-                      onClick={() => {
-                        setOverloadData(null)
-                        setFeedback('')
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-red-400 transition-colors"
-                    >
-                      Cancelar
-                    </button>
-                  </div>
+                  <>
+                    <p className="text-sm font-medium text-amber-400 mb-1">Sobrecarga detectada</p>
+                    <p className="text-xs text-slate-400 mb-1 leading-snug">
+                      {overloadData.pending.responsibleName} ya tiene{' '}
+                      {overloadData.pending.sameDayCount} actividades ese dia.
+                    </p>
+                    <p className="text-xs text-slate-500 mb-3 leading-snug">
+                      "{overloadData.pending.title}" todavia no se ha creado. ¿Que hacemos?
+                    </p>
+
+                    {showCustomDays ? (
+                      <div className="space-y-3">
+                        <div className="flex items-center gap-2">
+                          <input
+                            type="number"
+                            min="1"
+                            max="365"
+                            value={customDays}
+                            onChange={(e) => setCustomDays(e.target.value)}
+                            placeholder="dias"
+                            autoFocus
+                            className="w-20 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-center"
+                          />
+                          <span className="text-sm text-slate-400">dias habiles</span>
+                        </div>
+                        <div className="flex gap-2">
+                          <button
+                            onClick={() => {
+                              const days = parseInt(customDays, 10)
+                              if (days && days > 0) resolveOverload(days)
+                            }}
+                            disabled={
+                              creatingOverload || !customDays || parseInt(customDays, 10) < 1
+                            }
+                            className="flex-1 px-3 py-2 rounded-lg bg-indigo-600 hover:bg-indigo-500 disabled:opacity-50 text-sm text-white font-medium transition-colors"
+                          >
+                            {creatingOverload ? 'Creando...' : 'Mover y crear'}
+                          </button>
+                          <button
+                            disabled={creatingOverload}
+                            onClick={() => {
+                              setShowCustomDays(false)
+                              setCustomDays('')
+                            }}
+                            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-300 transition-colors"
+                          >
+                            Volver
+                          </button>
+                        </div>
+                      </div>
+                    ) : (
+                      <div className="space-y-2">
+                        {[
+                          { days: 0, label: 'Crear igual en esa fecha' },
+                          { days: 3, label: 'Mover +3 dias habiles y crear' },
+                          { days: 7, label: 'Mover +7 dias habiles y crear' },
+                        ].map((opt) => (
+                          <button
+                            key={opt.days}
+                            disabled={creatingOverload}
+                            onClick={() => resolveOverload(opt.days)}
+                            className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-200 transition-colors"
+                          >
+                            {opt.label}
+                          </button>
+                        ))}
+                        <button
+                          disabled={creatingOverload}
+                          onClick={() => setShowCustomDays(true)}
+                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-indigo-300 transition-colors"
+                        >
+                          Otros dias...
+                        </button>
+                        <button
+                          disabled={creatingOverload}
+                          onClick={closeOverload}
+                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
+                        >
+                          Cancelar (no crear)
+                        </button>
+                      </div>
+                    )}
+                  </>
                 )}
               </div>
             </div>
           )
         })()}
 
-      {/* Confirmacion de responsable */}
-      {nameConfirm && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => {
-            if (!feedback) setNameConfirm(null)
-            setFeedback('')
-          }}
-        >
-          <div
-            className="bg-slate-900 rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {feedback ? (
-              <div className="text-center py-4">
-                <p className="text-sm text-emerald-400 font-medium">{feedback}</p>
-                <button
-                  onClick={() => {
-                    setNameConfirm(null)
-                    setFeedback('')
-                  }}
-                  className="text-xs text-slate-500 mt-3 hover:text-slate-400"
-                >
-                  Cerrar
-                </button>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-indigo-400 mb-1">Asignar actividad</p>
-                <p className="text-xs text-slate-400 mb-3">"{nameConfirm.pending.title}"</p>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {nameConfirm.candidates.map((c) => (
-                    <button
-                      key={c.id}
-                      onClick={async () => {
-                        await createResolvedActivity(nameConfirm.pending, c.id, c.name)
-                        setFeedback(`Asignada a ${c.name}`)
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
-                    >
-                      {c.name}
-                    </button>
-                  ))}
-                  {user && profile && (
-                    <button
-                      onClick={async () => {
-                        await createResolvedActivity(
-                          nameConfirm.pending,
-                          user.id,
-                          profile.full_name ?? 'Yo',
-                        )
-                        setFeedback('Asignada a ti')
-                      }}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-indigo-300 transition-colors"
-                    >
-                      Asignarme a mi
-                    </button>
-                  )}
-                  <button
-                    onClick={() => {
-                      setNameConfirm(null)
-                      setFeedback('')
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-red-400 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </>
-            )}
-          </div>
-        </div>
-      )}
+      {/* Confirmacion de responsable: crear actividad, reasignar una existente o asignar
+          un tema de minuta. Nada se guarda hasta que se elige una persona. */}
+      {nameConfirm &&
+        (() => {
+          const { data, messageId } = nameConfirm
+          const target = data.reassign
+            ? { heading: 'Reasignar actividad', label: data.reassign.title }
+            : data.minuta
+              ? { heading: 'Asignar tema de minuta', label: data.minuta.tema }
+              : { heading: 'Asignar actividad', label: data.pending?.title ?? '' }
 
-      {/* Seleccion de actividad a modificar */}
-      {activityPick && (
-        <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
-          onClick={() => {
-            if (!feedback) setActivityPick(null)
-            setFeedback('')
-          }}
-        >
-          <div
-            className="bg-slate-900 rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4"
-            onClick={(e) => e.stopPropagation()}
-          >
-            {feedback ? (
-              <div className="text-center py-4">
-                <p className="text-sm text-emerald-400 font-medium">{feedback}</p>
-                <button
-                  onClick={() => {
-                    setActivityPick(null)
-                    setFeedback('')
-                  }}
-                  className="text-xs text-slate-500 mt-3 hover:text-slate-400"
-                >
-                  Cerrar
-                </button>
-              </div>
-            ) : (
-              <>
-                <p className="text-sm font-medium text-indigo-400 mb-1">
-                  ¿A cual actividad te refieres?
-                </p>
-                <p className="text-xs text-slate-400 mb-3">Toca la que corresponde.</p>
-                <div className="space-y-2 max-h-64 overflow-y-auto">
-                  {activityPick.candidates.map((c) => (
+          const pick = async (id: string, name: string) => {
+            setSavingAssign(true)
+            try {
+              if (data.reassign) {
+                await reassignResolved(data.reassign.activityId, id, name, messageId)
+              } else if (data.minuta) {
+                await createMinutaTopic(data.minuta, id, name, user!.id, messageId)
+              } else if (data.pending) {
+                await createResolvedActivity(data.pending, id, name, messageId)
+              }
+              setAssignFeedback(`Asignada a ${name}`)
+            } finally {
+              setSavingAssign(false)
+            }
+          }
+
+          return (
+            <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+              <div className="bg-slate-900 rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4">
+                {assignFeedback ? (
+                  <div className="text-center py-4">
+                    <p className="text-sm text-emerald-400 font-medium">{assignFeedback}</p>
                     <button
-                      key={c.id}
-                      onClick={async () => {
-                        await applyPendingUpdate(c.id, activityPick.pending)
-                        setFeedback('Actividad actualizada')
+                      onClick={() => {
+                        setNameConfirm(null)
+                        setAssignFeedback('')
                       }}
-                      className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-slate-200 transition-colors"
+                      className="text-xs text-slate-500 mt-3 hover:text-slate-400"
                     >
-                      {c.title}
+                      Cerrar
                     </button>
-                  ))}
-                  <button
-                    onClick={() => {
+                  </div>
+                ) : (
+                  <>
+                    <p className="text-sm font-medium text-indigo-400 mb-1">{target.heading}</p>
+                    <p className="text-xs text-slate-400 mb-3 leading-snug">"{target.label}"</p>
+                    <div className="space-y-2 max-h-64 overflow-y-auto">
+                      {data.candidates.map((c) => (
+                        <button
+                          key={c.id}
+                          disabled={savingAssign}
+                          onClick={() => pick(c.id, c.name)}
+                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-200 transition-colors"
+                        >
+                          {c.name}
+                        </button>
+                      ))}
+                      {user && profile && !data.candidates.some((c) => c.id === user.id) && (
+                        <button
+                          disabled={savingAssign}
+                          onClick={() => pick(user.id, profile.full_name ?? 'Yo')}
+                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-indigo-300 transition-colors"
+                        >
+                          Asignarme a mi
+                        </button>
+                      )}
+                      <button
+                        disabled={savingAssign}
+                        onClick={() => {
+                          setNameConfirm(null)
+                          setAssignFeedback('')
+                        }}
+                        className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
+                      >
+                        Cancelar
+                      </button>
+                    </div>
+                  </>
+                )}
+              </div>
+            </div>
+          )
+        })()}
+
+      {/* Seleccion de actividad a modificar. Al elegir se cierra directo: el resultado se ve
+          en la tarjeta que Lumix deja en el chat, y asi el popout no tapa lo que venga despues
+          (por ejemplo, la pregunta de a quien reasignar). */}
+      {activityPick && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-slate-900 rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4">
+            <p className="text-sm font-medium text-indigo-400 mb-1">
+              ¿A cual actividad te refieres?
+            </p>
+            <p className="text-xs text-slate-400 mb-3">Toca la que corresponde.</p>
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {activityPick.data.candidates.map((c) => (
+                <button
+                  key={c.id}
+                  disabled={savingPick}
+                  onClick={async () => {
+                    setSavingPick(true)
+                    try {
+                      await applyPendingUpdate(
+                        c.id,
+                        activityPick.data.pending,
+                        activityPick.messageId,
+                      )
                       setActivityPick(null)
-                      setFeedback('')
-                    }}
-                    className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-red-400 transition-colors"
-                  >
-                    Cancelar
-                  </button>
-                </div>
-              </>
-            )}
+                    } finally {
+                      setSavingPick(false)
+                    }
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-200 transition-colors"
+                >
+                  {c.title}
+                </button>
+              ))}
+              <button
+                disabled={savingPick}
+                onClick={() => setActivityPick(null)}
+                className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
+              >
+                Cancelar
+              </button>
+            </div>
           </div>
         </div>
       )}

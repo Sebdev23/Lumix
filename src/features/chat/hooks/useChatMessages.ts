@@ -59,6 +59,12 @@ function defaultDueDate(): string {
   return addBusinessDays(new Date(), DEFAULT_DUE_DAYS).toISOString()
 }
 
+// "YYYY-MM-DD" se parsea como UTC y en Chile (UTC-4) retrocede al dia anterior.
+// Anclamos a mediodia local para que getDay() y los calculos de dias sean correctos.
+function toLocalDate(value: string): Date {
+  return /^\d{4}-\d{2}-\d{2}$/.test(value) ? new Date(`${value}T12:00:00`) : new Date(value)
+}
+
 // Normaliza para comparar nombres sin tildes ni mayusculas
 function normalizeName(s: string): string {
   return s.toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g, '').trim()
@@ -260,6 +266,26 @@ export interface PendingActivity {
   senderId: string
 }
 
+// Tema de minuta creado desde el chat, a la espera de que se resuelva el responsable.
+export interface PendingMinuta {
+  tema: string
+  comentarios: string
+  plazo: string | null
+}
+
+// Actividad frenada por sobrecarga: espera a que el usuario decida la fecha.
+export interface PendingOverload {
+  title: string
+  description: string
+  priority: number
+  dueDate: string
+  category: 'actividad' | 'ingesta'
+  responsibleId: string
+  responsibleName: string
+  senderId: string
+  sameDayCount: number
+}
+
 export interface PendingUpdate {
   changes: {
     status: string | null
@@ -306,7 +332,12 @@ export function useChatMessages() {
   const teamId = profile?.team_id ?? ''
   // Capacidades segun el rol del EQUIPO ACTIVO (una persona puede ser jefatura en un equipo
   // y colaboradora en otro). isAdmin = admin global (ve toda la conversacion del equipo).
-  const { isColaborador, isGlobalAdmin: isAdmin, canAssignOthers } = useCapabilities()
+  const {
+    isColaborador,
+    isGlobalAdmin: isAdmin,
+    canAssignOthers,
+    canAssignMinuta,
+  } = useCapabilities()
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -560,11 +591,14 @@ export function useChatMessages() {
     }
 
     if (!opts.silent) {
+      // La confirmacion SIEMPRE dice la fecha de entrega: es el dato que el usuario
+      // acaba de decidir (o que Lumix eligio por el) y el que mas se revisa despues.
+      const when = formatDateLocal(opts.dueDate)
       const reply = assignedToOther
-        ? `Actividad "${cleanTitle}" asignada a ${opts.responsibleName}.`
+        ? `✅ Actividad "${cleanTitle}" creada y asignada a ${opts.responsibleName}. Entrega: ${when}.`
         : isIngesta
-          ? `Ingesta "${cleanTitle}" registrada.`
-          : `Actividad "${cleanTitle}" creada.`
+          ? `✅ Ingesta "${cleanTitle}" registrada. Entrega: ${when}.`
+          : `✅ Actividad "${cleanTitle}" creada. Entrega: ${when}.`
       // Confirmacion simple en texto (se persiste igual que se ve, sin discrepancia al recargar).
       await aiSay(reply)
       if (assignedToOther) {
@@ -579,27 +613,78 @@ export function useChatMessages() {
   function buildUpdatesFromChanges(changes: PendingUpdate['changes']): {
     updates: Partial<Activity>
     newResponsibleName?: string
+    // Nombre que la IA leyo pero que no calza con nadie del equipo (o calza con
+    // varios): hay que avisarlo, no descartarlo en silencio.
+    unresolvedResponsible?: string
+    unresolvedReason?: 'not_found' | 'ambiguous' | 'no_permission'
   } {
     const updates: Partial<Activity> = {}
     let newResponsibleName: string | undefined
+    let unresolvedResponsible: string | undefined
+    let unresolvedReason: 'not_found' | 'ambiguous' | 'no_permission' | undefined
     if (changes.status) updates.status = changes.status as ActivityStatus
     if (changes.priority) updates.priority = changes.priority
     if (changes.due_date) updates.due_date = changes.due_date
-    if (changes.responsible && canAssignOthers) {
-      const matches = matchMembers(changes.responsible, membersRef.current)
-      if (matches.length === 1) {
-        updates.responsible_id = matches[0].id
-        newResponsibleName = matches[0].full_name
+    if (changes.responsible) {
+      if (!canAssignOthers) {
+        unresolvedResponsible = changes.responsible
+        unresolvedReason = 'no_permission'
+      } else {
+        const matches = matchMembers(changes.responsible, membersRef.current)
+        if (matches.length === 1) {
+          updates.responsible_id = matches[0].id
+          newResponsibleName = matches[0].full_name
+        } else {
+          unresolvedResponsible = changes.responsible
+          unresolvedReason = matches.length === 0 ? 'not_found' : 'ambiguous'
+        }
       }
     }
-    return { updates, newResponsibleName }
+    return { updates, newResponsibleName, unresolvedResponsible, unresolvedReason }
+  }
+
+  // Pide al usuario que elija a quien reasignar, cuando el nombre que dijo no calza
+  // con nadie del equipo (o calza con varios). Nunca se descarta la intencion en silencio.
+  async function askReassignTarget(
+    activity: Activity,
+    typedName: string,
+    reason: 'not_found' | 'ambiguous',
+  ) {
+    const members = await ensureMembers()
+    const matches = reason === 'ambiguous' ? matchMembers(typedName, members) : members
+    const cleanTitle = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    await appendAndSave(
+      {
+        id: `ai-reassign-${Date.now()}`,
+        content:
+          reason === 'not_found'
+            ? `No encontre a "${typedName}" en el equipo. ¿A quien reasigno "${cleanTitle}"?`
+            : `Hay varias personas que coinciden con "${typedName}". ¿A quien reasigno "${cleanTitle}"?`,
+        sender_id: 'ai',
+        category: null,
+        created_at: new Date().toISOString(),
+        team_id: teamId,
+        sender: { full_name: 'Lumix', avatar_url: null },
+        metadata: {
+          type: 'name_confirm',
+          candidates: matches.map((m) => ({ id: m.id, name: m.full_name })),
+          reassign: { activityId: activity.id, title: cleanTitle },
+        },
+      },
+      false,
+    )
   }
 
   // Aplica cambios a una actividad existente, con control de rol y notificaciones.
   async function commitUpdate(
     activity: Activity,
     updates: Partial<Activity>,
-    opts: { replyText?: string; newResponsibleName?: string } = {},
+    opts: {
+      replyText?: string
+      newResponsibleName?: string
+      unresolvedResponsible?: string
+      unresolvedReason?: 'not_found' | 'ambiguous' | 'no_permission'
+    } = {},
   ) {
     // Colaborador/invitado: solo su propia actividad y no puede reasignar a terceros
     if (!canAssignOthers) {
@@ -612,7 +697,19 @@ export function useChatMessages() {
       }
     }
 
+    if (opts.unresolvedReason === 'no_permission') {
+      await aiSay(
+        `No puedes reasignar actividades a otras personas, asi que deje "${opts.unresolvedResponsible}" fuera del cambio.`,
+      )
+    }
+
     if (Object.keys(updates).length === 0) {
+      // Si lo unico que pedia el mensaje era reasignar a alguien que no existe,
+      // preguntamos a quien en vez de responder "no detecte cambios".
+      if (opts.unresolvedResponsible && opts.unresolvedReason !== 'no_permission') {
+        await askReassignTarget(activity, opts.unresolvedResponsible, opts.unresolvedReason!)
+        return null
+      }
       await aiSay('No detecte ningun cambio para aplicar.')
       return null
     }
@@ -628,12 +725,21 @@ export function useChatMessages() {
 
     if (updates.status === 'bloqueado') {
       try {
-        await notificationsService.sendToTeam(teamId, {
-          title: 'Actividad bloqueada',
-          body: `"${updated.title}" fue bloqueada`,
-          type: 'activity_blocked',
-          metadata: { activity_id: updated.id },
-        })
+        // Solo a quien puede desbloquearla: jefatura del equipo y el responsable.
+        await notificationsService.sendToTeam(
+          teamId,
+          {
+            title: 'Actividad bloqueada',
+            body: `"${updated.title}" fue bloqueada`,
+            type: 'activity_blocked',
+            metadata: { activity_id: updated.id },
+          },
+          {
+            exceptUserId: user?.id,
+            roles: ['admin', 'jefatura'],
+            alsoUserIds: [updated.responsible_id],
+          },
+        )
       } catch (err) {
         console.error('Block notify failed:', err)
       }
@@ -653,18 +759,62 @@ export function useChatMessages() {
 
     const rName = opts.newResponsibleName || memberName(updated.responsible_id)
     await emitActivityCard(updated, rName, opts.replyText || 'Actividad actualizada.')
+
+    // El resto de los cambios ya se aplico; ahora si, preguntamos por el responsable.
+    if (opts.unresolvedResponsible && opts.unresolvedReason !== 'no_permission') {
+      await askReassignTarget(updated, opts.unresolvedResponsible, opts.unresolvedReason!)
+    }
     return updated
   }
 
   // Actualizacion pendiente confirmada desde el chat (cuando la IA no supo cual era)
-  const applyPendingUpdate = async (activityId: string, pending: PendingUpdate) => {
+  const applyPendingUpdate = async (
+    activityId: string,
+    pending: PendingUpdate,
+    confirmMessageId?: string,
+  ) => {
+    if (confirmMessageId) {
+      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
+    }
     const activity = await activitiesService.getById(activityId)
     if (!activity) {
       await aiSay('No encontre la actividad.')
       return null
     }
-    const { updates, newResponsibleName } = buildUpdatesFromChanges(pending.changes)
-    return commitUpdate(activity, updates, { replyText: pending.reply, newResponsibleName })
+    const { updates, newResponsibleName, unresolvedResponsible, unresolvedReason } =
+      buildUpdatesFromChanges(pending.changes)
+    return commitUpdate(activity, updates, {
+      replyText: pending.reply,
+      newResponsibleName,
+      unresolvedResponsible,
+      unresolvedReason,
+    })
+  }
+
+  // Reasignacion confirmada desde el popout (el nombre dicho no existia o era ambiguo)
+  const reassignResolved = async (
+    activityId: string,
+    responsibleId: string,
+    responsibleName: string,
+    confirmMessageId?: string,
+  ) => {
+    if (confirmMessageId) {
+      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
+    }
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) {
+      await aiSay('No encontre la actividad.')
+      return null
+    }
+    const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    return commitUpdate(
+      activity,
+      { responsible_id: responsibleId },
+      {
+        replyText: `Actividad "${title}" reasignada a ${responsibleName}.`,
+        newResponsibleName: responsibleName,
+      },
+    )
   }
 
   // Accion directa desde los botones de la tarjeta (sin IA)
@@ -724,7 +874,12 @@ export function useChatMessages() {
     pending: PendingActivity,
     responsibleId: string,
     responsibleName: string,
+    confirmMessageId?: string,
   ) => {
+    // Se borra la pregunta al resolverla: si no, se puede volver a tocar y crear duplicados.
+    if (confirmMessageId) {
+      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
+    }
     return persistActivity({
       title: pending.title,
       description: pending.description,
@@ -737,11 +892,106 @@ export function useChatMessages() {
     })
   }
 
+  // Crea un tema de minuta desde el chat, ya con responsable resuelto (o sin el).
+  // Notifica al asignado igual que una actividad: si no, el tema queda invisible para el.
+  const createMinutaTopic = async (
+    topic: PendingMinuta,
+    responsibleId: string | null,
+    responsibleName: string | null,
+    senderId: string,
+    confirmMessageId?: string,
+  ) => {
+    if (confirmMessageId) {
+      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
+    }
+    try {
+      // orden = al final de la lista (antes todos entraban con orden 0 y quedaban empatados)
+      const existing = await minutesService.getByTeam(teamId)
+      await minutesService.create({
+        team_id: teamId,
+        orden: existing.length,
+        tema: topic.tema,
+        para_todos: false,
+        responsables: responsibleId ? [responsibleId] : [],
+        responsables_text: responsibleName ?? '',
+        estado: 'pendiente',
+        plazo: topic.plazo,
+        comentarios: topic.comentarios === topic.tema ? '' : topic.comentarios,
+        linked_activity_ids: [],
+        created_by: senderId,
+      })
+    } catch (err) {
+      console.error('Minuta topic failed:', err)
+      await aiSay('No pude agregar el tema a la minuta (revisa tus permisos).')
+      return null
+    }
+
+    const parts = [`✅ Tema agregado a la minuta: "${topic.tema}"`]
+    if (responsibleName) parts.push(`Responsable: ${responsibleName}`)
+    if (topic.plazo) parts.push(`Plazo: ${formatDateLocal(topic.plazo)}`)
+    await aiSay(parts.join('. ') + '.')
+
+    if (responsibleId && responsibleId !== senderId) {
+      try {
+        await notificationsService.send(responsibleId, {
+          title: 'Nuevo tema en la minuta',
+          body: topic.plazo
+            ? `"${topic.tema}" - Plazo: ${formatDateLocal(topic.plazo)}`
+            : `"${topic.tema}"`,
+          // El tipo esta acotado por un CHECK en la tabla; deadline_soon es el que ya
+          // usa la minuta al generar actividades (ver useMinuta).
+          type: 'deadline_soon',
+          metadata: { minuta: true },
+        })
+        await aiSay(`📨 Notificacion enviada a ${responsibleName}`)
+      } catch (err) {
+        console.error('Minuta notify failed:', err)
+      }
+    }
+    return true
+  }
+
+  // Resuelve la alerta de sobrecarga: crea la actividad con la fecha que eligio el usuario.
+  // Pasa por persistActivity para que notifique al responsable y confirme en el chat igual
+  // que cualquier otra creacion (antes se insertaba directo y no avisaba a nadie).
+  const createOverloadActivity = async (
+    pending: PendingOverload,
+    extraBusinessDays: number,
+    confirmMessageId?: string,
+  ) => {
+    if (confirmMessageId) {
+      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
+    }
+    const dueDate =
+      extraBusinessDays > 0
+        ? addBusinessDays(toLocalDate(pending.dueDate), extraBusinessDays).toISOString()
+        : pending.dueDate
+
+    try {
+      await persistActivity({
+        title: pending.title,
+        description: pending.description,
+        priority: pending.priority,
+        dueDate,
+        category: pending.category,
+        responsibleId: pending.responsibleId,
+        responsibleName: pending.responsibleName,
+        senderId: pending.senderId,
+      })
+      return formatDateLocal(dueDate)
+    } catch (err) {
+      console.error('Overload activity create failed:', err)
+      await aiSay('No pude crear la actividad. Intentalo de nuevo.')
+      return null
+    }
+  }
+
   // Carga masiva: crea varias actividades tras confirmacion en la UI
   const bulkCreate = async (items: BulkActivity[]) => {
     if (!user) return 0
     const members = await ensureMembers()
     let created = 0
+    const unmatched = new Set<string>()
 
     for (const it of items) {
       let responsibleId = user.id
@@ -752,8 +1002,11 @@ export function useChatMessages() {
         if (matches.length === 1) {
           responsibleId = matches[0].id
           responsibleName = matches[0].full_name
+        } else {
+          // Ambiguo o inexistente: queda con quien lo crea, pero se reporta al final
+          // para que se pueda corregir (antes se perdia el nombre sin dejar rastro).
+          unmatched.add(it.responsible)
         }
-        // Si es ambiguo o no existe en carga masiva, queda con quien lo crea.
       }
 
       try {
@@ -775,6 +1028,11 @@ export function useChatMessages() {
     }
 
     await aiSay(`✅ Carga masiva: ${created} de ${items.length} actividades creadas.`, 'actividad')
+    if (unmatched.size) {
+      await aiSay(
+        `⚠️ No encontre en el equipo a: ${[...unmatched].join(', ')}. Esas actividades quedaron a tu nombre; reasignalas desde el listado.`,
+      )
+    }
     return created
   }
 
@@ -905,6 +1163,18 @@ export function useChatMessages() {
     let responsibleId = senderId
     let responsibleName = profile?.full_name ?? ''
 
+    // Sin permiso para asignar a terceros: si el mensaje nombraba a otra persona,
+    // se avisa en vez de crearla en silencio a nombre de quien escribe.
+    if (!canAssignOthers && opts.responsibleHint) {
+      const self = matchMembers(opts.responsibleHint, members).some((m) => m.id === senderId)
+      const saysSelf = /^(yo|mi|mio|mia)$/i.test(normalizeName(opts.responsibleHint))
+      if (!self && !saysSelf) {
+        await aiSay(
+          `No puedes asignar actividades a otras personas, asi que "${title}" queda a tu nombre.`,
+        )
+      }
+    }
+
     if (canAssignOthers && opts.responsibleHint) {
       const matches = matchMembers(opts.responsibleHint, members)
       if (matches.length === 1) {
@@ -961,26 +1231,28 @@ export function useChatMessages() {
             a.due_date.startsWith(dueDateStr),
         )
         if (sameDay.length >= 2) {
+          const whoHas = responsibleId === senderId ? 'Ya tienes' : `${responsibleName} ya tiene`
+          const pending: PendingOverload = {
+            title,
+            description: content,
+            priority,
+            dueDate,
+            category: actCategory,
+            responsibleId,
+            responsibleName,
+            senderId,
+            sameDayCount: sameDay.length,
+          }
           await appendAndSave(
             {
               id: `ai-warn-${Date.now()}`,
-              content: `⚠️ ${responsibleName} ya tiene ${sameDay.length} actividades para el ${formatDateLocal(dueDate)}. Clic para decidir.`,
+              content: `⚠️ ${whoHas} ${sameDay.length} actividades para el ${formatDateLocal(dueDate)}. Elige que hacer con "${title}".`,
               sender_id: 'ai',
               category: null,
               created_at: new Date().toISOString(),
               team_id: teamId,
               sender: { full_name: 'Lumix', avatar_url: null },
-              metadata: {
-                type: 'overload',
-                pendingTitle: title,
-                pendingDesc: content,
-                pendingResponsibleId: responsibleId,
-                pendingResponsibleName: responsibleName,
-                pendingPriority: priority,
-                pendingDueDate: dueDate,
-                pendingSenderId: senderId,
-                pendingIsColaborador: isColaborador,
-              },
+              metadata: { type: 'overload', pending },
             },
             false,
           )
@@ -1070,26 +1342,64 @@ export function useChatMessages() {
 
     try {
       // MINUTA: tipo forzado desde el selector -> crea un tema en la minuta del equipo.
+      // Se pasa por el clasificador para extraer tema, responsable y plazo del texto libre,
+      // igual que una actividad: si nombran a alguien, el tema queda asignado a esa persona.
       if (forcedType === 'minuta') {
+        const members = await ensureMembers()
+        let tema = content
+        let hint: string | null = null
+        let plazo: string | null = null
         try {
-          await minutesService.create({
-            team_id: teamId,
-            orden: 0,
-            tema: content,
-            para_todos: false,
-            responsables: [],
-            responsables_text: '',
-            estado: 'pendiente',
-            plazo: null,
-            comentarios: '',
-            linked_activity_ids: [],
-            created_by: message.sender_id,
-          })
-          await aiSay(`Tema agregado a la minuta: "${content}"`)
+          const parsed = await classifyMessage(
+            content,
+            members.map((m) => m.full_name),
+          )
+          tema = parsed.entities.title || content
+          hint = parsed.entities.responsible
+          plazo = parsed.entities.due_date
         } catch (err) {
-          console.error('Minuta topic failed:', err)
-          await aiSay('No pude agregar el tema a la minuta (revisa tus permisos).')
+          // Si la IA falla, el tema se crea igual con el texto tal cual.
+          console.error('Minuta classify failed:', err)
         }
+
+        const topic: PendingMinuta = { tema, comentarios: content, plazo }
+
+        if (hint && canAssignMinuta) {
+          const matches = matchMembers(hint, members)
+          if (matches.length === 1) {
+            await createMinutaTopic(topic, matches[0].id, matches[0].full_name, message.sender_id)
+          } else {
+            // No existe (o hay varios): se pregunta a quien, no se crea huerfano.
+            const candidates = (matches.length ? matches : members).map((m) => ({
+              id: m.id,
+              name: m.full_name,
+            }))
+            await appendAndSave(
+              {
+                id: `ai-minutaconfirm-${Date.now()}`,
+                content:
+                  matches.length === 0
+                    ? `No encontre a "${hint}" en el equipo. ¿A quien asigno el tema "${tema}"?`
+                    : `Hay varias personas que coinciden con "${hint}". ¿A quien asigno el tema "${tema}"?`,
+                sender_id: 'ai',
+                category: null,
+                created_at: new Date().toISOString(),
+                team_id: teamId,
+                sender: { full_name: 'Lumix', avatar_url: null },
+                metadata: { type: 'name_confirm', candidates, minuta: topic },
+              },
+              false,
+            )
+          }
+        } else {
+          if (hint && !canAssignMinuta) {
+            await aiSay(
+              `No puedes asignar temas de minuta a otras personas, asi que "${tema}" queda sin responsable.`,
+            )
+          }
+          await createMinutaTopic(topic, null, null, message.sender_id)
+        }
+
         setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, category: null } : m)))
         setAiProcessing(false)
         return
@@ -1219,10 +1529,13 @@ export function useChatMessages() {
 
             if (upd.isUpdate) {
               if (upd.targetIndex >= 0 && upd.targetIndex < open.length) {
-                const { updates, newResponsibleName } = buildUpdatesFromChanges(upd.changes)
+                const { updates, newResponsibleName, unresolvedResponsible, unresolvedReason } =
+                  buildUpdatesFromChanges(upd.changes)
                 await commitUpdate(open[upd.targetIndex], updates, {
                   replyText: upd.reply,
                   newResponsibleName,
+                  unresolvedResponsible,
+                  unresolvedReason,
                 })
               } else {
                 // Ambiguo: preguntar a cual actividad se refiere
@@ -1397,6 +1710,9 @@ export function useChatMessages() {
     parseBulk,
     bulkCreate,
     createResolvedActivity,
+    createOverloadActivity,
+    createMinutaTopic,
+    reassignResolved,
     confirmCategory,
     quickUpdate,
     applyPendingUpdate,
