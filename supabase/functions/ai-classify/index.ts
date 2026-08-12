@@ -2,9 +2,10 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { buildCors, jsonResponse } from '../_shared/cors.ts'
 import { getUser } from '../_shared/auth.ts'
 import { checkRateLimit } from '../_shared/rate-limit.ts'
+import { pickModel, tuningParams, jsonSchemaFormat } from '../_shared/model.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
-const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
+const AI_MODEL = pickModel('classify')
 const RATE_LIMIT_MAX = 30
 
 const SYSTEM_PROMPT = `Eres OPERA AI, un asistente que clasifica mensajes de trabajo en lenguaje natural.
@@ -84,7 +85,44 @@ REGLAS DE FECHAS (usa la fecha actual que se te entrega en el mensaje del usuari
 - Si NO se menciona ninguna fecha, devuelve null en due_date (el sistema asignara 6 dias habiles por defecto)
 - IMPORTANTE: nunca inventes fechas. Calcula siempre a partir de la fecha actual entregada.
 
+CONTEXTO DE LA CONVERSACION:
+- Puede que se te entreguen los mensajes anteriores del hilo. Sirven para ENTENDER el mensaje
+  a clasificar, no para clasificarlos a ellos. Clasifica UNICAMENTE el ultimo mensaje.
+- Un mensaje corto suele ser continuacion de lo anterior. "y para la proxima", "y el viernes?",
+  "y Pedro?" despues de una PREGUNTA son parte de esa pregunta, no tareas nuevas.
+- Si el mensaje solo tiene sentido como continuacion de una pregunta previa, devuelve
+  category="consulta". No inventes una actividad con el texto de la pregunta: crea basura que
+  alguien tiene que borrar despues.
+- "ok", "gracias", "dale", "listo" solos, sin nada que completar, tambien son "consulta".
+
 Responde SOLO con el objeto JSON, sin texto adicional ni bloques de codigo.`
+
+// Forma exacta que debe devolver el modelo. Ver jsonSchemaFormat en _shared/model.ts para
+// las reglas del modo strict (todo requerido, lo opcional como nullable).
+const CLASSIFY_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['category', 'depth', 'confidence', 'entities', 'reply'],
+  properties: {
+    category: { type: 'string', enum: ['actividad', 'error', 'ingesta', 'consulta'] },
+    depth: { type: 'string', enum: ['profunda', 'superficial'] },
+    confidence: { type: 'number' },
+    entities: {
+      type: 'object',
+      additionalProperties: false,
+      required: ['title', 'description', 'responsible', 'priority', 'due_date', 'severity'],
+      properties: {
+        title: { type: 'string' },
+        description: { type: 'string' },
+        responsible: { type: ['string', 'null'] },
+        priority: { type: ['number', 'null'] },
+        due_date: { type: ['string', 'null'] },
+        severity: { type: ['string', 'null'], enum: ['baja', 'media', 'alta', 'critica', null] },
+      },
+    },
+    reply: { type: 'string' },
+  },
+}
 
 function stripFences(text: string): string {
   return text
@@ -117,7 +155,7 @@ serve(async (req: Request) => {
   }
 
   try {
-    const { content, todayISO: clientISO, today: clientToday, members } = await req.json()
+    const { content, todayISO: clientISO, today: clientToday, members, history } = await req.json()
 
     if (!content || typeof content !== 'string') {
       return jsonResponse({ error: 'Content is required' }, 400, cors)
@@ -138,6 +176,20 @@ serve(async (req: Request) => {
         ? `Miembros del equipo (usa estos nombres exactos para "responsible"): ${members.join(', ')}.`
         : 'No hay lista de miembros disponible.'
 
+    // Hilo previo, si el cliente lo mando. Se recorta por las dos puntas: como maximo los
+    // ultimos 6 turnos y 300 caracteres cada uno. Un hilo largo no mejora la clasificacion
+    // del ultimo mensaje y se paga en tokens en cada mensaje que se escribe.
+    const turns: { role?: string; text?: string }[] = Array.isArray(history) ? history : []
+    const thread = turns.length
+      ? `Conversacion previa (solo como contexto, NO la clasifiques):\n${turns
+          .slice(-6)
+          .map(
+            (t) =>
+              `${t.role === 'lumix' ? 'Lumix' : 'Usuario'}: ${String(t.text ?? '').slice(0, 300)}`,
+          )
+          .join('\n')}\n\n`
+      : ''
+
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
       headers: {
@@ -146,16 +198,15 @@ serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: AI_MODEL,
-        response_format: { type: 'json_object' },
+        response_format: jsonSchemaFormat('clasificacion', CLASSIFY_SCHEMA),
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           {
             role: 'user',
-            content: `Hoy es ${todayStr} (${today}). ${roster}\nEl mensaje a clasificar es: "${content}"`,
+            content: `Hoy es ${todayStr} (${today}). ${roster}\n${thread}El mensaje a clasificar es: "${content}"`,
           },
         ],
-        temperature: 0.3,
-        max_tokens: 500,
+        ...tuningParams(AI_MODEL, 500, 0.3),
       }),
     })
 
@@ -169,7 +220,14 @@ serve(async (req: Request) => {
     }
 
     const data = await response.json()
-    const aiText = data.choices?.[0]?.message?.content
+    const mensaje = data.choices?.[0]?.message
+    // Con json_schema aparece un caso que con json_object no existia: el modelo puede
+    // responder `refusal` en vez de `content`. Sin esto se leeria como respuesta vacia y
+    // no quedaria rastro de por que.
+    if (mensaje?.refusal) {
+      console.error('El modelo rechazo la peticion:', mensaje.refusal)
+    }
+    const aiText = mensaje?.content
 
     if (!aiText) {
       return new Response(JSON.stringify({ error: 'No response from AI' }), {

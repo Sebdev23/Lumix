@@ -13,6 +13,9 @@ import {
   ActivityListMessage,
   type ActivityListItem,
 } from '@features/chat/components/ActivityListMessage'
+import { LumixPromptBubble } from '@features/chat/components/LumixPromptBubble'
+import { QuotedMessage } from '@features/chat/components/QuotedMessage'
+import type { ReplyTarget } from '@features/chat/types'
 import type { ActivityStatus } from '@shared/types'
 import type {
   PendingActivity,
@@ -93,6 +96,7 @@ export function ChatPage() {
   >('auto')
   const [teamName, setTeamName] = useState('')
   const scrollRef = useRef<HTMLDivElement>(null)
+  const inputRef = useRef<HTMLTextAreaElement>(null)
 
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
@@ -153,6 +157,9 @@ export function ChatPage() {
       (m) =>
         m.metadata?.type &&
         AUTO_OPEN_TYPES.includes(m.metadata.type as string) &&
+        // Las preguntas ya respondidas ahora sobreviven a la recarga (migracion 031):
+        // sin este filtro se reabririan solas cada vez que se entra al chat.
+        !m.metadata.resolved &&
         !autoOpenedRef.current.has(m.id),
     )
     if (!pendingMsg) return
@@ -176,6 +183,64 @@ export function ChatPage() {
         break
     }
   }, [messages])
+
+  // RESPONDER A UN MENSAJE (como WhatsApp).
+  //
+  // Al responder se guarda una copia del autor y el texto citado, no solo el id: el chat
+  // carga los ultimos 50 mensajes y el original puede quedar fuera de esa ventana, y ahi la
+  // cita se veria vacia. Tambien se guarda de que actividad habla, cuando se sabe: eso es
+  // lo que le permite a Lumix aplicar el cambio sin preguntar a cual actividad te refieres.
+  const [replyTo, setReplyTo] = useState<ReplyTarget | null>(null)
+  const bubbleRefs = useRef<Map<string, HTMLDivElement>>(new Map())
+
+  const registerBubble = useCallback(
+    (id: string) => (el: HTMLDivElement | null) => {
+      if (el) bubbleRefs.current.set(id, el)
+      else bubbleRefs.current.delete(id)
+    },
+    [],
+  )
+
+  const startReply = useCallback(
+    (msg: (typeof messages)[number]) => {
+      const meta = msg.metadata as
+        | { activityId?: string; activity_id?: string; title?: string }
+        | null
+        | undefined
+      setReplyTo({
+        id: msg.id,
+        author: msg.sender_id === user?.id ? 'Tu' : (msg.sender?.full_name ?? 'Usuario'),
+        // En una tarjeta se cita el titulo de la actividad, no el texto de Lumix
+        // ("Actividad creada."): citar la confirmacion no dice a que le respondiste.
+        text: meta?.title ?? msg.content,
+        activityId: meta?.activityId ?? meta?.activity_id,
+      })
+      inputRef.current?.focus()
+    },
+    [user?.id],
+  )
+
+  // Saltar al mensaje citado. Solo si sigue cargado en el hilo: si es mas viejo que los
+  // ultimos 50, la cita se muestra igual pero no lleva a ninguna parte.
+  const jumpTo = useCallback((id: string) => {
+    const el = bubbleRefs.current.get(id)
+    if (!el) return
+    el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+    el.classList.add('ring-2', 'ring-indigo-500/60', 'rounded-2xl')
+    setTimeout(() => el.classList.remove('ring-2', 'ring-indigo-500/60', 'rounded-2xl'), 1200)
+  }, [])
+
+  const quotedOf = useCallback(
+    (msg: (typeof messages)[number]) => {
+      const preview = msg.metadata?.reply_preview as ReplyTarget | undefined
+      if (!preview) return undefined
+      const exists = messages.some((m) => m.id === preview.id)
+      return (
+        <QuotedMessage reply={preview} onJump={exists ? () => jumpTo(preview.id) : undefined} />
+      )
+    },
+    [messages, jumpTo],
+  )
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
@@ -202,8 +267,10 @@ export function ChatPage() {
         file_url: fileUrl,
         file_name: fileName,
         file_type: fileType,
+        reply_to: replyTo,
       })
       setInput('')
+      setReplyTo(null)
 
       if (sent && text) {
         if (messageType === 'masivo') {
@@ -222,7 +289,7 @@ export function ChatPage() {
         }
       }
     }
-  }, [input, attachedFile, sendMessage, upload, classifyAndAct, parseBulk, messageType])
+  }, [input, attachedFile, replyTo, sendMessage, upload, classifyAndAct, parseBulk, messageType])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -305,6 +372,7 @@ export function ChatPage() {
                       responsibleName: memberName,
                     })
                   }
+                  onReply={() => startReply(msg)}
                   listMembers={async () => {
                     const m = await listMembers()
                     return m.map((x) => ({ id: x.id, full_name: x.full_name }))
@@ -318,127 +386,80 @@ export function ChatPage() {
                   onSelect={openEdit}
                 />
               ) : msg.metadata?.type === 'overload' ? (
-                <div key={msg.id} className="flex gap-3 max-w-[85%]">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-[11px] font-semibold text-indigo-400">L</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
-                    <button
-                      onClick={() =>
-                        setOverloadData({
-                          pending: (msg.metadata as unknown as { pending: PendingOverload })
-                            .pending,
-                          messageId: msg.id,
-                        })
-                      }
-                      className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-amber-500/20"
-                    >
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    </button>
-                    <span className="text-[10px] text-slate-500 mt-1 ml-1">
-                      {new Date(msg.created_at).toLocaleTimeString('es-CL', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                </div>
-              ) : msg.metadata?.type === 'name_confirm' ? (
-                <div key={msg.id} className="flex gap-3 max-w-[85%]">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-[11px] font-semibold text-indigo-400">L</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
-                    <button
-                      onClick={() =>
-                        setNameConfirm({
-                          data: msg.metadata as unknown as NameConfirm,
-                          messageId: msg.id,
-                        })
-                      }
-                      className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-indigo-500/20"
-                    >
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    </button>
-                    <span className="text-[10px] text-slate-500 mt-1 ml-1">
-                      {new Date(msg.created_at).toLocaleTimeString('es-CL', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                </div>
-              ) : msg.metadata?.type === 'activity_pick' ? (
-                <div key={msg.id} className="flex gap-3 max-w-[85%]">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-[11px] font-semibold text-indigo-400">L</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
-                    <button
-                      onClick={() =>
-                        setActivityPick({
-                          data: msg.metadata as unknown as ActivityPick,
-                          messageId: msg.id,
-                        })
-                      }
-                      className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-indigo-500/20"
-                    >
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    </button>
-                    <span className="text-[10px] text-slate-500 mt-1 ml-1">
-                      {new Date(msg.created_at).toLocaleTimeString('es-CL', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                </div>
-              ) : msg.metadata?.type === 'category_confirm' ? (
-                <div key={msg.id} className="flex gap-3 max-w-[85%]">
-                  <div className="w-7 h-7 rounded-full bg-indigo-600/20 flex items-center justify-center flex-shrink-0 mt-0.5">
-                    <span className="text-[11px] font-semibold text-indigo-400">L</span>
-                  </div>
-                  <div className="flex flex-col">
-                    <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
-                    <button
-                      onClick={() =>
-                        setCategoryConfirm({
-                          pending: (msg.metadata as unknown as { pending: PendingCategory })
-                            .pending,
-                          messageId: msg.id,
-                        })
-                      }
-                      className="rounded-2xl rounded-bl-md bg-slate-700 px-4 py-2.5 text-sm text-left text-slate-200 cursor-pointer hover:brightness-110 transition-all border border-amber-500/20"
-                    >
-                      <p className="whitespace-pre-wrap break-words">{msg.content}</p>
-                    </button>
-                    <span className="text-[10px] text-slate-500 mt-1 ml-1">
-                      {new Date(msg.created_at).toLocaleTimeString('es-CL', {
-                        hour: '2-digit',
-                        minute: '2-digit',
-                      })}
-                    </span>
-                  </div>
-                </div>
-              ) : (
-                <ChatBubble
+                <LumixPromptBubble
                   key={msg.id}
                   content={msg.content}
-                  sender={{
-                    name: msg.sender?.full_name ?? 'Usuario',
-                    avatar_url: msg.sender?.avatar_url,
-                  }}
                   timestamp={msg.created_at}
-                  isOwn={msg.sender_id === user?.id}
-                  category={msg.category}
-                  fileUrl={msg.file_url}
-                  fileName={msg.file_name}
-                  isOptimistic={msg.id.startsWith('opt-')}
-                  onClick={undefined}
+                  accent="amber"
+                  resolution={msg.metadata.resolution as string | undefined}
+                  onOpen={() =>
+                    setOverloadData({
+                      pending: (msg.metadata as unknown as { pending: PendingOverload }).pending,
+                      messageId: msg.id,
+                    })
+                  }
                 />
+              ) : msg.metadata?.type === 'name_confirm' ? (
+                <LumixPromptBubble
+                  key={msg.id}
+                  content={msg.content}
+                  timestamp={msg.created_at}
+                  accent="indigo"
+                  resolution={msg.metadata.resolution as string | undefined}
+                  onOpen={() =>
+                    setNameConfirm({
+                      data: msg.metadata as unknown as NameConfirm,
+                      messageId: msg.id,
+                    })
+                  }
+                />
+              ) : msg.metadata?.type === 'activity_pick' ? (
+                <LumixPromptBubble
+                  key={msg.id}
+                  content={msg.content}
+                  timestamp={msg.created_at}
+                  accent="indigo"
+                  resolution={msg.metadata.resolution as string | undefined}
+                  onOpen={() =>
+                    setActivityPick({
+                      data: msg.metadata as unknown as ActivityPick,
+                      messageId: msg.id,
+                    })
+                  }
+                />
+              ) : msg.metadata?.type === 'category_confirm' ? (
+                <LumixPromptBubble
+                  key={msg.id}
+                  content={msg.content}
+                  timestamp={msg.created_at}
+                  accent="amber"
+                  resolution={msg.metadata.resolution as string | undefined}
+                  onOpen={() =>
+                    setCategoryConfirm({
+                      pending: (msg.metadata as unknown as { pending: PendingCategory }).pending,
+                      messageId: msg.id,
+                    })
+                  }
+                />
+              ) : (
+                <div key={msg.id} ref={registerBubble(msg.id)}>
+                  <ChatBubble
+                    content={msg.content}
+                    sender={{
+                      name: msg.sender?.full_name ?? 'Usuario',
+                      avatar_url: msg.sender?.avatar_url,
+                    }}
+                    timestamp={msg.created_at}
+                    isOwn={msg.sender_id === user?.id}
+                    category={msg.category}
+                    fileUrl={msg.file_url}
+                    fileName={msg.file_name}
+                    isOptimistic={msg.id.startsWith('opt-')}
+                    onClick={undefined}
+                    quoted={quotedOf(msg)}
+                    onReply={() => startReply(msg)}
+                  />
+                </div>
               ),
             )
           )}
@@ -464,6 +485,13 @@ export function ChatPage() {
             </div>
           )}
         </div>
+
+        {/* Respondiendo a: se ve arriba del input hasta que se envia o se cancela */}
+        {replyTo && (
+          <div className="px-4 py-2 bg-slate-800 border-t border-slate-700">
+            <QuotedMessage reply={replyTo} onCancel={() => setReplyTo(null)} />
+          </div>
+        )}
 
         {/* Attached file preview */}
         {attachedFile && (
@@ -533,6 +561,7 @@ export function ChatPage() {
           </div>
           <div className="flex items-end gap-2">
             <textarea
+              ref={inputRef}
               value={input}
               onChange={handleInputChange}
               onKeyDown={handleKeyDown}

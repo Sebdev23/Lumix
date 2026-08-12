@@ -66,9 +66,13 @@ export interface PlazoHistoryEntry {
   at: string // ISO timestamp del cambio
 }
 
+export type HojaTipo = 'minuta' | 'ingesta'
+
 export interface MinuteItem {
   id: string
   team_id: string
+  // Que hoja es. Misma estructura, listados separados. Migracion 033.
+  tipo: HojaTipo
   orden: number
   tema: string
   para_todos: boolean // tema colectivo/seguimiento: sin responsable individual, no genera actividad
@@ -104,6 +108,10 @@ export interface Message {
   category: MessageCategory | null
   created_at: string
   team_id: string
+  // Payload de los mensajes interactivos de Lumix (sobrecarga, confirmaciones). Migracion 031.
+  metadata?: Record<string, unknown> | null
+  // Mensaje al que responde, si es una respuesta citada. Migracion 032.
+  reply_to?: string | null
 }
 
 export type NotificationType =

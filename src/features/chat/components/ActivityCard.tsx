@@ -18,6 +18,9 @@ interface Props {
   onReschedule: (dueDate: string) => void
   onReassign: (memberId: string, memberName: string) => void
   listMembers: () => Promise<{ id: string; full_name: string }[]>
+  // Responder a la tarjeta. Los botones cubren lo frecuente (completar, mover, reasignar);
+  // responder cubre lo que no tiene boton: la descripcion y el objetivo.
+  onReply?: () => void
 }
 
 const STATUS_LABELS: Record<string, string> = {
@@ -59,6 +62,7 @@ export function ActivityCard({
   onReschedule,
   onReassign,
   listMembers,
+  onReply,
 }: Props) {
   const [panel, setPanel] = useState<'move' | 'assign' | null>(null)
   const [members, setMembers] = useState<{ id: string; full_name: string }[]>([])
@@ -148,6 +152,16 @@ export function ActivityCard({
                 className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600 disabled:opacity-50 transition-colors"
               >
                 👤 Reasignar
+              </button>
+            )}
+            {onReply && (
+              <button
+                disabled={busy}
+                onClick={onReply}
+                title="Responder para cambiar la descripcion, el objetivo u otra cosa"
+                className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600 disabled:opacity-50 transition-colors"
+              >
+                ↩ Responder
               </button>
             )}
           </div>

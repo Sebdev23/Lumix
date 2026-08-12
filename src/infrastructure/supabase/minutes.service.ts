@@ -1,12 +1,13 @@
 import { supabase } from '@infrastructure/supabase/client'
-import type { MinuteItem } from '@shared/types'
+import type { HojaTipo, MinuteItem } from '@shared/types'
 
 export const minutesService = {
-  async getByTeam(teamId: string): Promise<MinuteItem[]> {
+  async getByTeam(teamId: string, tipo: HojaTipo = 'minuta'): Promise<MinuteItem[]> {
     const { data, error } = await supabase
       .from('minute_items')
       .select('*')
       .eq('team_id', teamId)
+      .eq('tipo', tipo)
       .order('orden', { ascending: true })
       .order('created_at', { ascending: true })
     if (error) throw error

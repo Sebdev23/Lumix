@@ -2,9 +2,10 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { buildCors, jsonResponse } from '../_shared/cors.ts'
 import { getUser } from '../_shared/auth.ts'
 import { checkRateLimit } from '../_shared/rate-limit.ts'
+import { pickModel, tuningParams } from '../_shared/model.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
-const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
+const AI_MODEL = pickModel('ask')
 
 const RATE_LIMIT_MAX = 10
 
@@ -96,8 +97,7 @@ Manten los ejemplos cortos y usa nombres o tareas reales de los datos cuando pue
             content: `DATOS:\n\nMIEMBROS:\n${membersStr}\n\nACTIVIDADES:\n${activitiesStr}\n\nERRORES:\n${errorsStr}\n\nPREGUNTA: ${question}`,
           },
         ],
-        temperature: 0.3,
-        max_tokens: 600,
+        ...tuningParams(AI_MODEL, 600, 0.3),
       }),
     })
 

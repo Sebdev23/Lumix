@@ -31,8 +31,8 @@ const TeamsPage = lazy(() =>
 const AdminPage = lazy(() =>
   import('@features/admin/components/AdminPage').then((m) => ({ default: m.AdminPage })),
 )
-const IngestasPage = lazy(() =>
-  import('@features/ingestas/components/IngestasPage').then((m) => ({ default: m.IngestasPage })),
+const IngestasTabs = lazy(() =>
+  import('@features/ingestas/components/IngestasTabs').then((m) => ({ default: m.IngestasTabs })),
 )
 const MeetingsPage = lazy(() =>
   import('@features/meetings/components/MeetingsPage').then((m) => ({ default: m.MeetingsPage })),
@@ -103,7 +103,7 @@ export function App() {
                     <Route path="/notifications" element={<NotificationsPage />} />
                     <Route path="/teams" element={<TeamsPage />} />
                     <Route path="/admin" element={<AdminPage />} />
-                    <Route path="/ingestas" element={<IngestasPage />} />
+                    <Route path="/ingestas" element={<IngestasTabs />} />
                     <Route path="/profile" element={<ProfilePage />} />
                     <Route path="*" element={<Navigate to="/chat" replace />} />
                   </Route>

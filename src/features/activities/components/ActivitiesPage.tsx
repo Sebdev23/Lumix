@@ -229,6 +229,7 @@ export function ActivitiesPage() {
       try {
         await minutesService.create({
           team_id: o.teamId,
+          tipo: 'minuta',
           orden: 0,
           tema: o.title,
           para_todos: false,

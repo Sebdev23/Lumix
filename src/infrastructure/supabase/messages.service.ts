@@ -34,6 +34,28 @@ export const messagesService = {
     return data
   },
 
+  // Deja el id de la actividad en la metadata del mensaje que la origino (migracion 032),
+  // para que despues se pueda responder a ese mensaje y saber de que actividad se habla.
+  // Es best-effort: si falla, responder a ese mensaje simplemente cae al flujo de siempre.
+  async linkActivity(messageId: string, activityId: string): Promise<void> {
+    const { error } = await supabase.rpc('vincular_mensaje_actividad', {
+      p_message_id: messageId,
+      p_activity_id: activityId,
+    })
+    if (error) throw error
+  },
+
+  // Marca una alerta interactiva como resuelta (migracion 031). Va por RPC y no por un
+  // update directo: messages no tiene politica UPDATE a proposito, y la funcion solo puede
+  // tocar metadata de mensajes propios.
+  async resolveInteractive(messageId: string, resolution: string): Promise<void> {
+    const { error } = await supabase.rpc('resolver_mensaje_interactivo', {
+      p_message_id: messageId,
+      p_resolucion: resolution,
+    })
+    if (error) throw error
+  },
+
   subscribeToTeam(teamId: string, callback: (message: Message) => void) {
     return supabase
       .channel(`messages-${teamId}-${crypto.randomUUID()}`)

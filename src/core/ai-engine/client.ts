@@ -1,6 +1,8 @@
 import { supabase } from '@infrastructure/supabase/client'
 
-export type ClassifyCategory = 'actividad' | 'error' | 'ingesta'
+// 'consulta' = el mensaje no crea nada: es continuacion de una pregunta anterior ("y para la
+// proxima") o un acuse ("ok", "gracias"). Solo aparece cuando se manda el hilo de contexto.
+export type ClassifyCategory = 'actividad' | 'error' | 'ingesta' | 'consulta'
 export type ClassifyDepth = 'profunda' | 'superficial'
 
 export interface ClassifyResult {
@@ -47,12 +49,19 @@ function todayContext() {
   }
 }
 
+/** Un turno del hilo, para que el clasificador entienda los mensajes que dependen del anterior. */
+export interface HistoryTurn {
+  role: 'usuario' | 'lumix'
+  text: string
+}
+
 export async function classifyMessage(
   content: string,
   members: string[] = [],
+  history: HistoryTurn[] = [],
 ): Promise<ClassifyResult> {
   const { data, error } = await supabase.functions.invoke('ai-classify', {
-    body: { content, members, ...todayContext() },
+    body: { content, members, history, ...todayContext() },
   })
 
   if (error) throw new Error(error.message)
@@ -73,6 +82,8 @@ export type UpdateAction =
   | 'reassign'
   | 'status'
   | 'priority'
+  | 'describe'
+  | 'retitle'
   | 'unknown'
 
 export interface UpdateResult {
@@ -84,17 +95,29 @@ export interface UpdateResult {
     due_date: string | null
     responsible: string | null
     priority: number | null
+    description: string | null
+    title: string | null
   }
   reply: string
 }
 
+/**
+ * Resuelve que actividad cambiar y como.
+ *
+ * Dos modos:
+ *  - abierto: se manda la lista de actividades y el modelo elige (targetIndex). Es lo que
+ *    pasa cuando el usuario escribe suelto en el chat.
+ *  - dirigido: el usuario respondio a un mensaje, asi que la actividad YA se sabe. Se manda
+ *    solo esa, no hay nada que adivinar y el prompt es mucho mas corto.
+ */
 export async function resolveUpdate(
   content: string,
   activities: UpdateActivityLite[],
   members: string[] = [],
+  targeted = false,
 ): Promise<UpdateResult> {
   const { data, error } = await supabase.functions.invoke('ai-update', {
-    body: { content, activities, members, ...todayContext() },
+    body: { content, activities, members, targeted, ...todayContext() },
   })
 
   if (error) throw new Error(error.message)

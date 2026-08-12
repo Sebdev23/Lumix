@@ -74,6 +74,44 @@ export const aiDecisionsService = {
     }
   },
 
+  /**
+   * Marca como corregida la decision que produjo esta fila, sin conocer su id.
+   *
+   * La correccion por popout casi nunca ocurre (solo aparece cuando la categoria es
+   * ambigua). Lo que la gente hace de verdad es dejar que Lumix cree la actividad y
+   * despues arreglarla. Esa es la senal util, y hasta ahora se perdia entera.
+   *
+   * La ventana de tiempo importa: editar el titulo diez minutos despues de crearla dice
+   * "la IA se equivoco"; editarlo la semana siguiente dice "cambio el trabajo". Solo lo
+   * primero es una correccion.
+   */
+  async markCorrectionByEntity(
+    table: 'activities' | 'errors',
+    entityId: string,
+    correction: CorrectionInput,
+    withinMinutes = 30,
+  ): Promise<void> {
+    try {
+      const desde = new Date(Date.now() - withinMinutes * 60_000).toISOString()
+      const { data, error } = await supabase
+        .from('ai_decisions')
+        .select('id')
+        .eq('entity_table', table)
+        .eq('entity_id', entityId)
+        .eq('corrected', false)
+        .gte('created_at', desde)
+        .order('created_at', { ascending: false })
+        .limit(1)
+      if (error) {
+        console.warn('ai_decisions lookup failed (ignorado):', error.message)
+        return
+      }
+      if (data?.[0]?.id) await this.markCorrection(data[0].id, correction)
+    } catch (err) {
+      console.warn('ai_decisions correction failed (ignorado):', err)
+    }
+  },
+
   // A que fila (activities/errors) termino apuntando la decision.
   async linkEntity(id: string | null, table: 'activities' | 'errors', entityId: string) {
     if (!id) return

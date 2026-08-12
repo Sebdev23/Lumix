@@ -7,11 +7,12 @@ import { MemberMultiSelect } from '@shared/components/ui/MemberMultiSelect'
 import { useMinuta, estadoLabels, type DecoratedItem } from '@features/minuta/hooks/useMinuta'
 import { statusLabels } from '@features/activities/hooks/useActivities'
 import { exportToCSV } from '@shared/utils/export'
+import { CargaMasivaModal } from '@features/minuta/components/CargaMasivaModal'
 import { useToast } from '@shared/components/ui/Toast'
 import { SkeletonRows } from '@shared/components/ui/Skeleton'
 import { formatDateLocal } from '@shared/utils/date'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
-import type { MinuteEstado } from '@shared/types'
+import type { HojaTipo, MinuteEstado } from '@shared/types'
 
 const estadoColors: Record<MinuteEstado, BadgeVariant> = {
   pendiente: 'warning',
@@ -20,7 +21,15 @@ const estadoColors: Record<MinuteEstado, BadgeVariant> = {
   definir: 'default',
 }
 
-export function MinutaPage() {
+/**
+ * Hoja de temas: sirve para la minuta semanal y para la de ingesta.
+ *
+ * Es la misma tabla, el mismo hook y la misma UI; lo unico que cambia son las etiquetas y
+ * el permiso que se exige para escribir (lo resuelve useMinuta). Ver migracion 033.
+ */
+export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
+  const esIngesta = tipo === 'ingesta'
+  const titulo = esIngesta ? 'Hoja de Ingesta' : 'Minuta Semanal'
   const {
     items,
     counts,
@@ -41,12 +50,14 @@ export function MinutaPage() {
     canDelete,
     canAssign,
     addItem,
+    bulkAdd,
     updateItem,
     changePlazo,
     removeItem,
     createActivitiesFromItem,
-  } = useMinuta()
+  } = useMinuta(tipo)
 
+  const [cargaMasiva, setCargaMasiva] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
   const [createForId, setCreateForId] = useState<string | null>(null)
   const [createResp, setCreateResp] = useState<string[]>([])
@@ -78,7 +89,7 @@ export function MinutaPage() {
     <div className="flex flex-col h-full">
       {/* Header */}
       <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200">Minuta Semanal</h2>
+        <h2 className="text-sm font-semibold text-slate-200">{titulo}</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() =>
@@ -91,7 +102,7 @@ export function MinutaPage() {
                   'Cambios de plazo': it.plazo_change_count,
                   Comentarios: it.comentarios,
                 })),
-                'minuta',
+                esIngesta ? 'ingesta' : 'minuta',
               )
             }
             className="px-2 py-1 rounded text-[10px] text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
@@ -99,6 +110,15 @@ export function MinutaPage() {
           >
             Excel
           </button>
+          {canManage && (
+            <button
+              onClick={() => setCargaMasiva(true)}
+              className="px-2 py-1 rounded text-[10px] text-slate-400 hover:text-indigo-400 hover:bg-slate-800 transition-colors"
+              title="Cargar varios temas desde una planilla"
+            >
+              Carga masiva
+            </button>
+          )}
           <span className="text-xs text-slate-500">{counts.pendientes} pendientes</span>
         </div>
       </div>
@@ -235,7 +255,7 @@ export function MinutaPage() {
                   : view === 'resueltos'
                     ? 'No hay temas resueltos'
                     : view === 'todos'
-                      ? 'No hay temas en la minuta'
+                      ? `No hay temas en ${esIngesta ? 'la hoja de ingesta' : 'la minuta'}`
                       : 'No hay temas pendientes'}
             </p>
             {canManage && (
@@ -683,7 +703,8 @@ export function MinutaPage() {
               <span className="text-xl leading-none">⚠️</span>
               <div className="space-y-1">
                 <p className="text-sm text-slate-200">
-                  ¿Seguro que quieres eliminar este tema de la minuta?
+                  ¿Seguro que quieres eliminar este tema de{' '}
+                  {esIngesta ? 'la hoja de ingesta' : 'la minuta'}?
                 </p>
                 <p className="text-sm text-slate-400 leading-snug">"{deleteItem.tema}"</p>
                 <p className="text-[11px] text-slate-500">
@@ -717,6 +738,13 @@ export function MinutaPage() {
           </div>
         )}
       </Modal>
+
+      <CargaMasivaModal
+        open={cargaMasiva}
+        onClose={() => setCargaMasiva(false)}
+        members={members}
+        onConfirm={bulkAdd}
+      />
     </div>
   )
 }

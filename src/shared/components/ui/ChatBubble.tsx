@@ -1,3 +1,4 @@
+import type { ReactNode } from 'react'
 import { Avatar } from './Avatar'
 
 interface ChatBubbleProps {
@@ -13,6 +14,10 @@ interface ChatBubbleProps {
   fileName?: string | null
   isOptimistic?: boolean
   onClick?: () => void
+  /** Bloque citado, si este mensaje responde a otro. Va dentro de la burbuja. */
+  quoted?: ReactNode
+  /** Responder a este mensaje. Sin esto no aparece el boton. */
+  onReply?: () => void
 }
 
 const categoryLabels: Record<string, string> = {
@@ -34,11 +39,13 @@ export function ChatBubble({
   fileName,
   isOptimistic = false,
   onClick,
+  quoted,
+  onReply,
 }: ChatBubbleProps) {
   const isFile = !!fileUrl
 
   return (
-    <div className={`flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
+    <div className={`group flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
       {!isOwn && (
         <Avatar
           name={sender.name}
@@ -77,17 +84,39 @@ export function ChatBubble({
           </a>
         )}
 
-        {/* Text content */}
+        {/* Text content. El boton de responder aparece al lado, al pasar el mouse; en tactil
+            queda siempre visible, porque ahi no hay hover que valga. */}
         {content && (
-          <div
-            onClick={onClick}
-            className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
-              isOwn
-                ? 'bg-indigo-600 text-white rounded-br-md'
-                : 'bg-slate-700 text-slate-200 rounded-bl-md'
-            } ${isOptimistic ? 'opacity-70' : ''} ${onClick ? 'cursor-pointer hover:brightness-110' : ''}`}
-          >
-            <p className="whitespace-pre-wrap break-words">{content}</p>
+          <div className={`flex items-center gap-1.5 ${isOwn ? 'flex-row-reverse' : ''}`}>
+            <div
+              onClick={onClick}
+              className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
+                isOwn
+                  ? 'bg-indigo-600 text-white rounded-br-md'
+                  : 'bg-slate-700 text-slate-200 rounded-bl-md'
+              } ${isOptimistic ? 'opacity-70' : ''} ${onClick ? 'cursor-pointer hover:brightness-110' : ''}`}
+            >
+              {quoted && <div className="mb-1.5">{quoted}</div>}
+              <p className="whitespace-pre-wrap break-words">{content}</p>
+            </div>
+            {onReply && !isOptimistic && (
+              <button
+                type="button"
+                onClick={onReply}
+                aria-label="Responder"
+                title="Responder"
+                className="flex-shrink-0 p-1.5 rounded-full text-slate-500 hover:text-slate-200 hover:bg-slate-700/60 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+              >
+                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                  <path
+                    strokeLinecap="round"
+                    strokeLinejoin="round"
+                    strokeWidth={2}
+                    d="M3 10h10a5 5 0 015 5v3m-15-8l4-4m-4 4l4 4"
+                  />
+                </svg>
+              </button>
+            )}
           </div>
         )}
 

@@ -2,9 +2,10 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { buildCors, jsonResponse } from '../_shared/cors.ts'
 import { getUser } from '../_shared/auth.ts'
 import { checkRateLimit } from '../_shared/rate-limit.ts'
+import { pickModel, tuningParams } from '../_shared/model.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
-const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
+const AI_MODEL = pickModel('minutes')
 
 const RATE_LIMIT_MAX = 10
 
@@ -57,8 +58,7 @@ serve(async (req: Request) => {
           { role: 'system', content: SYSTEM_PROMPT },
           { role: 'user', content: `Genera la minuta de esta transcripcion:\n\n${transcript}` },
         ],
-        temperature: 0.3,
-        max_tokens: 1000,
+        ...tuningParams(AI_MODEL, 1000, 0.3),
       }),
     })
 

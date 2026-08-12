@@ -6,7 +6,7 @@ import { notificationsService } from '@infrastructure/supabase/notifications.ser
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
-import type { Activity, MinuteEstado, MinuteItem, Profile } from '@shared/types'
+import type { Activity, HojaTipo, MinuteEstado, MinuteItem, Profile } from '@shared/types'
 
 const MESES_ABBR = [
   'ene',
@@ -54,7 +54,14 @@ function addBusinessDays(date: Date, days: number): Date {
   return r
 }
 
-export function useMinuta() {
+/**
+ * Hoja de temas de un equipo: la minuta semanal o la de ingesta.
+ *
+ * Las dos son la misma estructura (tema, responsables, estado, plazo con historial,
+ * comentarios, actividades vinculadas), asi que comparten hook, servicio y tabla; solo
+ * cambia el filtro por tipo y que permiso se exige para escribir. Ver migracion 033.
+ */
+export function useMinuta(tipo: HojaTipo = 'minuta') {
   const [items, setItems] = useState<MinuteItem[]>([])
   const [members, setMembers] = useState<Profile[]>([])
   const [activitiesById, setActivitiesById] = useState<Record<string, Activity>>({})
@@ -65,13 +72,18 @@ export function useMinuta() {
   const [weekMode, setWeekMode] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0) // 0 = semana actual, -1 = anterior, etc.
   const { user, profile } = useAuth()
-  const { canManageMinuta, canDeleteMinuta, canAssignMinuta } = useCapabilities()
+  const { canManageMinuta, canDeleteMinuta, canAssignMinuta, canManageIngestas } = useCapabilities()
   const teamId = profile?.team_id ?? ''
+  const esIngesta = tipo === 'ingesta'
+  // Cada hoja se gobierna con su propio permiso: administrar ingestas no deberia exigir
+  // permiso de minuta. Coincide con lo que exige la RLS (funcion puede_escribir_hoja).
+  const puedeGestionar = esIngesta ? canManageIngestas : canManageMinuta
+  const puedeEliminar = esIngesta ? canManageIngestas : canDeleteMinuta
 
   const load = useCallback(async () => {
     if (!teamId) return
     const [data, membersData, acts] = await Promise.all([
-      minutesService.getByTeam(teamId),
+      minutesService.getByTeam(teamId, tipo),
       profilesService.getByTeam(teamId),
       activitiesService.getByTeam(teamId),
     ])
@@ -79,7 +91,7 @@ export function useMinuta() {
     setMembers(membersData)
     setActivitiesById(Object.fromEntries(acts.map((a) => [a.id, a])))
     setLoading(false)
-  }, [teamId])
+  }, [teamId, tipo])
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -176,6 +188,7 @@ export function useMinuta() {
     if (!user || !teamId) return null
     const created = await minutesService.create({
       team_id: teamId,
+      tipo,
       orden: items.length,
       tema: tema || 'Nuevo tema',
       para_todos: false,
@@ -189,6 +202,61 @@ export function useMinuta() {
     })
     await load()
     return created.id
+  }
+
+  /**
+   * Inserta varios temas de una planilla ya validada.
+   *
+   * Se insertan uno por uno y no en lote a proposito: si una fila falla en la base (por
+   * ejemplo el CHECK del estado), las demas igual entran y se informa cual quedo fuera.
+   * Un insert en lote falla entero y deja al usuario sin saber cual de las cincuenta filas
+   * fue el problema.
+   */
+  const bulkAdd = async (
+    filas: {
+      tema: string
+      responsables: string[]
+      responsablesText: string
+      estado: MinuteEstado
+      plazo: string | null
+      comentarios: string
+      paraTodos: boolean
+      linea: number
+    }[],
+  ): Promise<{ creados: number; fallidos: { linea: number; motivo: string }[] }> => {
+    if (!user || !teamId) return { creados: 0, fallidos: [] }
+
+    let orden = items.length
+    let creados = 0
+    const fallidos: { linea: number; motivo: string }[] = []
+
+    for (const f of filas) {
+      try {
+        await minutesService.create({
+          team_id: teamId,
+          tipo,
+          orden: orden++,
+          tema: f.tema,
+          para_todos: f.paraTodos,
+          responsables: f.responsables,
+          responsables_text: f.responsablesText,
+          estado: f.estado,
+          plazo: f.plazo,
+          comentarios: f.comentarios,
+          linked_activity_ids: [],
+          created_by: user.id,
+        })
+        creados++
+      } catch (err) {
+        fallidos.push({
+          linea: f.linea,
+          motivo: err instanceof Error ? err.message : 'Error desconocido',
+        })
+      }
+    }
+
+    await load()
+    return { creados, fallidos }
   }
 
   const updateItem = async (id: string, patch: Partial<MinuteItem>) => {
@@ -282,10 +350,12 @@ export function useMinuta() {
     weekOffset,
     setWeekOffset,
     weekLabel,
-    canManage: canManageMinuta,
-    canDelete: canDeleteMinuta,
+    tipo,
+    canManage: puedeGestionar,
+    canDelete: puedeEliminar,
     canAssign: canAssignMinuta,
     addItem,
+    bulkAdd,
     updateItem,
     changePlazo,
     removeItem,

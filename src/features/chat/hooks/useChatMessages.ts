@@ -8,6 +8,7 @@ import {
   askQuestion,
   type ClassifyResult,
   type BulkActivity,
+  type HistoryTurn,
 } from '@core/ai-engine/client'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { errorsService } from '@infrastructure/supabase/errors.service'
@@ -32,6 +33,16 @@ const STATUS_LABELS: Record<string, string> = {
 
 // Verbos que sugieren que el mensaje MODIFICA una actividad existente (gate barato
 // antes de llamar a la IA de actualizacion). La IA decide en definitiva (isUpdate).
+// Los mensajes recien agregados llevan un id temporal (`opt-...`, `ai-warn-...`) hasta que
+// la base devuelve el suyo. Solo los ids reales sirven para una FK.
+const UUID_RE = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i
+const isSavedId = (id?: string | null): boolean => !!id && UUID_RE.test(id)
+
+// Acuses de recibo: no piden nada y no hay que responderles con datos del equipo.
+// Acepta combinaciones ("ok gracias", "dale, perfecto"), que es como se escribe de verdad.
+const ACUSE_RE =
+  /^(?:(?:ok|oka?y|dale|listo|gracias|muchas|perfecto|bien|buenisimo|genial|ya|bueno|de acuerdo|entendido|👍|✅)[\s,.!]*)+$/i
+
 const UPDATE_VERBS =
   /(\blist[oa]s?\b|complet|termin|finaliz|\bhech[oa]\b|mueve|p[aá]sala|p[aá]sale|reprogram|posterg|adelant|reasign|as[ií]gnal|bloque|desbloque|en proceso|falta info|esperando aprob|prioridad|cambia)/i
 
@@ -264,6 +275,10 @@ export interface PendingActivity {
   dueDate: string
   category: 'actividad' | 'ingesta'
   senderId: string
+  // Se arrastran por el desvio (preguntar responsable, sobrecarga) para no perder ni el
+  // vinculo con el mensaje que origino la actividad (migracion 032) ni el de telemetria.
+  sourceMessageId?: string
+  decisionId?: string | null
 }
 
 // Tema de minuta creado desde el chat, a la espera de que se resuelva el responsable.
@@ -284,6 +299,8 @@ export interface PendingOverload {
   responsibleName: string
   senderId: string
   sameDayCount: number
+  sourceMessageId?: string
+  decisionId?: string | null
 }
 
 export interface PendingUpdate {
@@ -292,6 +309,8 @@ export interface PendingUpdate {
     due_date: string | null
     responsible: string | null
     priority: number | null
+    description: string | null
+    title: string | null
   }
   action: string
   reply: string
@@ -323,6 +342,10 @@ export interface QuickChanges {
 
 export function useChatMessages() {
   const [messages, setMessages] = useState<ChatMessage[]>([])
+  // Espejo de messages para leerlo desde los flujos async sin arrastrar un closure viejo:
+  // classifyAndAct corre despues de varios await y ahi el estado ya cambio.
+  const messagesRef = useRef<ChatMessage[]>([])
+  messagesRef.current = messages
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [aiProcessing, setAiProcessing] = useState(false)
@@ -445,6 +468,14 @@ export function useChatMessages() {
     return membersRef.current
   }
 
+  // Agrega el mensaje al hilo y lo guarda. La metadata viaja con el (migracion 031): las
+  // alertas interactivas se guardaban con persist=false porque la tabla no tenia donde
+  // ponerla, y el resultado era que la alerta de sobrecarga se veia en pantalla pero
+  // desaparecia al recargar. Nunca se habia enviado.
+  //
+  // El id local es temporal (`ai-warn-...`); la fila lo recibe de la base. Se reemplaza con
+  // el id real para que resolverla despues apunte a la fila correcta y para que al recargar
+  // no aparezca duplicada.
   const appendAndSave = async (message: ChatMessage, persist = true) => {
     setMessages((prev) => {
       if (prev.some((m) => m.id === message.id)) return prev
@@ -452,20 +483,130 @@ export function useChatMessages() {
     })
     if (persist && message.sender_id === 'ai' && teamId && user) {
       try {
-        await messagesService.send({
+        const saved = await messagesService.send({
           content: message.content,
           sender_id: user.id,
           category: message.category,
           team_id: teamId,
+          metadata: message.metadata ?? null,
           is_ai: true,
         })
+        setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, id: saved.id } : m)))
       } catch (err) {
         console.error('Failed to save AI message:', err)
       }
     }
   }
 
-  const aiSay = (content: string, category: ChatMessage['category'] = null) =>
+  // Foto del equipo que se le pasa a la IA para responder preguntas: actividades visibles
+  // segun el rol, errores abiertos y carga por persona. Un colaborador solo se ve a si mismo.
+  async function buildTeamData(senderId: string) {
+    const [activities, errors, members] = await Promise.all([
+      activitiesService.getByTeam(teamId),
+      errorsService.getByTeam(teamId),
+      profilesService.getByTeam(teamId),
+    ])
+
+    const visibleActivities = isColaborador
+      ? activities.filter((a) => a.responsible_id === senderId)
+      : activities
+
+    membersRef.current = members
+
+    const loadPct = (acts: Activity[]) =>
+      Math.min(Math.round((acts.reduce((s, a) => s + (a.estimated_hours ?? 3), 0) / 42) * 100), 100)
+
+    return {
+      today: new Date().toLocaleDateString('es-CL', {
+        weekday: 'long',
+        day: 'numeric',
+        month: 'long',
+      }),
+      activities: visibleActivities.map((a) => {
+        const [y, m, d] = a.due_date.split('T')[0].split('-').map(Number)
+        return {
+          title: a.title,
+          status: a.status,
+          priority: a.priority,
+          due_date: new Date(y, m - 1, d).toLocaleDateString('es-CL'),
+          responsible: members.find((x) => x.id === a.responsible_id)?.full_name || 'Sin asignar',
+        }
+      }),
+      errors: errors
+        .filter((e) => e.status !== 'cerrado')
+        .map((e) => ({ title: e.title, severity: e.severity, status: e.status })),
+      members: isColaborador
+        ? [
+            {
+              name: profile?.full_name || 'Tu',
+              activeTasks: visibleActivities.filter((a) => a.status !== 'completado').length,
+              load: loadPct(visibleActivities.filter((a) => a.status !== 'completado')),
+            },
+          ]
+        : members.map((m) => {
+            const tasks = activities.filter(
+              (a) => a.responsible_id === m.id && a.status !== 'completado',
+            )
+            return { name: m.full_name, activeTasks: tasks.length, load: loadPct(tasks) }
+          }),
+    }
+  }
+
+  // Ultimos turnos del hilo, para que el clasificador entienda los mensajes que solo tienen
+  // sentido con lo anterior. Sin esto, "y para la proxima" despues de una pregunta se lee
+  // como una tarea nueva y termina creando una actividad que nadie pidio.
+  //
+  // Se excluye el mensaje que se esta clasificando: va aparte en el prompt.
+  function recentHistory(exceptId: string): HistoryTurn[] {
+    return messagesRef.current
+      .filter((m) => m.id !== exceptId && !!m.content)
+      .slice(-6)
+      .map((m) => ({
+        role: m.sender_id === 'ai' ? ('lumix' as const) : ('usuario' as const),
+        text: m.content,
+      }))
+  }
+
+  // Deja el id de la actividad en la metadata del mensaje que la origino, para que al
+  // responder a ese mensaje (migracion 032) se sepa de que actividad se habla. Solo el
+  // autor puede vincular su propio mensaje, asi que un mensaje ajeno no se toca.
+  const linkSourceMessage = (messageId: string, activityId: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? { ...m, metadata: { ...(m.metadata ?? {}), activity_id: activityId } }
+          : m,
+      ),
+    )
+    void messagesService.linkActivity(messageId, activityId).catch((err) => {
+      console.error('No pude vincular el mensaje con la actividad:', err)
+    })
+  }
+
+  // Cierra una alerta interactiva ya resuelta: deja constancia de lo que se decidio y la
+  // vuelve no clickeable. Antes se borraba del estado local, que alcanzaba solo porque el
+  // mensaje no existia en la base; ahora que persiste, sin esto se podria volver a tocar
+  // despues de recargar y crear la actividad dos veces.
+  const resolveInteractive = async (messageId: string, resolution: string) => {
+    setMessages((prev) =>
+      prev.map((m) =>
+        m.id === messageId
+          ? { ...m, metadata: { ...(m.metadata ?? {}), resolved: true, resolution } }
+          : m,
+      ),
+    )
+    try {
+      await messagesService.resolveInteractive(messageId, resolution)
+    } catch (err) {
+      console.error('No pude marcar la alerta como resuelta:', err)
+    }
+  }
+
+  const aiSay = (
+    content: string,
+    category: ChatMessage['category'] = null,
+    metadata?: Record<string, unknown>,
+  ) =>
     appendAndSave({
       id: `ai-${Date.now()}-${Math.random().toString(36).slice(2, 7)}`,
       content,
@@ -474,6 +615,7 @@ export function useChatMessages() {
       created_at: new Date().toISOString(),
       team_id: teamId,
       sender: { full_name: 'Lumix', avatar_url: null },
+      metadata,
     })
 
   const memberName = (id?: string | null): string => {
@@ -519,6 +661,11 @@ export function useChatMessages() {
       file_url: payload.file_url,
       file_name: payload.file_name,
       file_type: payload.file_type,
+      // reply_to tiene FK: si el mensaje citado todavia lleva un id temporal (no alcanzo a
+      // guardarse) el insert fallaria y se perderia la respuesta entera. En ese caso se
+      // manda sin FK: la cita se sigue viendo, porque el texto va en la copia.
+      reply_to: isSavedId(payload.reply_to?.id) ? payload.reply_to!.id : null,
+      metadata: payload.reply_to ? { reply_preview: payload.reply_to } : null,
     }
 
     setMessages((prev) => [...prev, optimisticMsg])
@@ -531,6 +678,8 @@ export function useChatMessages() {
         sender_id: user.id,
         category: payload.category,
         team_id: teamId,
+        reply_to: optimisticMsg.reply_to,
+        metadata: optimisticMsg.metadata,
       })
 
       sentMessage = { ...sent, sender: optimisticMsg.sender }
@@ -557,6 +706,11 @@ export function useChatMessages() {
     responsibleName: string
     senderId: string
     silent?: boolean
+    // Mensaje que dio origen a la actividad. Se vincula para que responderle despues
+    // (migracion 032) apunte a esta actividad sin tener que adivinar cual es.
+    sourceMessageId?: string
+    // Decision de la IA que produjo esta actividad, para cerrar el circuito de telemetria.
+    decisionId?: string | null
   }) {
     const isIngesta = opts.category === 'ingesta'
     const cleanTitle = opts.title.replace(/^\[Ingesta\]\s*/, '')
@@ -574,6 +728,17 @@ export function useChatMessages() {
       team_id: teamId,
       created_by: opts.senderId,
     })
+
+    // Best-effort: si falla, responder a ese mensaje cae al flujo de siempre (la IA
+    // busca la actividad en la lista). No vale la pena romper la creacion por esto.
+    if (opts.sourceMessageId) {
+      linkSourceMessage(opts.sourceMessageId, activity.id)
+    }
+
+    // Cierra el circuito de ai_decisions: deja registrado a que fila termino apuntando lo
+    // que predijo el modelo. Sin esto no hay forma de saber despues si acerto: la tabla
+    // tenia 52 decisiones y ninguna ligada a su actividad.
+    void aiDecisionsService.linkEntity(opts.decisionId ?? null, 'activities', activity.id)
 
     const assignedToOther = opts.responsibleId !== opts.senderId
 
@@ -600,7 +765,12 @@ export function useChatMessages() {
           ? `✅ Ingesta "${cleanTitle}" registrada. Entrega: ${when}.`
           : `✅ Actividad "${cleanTitle}" creada. Entrega: ${when}.`
       // Confirmacion simple en texto (se persiste igual que se ve, sin discrepancia al recargar).
-      await aiSay(reply)
+      //
+      // Lleva el id de la actividad: este es el mensaje al que la gente le responde ("cambiala
+      // al viernes"), asi que es el que tiene que saber de que actividad habla. Sin esto la
+      // respuesta no encuentra objetivo y termina creando una actividad nueva con el texto
+      // de la instruccion, que es exactamente lo que hay que evitar.
+      await aiSay(reply, null, { activity_id: activity.id, title: cleanTitle })
       if (assignedToOther) {
         await aiSay(`📨 Notificacion enviada a ${opts.responsibleName}`)
       }
@@ -610,7 +780,10 @@ export function useChatMessages() {
   }
 
   // Construye el objeto de cambios a partir de lo que devuelve la IA de update
-  function buildUpdatesFromChanges(changes: PendingUpdate['changes']): {
+  function buildUpdatesFromChanges(
+    changes: PendingUpdate['changes'],
+    action?: string,
+  ): {
     updates: Partial<Activity>
     newResponsibleName?: string
     // Nombre que la IA leyo pero que no calza con nadie del equipo (o calza con
@@ -625,6 +798,10 @@ export function useChatMessages() {
     if (changes.status) updates.status = changes.status as ActivityStatus
     if (changes.priority) updates.priority = changes.priority
     if (changes.due_date) updates.due_date = changes.due_date
+    if (changes.description) updates.description = changes.description
+    // El titulo solo cambia si la IA marco explicitamente action="retitle". La 029 existe
+    // porque un flujo reescribia titulos por su cuenta; no se repite por un campo suelto.
+    if (changes.title && action === 'retitle') updates.title = changes.title
     if (changes.responsible) {
       if (!canAssignOthers) {
         unresolvedResponsible = changes.responsible
@@ -641,6 +818,174 @@ export function useChatMessages() {
       }
     }
     return { updates, newResponsibleName, unresolvedResponsible, unresolvedReason }
+  }
+
+  // De que actividad habla el mensaje al que se respondio.
+  //
+  // Tres fuentes, por orden de confianza:
+  //   1. La copia guardada en la propia respuesta (siempre disponible, aunque el original
+  //      haya quedado fuera de los ultimos 50 mensajes que carga el chat).
+  //   2. Una tarjeta de actividad de Lumix: trae activityId en su metadata.
+  //   3. El mensaje que origino la actividad: trae activity_id, puesto por la migracion 032.
+  //
+  // Si no hay ninguna, devuelve null y el mensaje sigue el flujo de siempre.
+  function resolveRepliedActivityId(message: ChatMessage): string | null {
+    const preview = message.metadata?.reply_preview as { activityId?: string } | undefined
+    if (preview?.activityId) return preview.activityId
+
+    if (!message.reply_to) return null
+    const target = messagesRef.current.find((m) => m.id === message.reply_to)
+    const meta = target?.metadata as
+      | { activityId?: string; activity_id?: string }
+      | null
+      | undefined
+    return meta?.activityId ?? meta?.activity_id ?? null
+  }
+
+  // Aplica un cambio a una actividad ya identificada (llegamos aca respondiendo un mensaje).
+  // Devuelve true si el mensaje quedo atendido, false si hay que seguir con el flujo normal.
+  async function applyTargetedUpdate(activityId: string, content: string): Promise<boolean> {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) {
+      // La actividad ya no existe: mejor decirlo que tratar el mensaje como una nueva.
+      await aiSay('Esa actividad ya no existe.')
+      return true
+    }
+
+    const memList = await ensureMembers()
+    let upd
+    try {
+      upd = await resolveUpdate(
+        content,
+        [
+          {
+            title: activity.title,
+            responsible: memberName(activity.responsible_id),
+            status: activity.status,
+            due_date: activity.due_date.split('T')[0],
+            priority: activity.priority,
+          },
+        ],
+        memList.map((m) => m.full_name),
+        true,
+      )
+    } catch (err) {
+      console.error('Targeted update failed:', err)
+      return false
+    }
+
+    // Responder sin pedir nada ("gracias", "ok") no es un update: no se inventa un cambio
+    // ni se crea una actividad nueva con ese texto.
+    if (!upd.isUpdate) {
+      await aiSay(`Anotado. No vi ningun cambio que aplicar a "${activity.title}".`)
+      return true
+    }
+
+    const { updates, newResponsibleName, unresolvedResponsible, unresolvedReason } =
+      buildUpdatesFromChanges(upd.changes, upd.action)
+    await commitUpdate(activity, updates, {
+      replyText: upd.reply,
+      newResponsibleName,
+      unresolvedResponsible,
+      unresolvedReason,
+    })
+    return true
+  }
+
+  /**
+   * Flujo de "esto edita una actividad existente": la IA elige cual de las abiertas y que
+   * cambiar. Devuelve true si el mensaje quedo atendido.
+   *
+   * neverCreate cambia que pasa cuando no se logra identificar la actividad:
+   *  - false (mensaje suelto): devuelve false y el mensaje sigue al flujo de creacion.
+   *  - true (el usuario RESPONDIO a un mensaje): nunca devuelve false. Responder es hablar
+   *    de algo que ya existe; si aca cayera a creacion, "cambiar la fecha al 23 de agosto"
+   *    terminaria siendo una actividad nueva con ese titulo. Paso de verdad, cuatro veces.
+   */
+  async function runUpdateFlow(
+    message: ChatMessage,
+    content: string,
+    neverCreate: boolean,
+  ): Promise<boolean> {
+    let open: Activity[]
+    let upd: Awaited<ReturnType<typeof resolveUpdate>> | null = null
+
+    try {
+      const memList = await ensureMembers()
+      const acts = await activitiesService.getByTeam(teamId)
+      const scope = canAssignOthers
+        ? acts
+        : acts.filter((a) => a.responsible_id === message.sender_id)
+      open = scope.filter((a) => a.status !== 'completado')
+
+      if (open.length) {
+        upd = await resolveUpdate(
+          content,
+          open.map((a) => ({
+            title: a.title,
+            responsible: memberName(a.responsible_id),
+            status: a.status,
+            due_date: a.due_date.split('T')[0],
+            priority: a.priority,
+          })),
+          memList.map((m) => m.full_name),
+        )
+      }
+    } catch (err) {
+      console.error('Update resolution failed:', err)
+      if (!neverCreate) return false
+      await aiSay('No pude procesar el cambio. Intentalo de nuevo.')
+      return true
+    }
+
+    if (!open.length) {
+      if (!neverCreate) return false
+      await aiSay('No tienes actividades abiertas que cambiar.')
+      return true
+    }
+
+    if (!upd?.isUpdate) {
+      if (!neverCreate) return false
+      // Respondio algo que no pide ningun cambio ("ok", "gracias").
+      await aiSay('Anotado. No vi ningun cambio que aplicar.')
+      return true
+    }
+
+    if (upd.targetIndex >= 0 && upd.targetIndex < open.length) {
+      const { updates, newResponsibleName, unresolvedResponsible, unresolvedReason } =
+        buildUpdatesFromChanges(upd.changes, upd.action)
+      await commitUpdate(open[upd.targetIndex], updates, {
+        replyText: upd.reply,
+        newResponsibleName,
+        unresolvedResponsible,
+        unresolvedReason,
+      })
+    } else {
+      // Ambiguo: preguntar a cual actividad se refiere
+      const candidates = pickActivityCandidates(content, open).map((a) => ({
+        id: a.id,
+        title: a.title.replace(/^\[Ingesta\]\s*/, ''),
+      }))
+      await appendAndSave({
+        id: `ai-actpick-${Date.now()}`,
+        content: '¿A cual actividad te refieres? Toca para elegir.',
+        sender_id: 'ai',
+        category: null,
+        created_at: new Date().toISOString(),
+        team_id: teamId,
+        sender: { full_name: 'Lumix', avatar_url: null },
+        metadata: {
+          type: 'activity_pick',
+          candidates,
+          pending: { changes: upd.changes, action: upd.action, reply: upd.reply },
+        },
+      })
+    }
+
+    setMessages((prev) =>
+      prev.map((m) => (m.id === message.id ? { ...m, category: 'actividad' } : m)),
+    )
+    return true
   }
 
   // Pide al usuario que elija a quien reasignar, cuando el nombre que dijo no calza
@@ -723,6 +1068,15 @@ export function useChatMessages() {
       return null
     }
 
+    // Corregir el titulo o la descripcion poco despues de crear la actividad es la forma
+    // real en que la gente le dice a Lumix que se equivoco. Se registra como correccion
+    // para que despues sirva de ejemplo; el popout de categoria casi nunca se usa.
+    if (updates.title || updates.description) {
+      void aiDecisionsService.markCorrectionByEntity('activities', activity.id, {
+        source: 'edicion_manual',
+      })
+    }
+
     if (updates.status === 'bloqueado') {
       try {
         // Solo a quien puede desbloquearla: jefatura del equipo y el responsable.
@@ -773,16 +1127,19 @@ export function useChatMessages() {
     pending: PendingUpdate,
     confirmMessageId?: string,
   ) => {
-    if (confirmMessageId) {
-      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
-    }
     const activity = await activitiesService.getById(activityId)
     if (!activity) {
       await aiSay('No encontre la actividad.')
       return null
     }
+    if (confirmMessageId) {
+      await resolveInteractive(
+        confirmMessageId,
+        `Aplicado a "${activity.title.replace(/^\[Ingesta\]\s*/, '')}"`,
+      )
+    }
     const { updates, newResponsibleName, unresolvedResponsible, unresolvedReason } =
-      buildUpdatesFromChanges(pending.changes)
+      buildUpdatesFromChanges(pending.changes, pending.action)
     return commitUpdate(activity, updates, {
       replyText: pending.reply,
       newResponsibleName,
@@ -798,13 +1155,13 @@ export function useChatMessages() {
     responsibleName: string,
     confirmMessageId?: string,
   ) => {
-    if (confirmMessageId) {
-      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
-    }
     const activity = await activitiesService.getById(activityId)
     if (!activity) {
       await aiSay('No encontre la actividad.')
       return null
+    }
+    if (confirmMessageId) {
+      await resolveInteractive(confirmMessageId, `Reasignada a ${responsibleName}`)
     }
     const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
     return commitUpdate(
@@ -876,11 +1233,9 @@ export function useChatMessages() {
     responsibleName: string,
     confirmMessageId?: string,
   ) => {
-    // Se borra la pregunta al resolverla: si no, se puede volver a tocar y crear duplicados.
-    if (confirmMessageId) {
-      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
-    }
-    return persistActivity({
+    // La pregunta queda marcada como resuelta: si no, se puede volver a tocar y crear
+    // duplicados. Primero se crea; si falla, la pregunta sigue disponible para reintentar.
+    const created = await persistActivity({
       title: pending.title,
       description: pending.description,
       priority: pending.priority,
@@ -889,7 +1244,13 @@ export function useChatMessages() {
       responsibleId,
       responsibleName,
       senderId: pending.senderId,
+      sourceMessageId: pending.sourceMessageId,
+      decisionId: pending.decisionId,
     })
+    if (confirmMessageId) {
+      await resolveInteractive(confirmMessageId, `Asignada a ${responsibleName}`)
+    }
+    return created
   }
 
   // Crea un tema de minuta desde el chat, ya con responsable resuelto (o sin el).
@@ -901,14 +1262,12 @@ export function useChatMessages() {
     senderId: string,
     confirmMessageId?: string,
   ) => {
-    if (confirmMessageId) {
-      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
-    }
     try {
       // orden = al final de la lista (antes todos entraban con orden 0 y quedaban empatados)
       const existing = await minutesService.getByTeam(teamId)
       await minutesService.create({
         team_id: teamId,
+        tipo: 'minuta',
         orden: existing.length,
         tema: topic.tema,
         para_todos: false,
@@ -924,6 +1283,13 @@ export function useChatMessages() {
       console.error('Minuta topic failed:', err)
       await aiSay('No pude agregar el tema a la minuta (revisa tus permisos).')
       return null
+    }
+
+    if (confirmMessageId) {
+      await resolveInteractive(
+        confirmMessageId,
+        responsibleName ? `Tema asignado a ${responsibleName}` : 'Tema agregado a la minuta',
+      )
     }
 
     const parts = [`✅ Tema agregado a la minuta: "${topic.tema}"`]
@@ -959,9 +1325,6 @@ export function useChatMessages() {
     extraBusinessDays: number,
     confirmMessageId?: string,
   ) => {
-    if (confirmMessageId) {
-      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
-    }
     const dueDate =
       extraBusinessDays > 0
         ? addBusinessDays(toLocalDate(pending.dueDate), extraBusinessDays).toISOString()
@@ -977,7 +1340,14 @@ export function useChatMessages() {
         responsibleId: pending.responsibleId,
         responsibleName: pending.responsibleName,
         senderId: pending.senderId,
+        sourceMessageId: pending.sourceMessageId,
+        decisionId: pending.decisionId,
       })
+      // Solo se marca resuelta si la actividad quedo creada: si falla, la alerta sigue viva
+      // y se puede reintentar.
+      if (confirmMessageId) {
+        await resolveInteractive(confirmMessageId, `Creada para el ${formatDateLocal(dueDate)}`)
+      }
       return formatDateLocal(dueDate)
     } catch (err) {
       console.error('Overload activity create failed:', err)
@@ -1121,6 +1491,7 @@ export function useChatMessages() {
     severity: string
     senderId: string
     sourceMessageId?: string
+    decisionId?: string | null
   }) {
     const error = await errorsService.create({
       title: opts.title,
@@ -1133,6 +1504,7 @@ export function useChatMessages() {
       team_id: teamId,
       created_by: opts.senderId,
     })
+    void aiDecisionsService.linkEntity(opts.decisionId ?? null, 'errors', error.id)
     await aiSay(
       `Error "${error.title}" registrado en bitacora. Severidad: ${error.severity}.`,
       'error',
@@ -1156,6 +1528,9 @@ export function useChatMessages() {
     senderId: string
     responsibleHint?: string | null
     sourceMessageId?: string
+    // Decision de la IA que produjo esta creacion. Se arrastra para poder ligar la fila
+    // creada con lo que el modelo predijo (ai_decisions.entity_id).
+    decisionId?: string | null
   }) {
     const { content, title, actCategory, priority, dueDate, senderId } = opts
     const members = await ensureMembers()
@@ -1194,22 +1569,21 @@ export function useChatMessages() {
           dueDate,
           category: actCategory,
           senderId,
+          sourceMessageId: opts.sourceMessageId,
+          decisionId: opts.decisionId,
         }
-        await appendAndSave(
-          {
-            id: `ai-nameconfirm-${Date.now()}`,
-            content: notFound
-              ? `No encontre a "${opts.responsibleHint}" en el equipo. ¿A quien asigno "${title}"? Toca para elegir.`
-              : `Hay varias personas que coinciden con "${opts.responsibleHint}". ¿A quien asigno "${title}"? Toca para elegir.`,
-            sender_id: 'ai',
-            category: null,
-            created_at: new Date().toISOString(),
-            team_id: teamId,
-            sender: { full_name: 'Lumix', avatar_url: null },
-            metadata: { type: 'name_confirm', candidates, pending },
-          },
-          false,
-        )
+        await appendAndSave({
+          id: `ai-nameconfirm-${Date.now()}`,
+          content: notFound
+            ? `No encontre a "${opts.responsibleHint}" en el equipo. ¿A quien asigno "${title}"? Toca para elegir.`
+            : `Hay varias personas que coinciden con "${opts.responsibleHint}". ¿A quien asigno "${title}"? Toca para elegir.`,
+          sender_id: 'ai',
+          category: null,
+          created_at: new Date().toISOString(),
+          team_id: teamId,
+          sender: { full_name: 'Lumix', avatar_url: null },
+          metadata: { type: 'name_confirm', candidates, pending },
+        })
         if (opts.sourceMessageId) {
           setMessages((prev) =>
             prev.map((m) => (m.id === opts.sourceMessageId ? { ...m, category: 'actividad' } : m)),
@@ -1242,20 +1616,19 @@ export function useChatMessages() {
             responsibleName,
             senderId,
             sameDayCount: sameDay.length,
+            sourceMessageId: opts.sourceMessageId,
+            decisionId: opts.decisionId,
           }
-          await appendAndSave(
-            {
-              id: `ai-warn-${Date.now()}`,
-              content: `⚠️ ${whoHas} ${sameDay.length} actividades para el ${formatDateLocal(dueDate)}. Elige que hacer con "${title}".`,
-              sender_id: 'ai',
-              category: null,
-              created_at: new Date().toISOString(),
-              team_id: teamId,
-              sender: { full_name: 'Lumix', avatar_url: null },
-              metadata: { type: 'overload', pending },
-            },
-            false,
-          )
+          await appendAndSave({
+            id: `ai-warn-${Date.now()}`,
+            content: `⚠️ ${whoHas} ${sameDay.length} actividades para el ${formatDateLocal(dueDate)}. Elige que hacer con "${title}".`,
+            sender_id: 'ai',
+            category: null,
+            created_at: new Date().toISOString(),
+            team_id: teamId,
+            sender: { full_name: 'Lumix', avatar_url: null },
+            metadata: { type: 'overload', pending },
+          })
           if (opts.sourceMessageId) {
             setMessages((prev) =>
               prev.map((m) =>
@@ -1279,6 +1652,8 @@ export function useChatMessages() {
       responsibleId,
       responsibleName,
       senderId,
+      sourceMessageId: opts.sourceMessageId,
+      decisionId: opts.decisionId,
     })
 
     if (opts.sourceMessageId) {
@@ -1293,15 +1668,16 @@ export function useChatMessages() {
   }
 
   // Resuelve el popout de categoria ambigua: el usuario elige que es realmente el mensaje.
-  // confirmMessageId es el mensaje-pregunta de Lumix: se elimina al resolver para que NO se
-  // pueda volver a tocar y crear duplicados.
+  // confirmMessageId es el mensaje-pregunta de Lumix: se marca resuelto para que NO se
+  // pueda volver a tocar y crear duplicados. Se marca antes de actuar porque la eleccion ya
+  // esta hecha, y porque el flujo que sigue puede abrir otra pregunta (responsable, sobrecarga).
   const confirmCategory = async (
     pending: PendingCategory,
     choice: 'actividad' | 'ingesta' | 'error',
     confirmMessageId?: string,
   ) => {
     if (confirmMessageId) {
-      setMessages((prev) => prev.filter((m) => m.id !== confirmMessageId))
+      await resolveInteractive(confirmMessageId, `Registrado como ${choice}`)
     }
 
     // Si el usuario eligio algo distinto a lo que predijo la IA, queda registrado.
@@ -1320,6 +1696,7 @@ export function useChatMessages() {
         severity: pending.severity ?? 'media',
         senderId: pending.senderId,
         sourceMessageId: pending.sourceMessageId,
+        decisionId: pending.decisionId,
       })
     }
     return createActivityOrIngesta({
@@ -1331,6 +1708,7 @@ export function useChatMessages() {
       senderId: pending.senderId,
       responsibleHint: pending.responsibleHint,
       sourceMessageId: pending.sourceMessageId,
+      decisionId: pending.decisionId,
     })
   }
 
@@ -1341,6 +1719,23 @@ export function useChatMessages() {
     const content = message.content.trim()
 
     try {
+      // RESPUESTA A UN MENSAJE: si se sabe de que actividad habla el mensaje citado, no hay
+      // nada que adivinar. Se salta la lista, el targetIndex y el popout de "¿a cual te
+      // refieres?": la IA solo tiene que leer que cambio se pide. Ver migracion 032.
+      const isReply = !!(message.reply_to || message.metadata?.reply_preview)
+      if (isReply) {
+        const repliedActivityId = resolveRepliedActivityId(message)
+        // Con la actividad identificada no hay nada que adivinar. Sin ella, se busca entre
+        // las abiertas o se pregunta cual es: lo que NO se hace nunca es crear una actividad
+        // nueva con el texto de la instruccion.
+        const handled = repliedActivityId && (await applyTargetedUpdate(repliedActivityId, content))
+        // Si el modo dirigido no pudo (fallo la IA), se reintenta contra las abiertas antes
+        // de rendirse. Aun asi nunca cae a creacion: es una respuesta.
+        if (!handled) await runUpdateFlow(message, content, true)
+        setAiProcessing(false)
+        return
+      }
+
       // MINUTA: tipo forzado desde el selector -> crea un tema en la minuta del equipo.
       // Se pasa por el clasificador para extraer tema, responsable y plazo del texto libre,
       // igual que una actividad: si nombran a alguien, el tema queda asignado a esa persona.
@@ -1374,22 +1769,19 @@ export function useChatMessages() {
               id: m.id,
               name: m.full_name,
             }))
-            await appendAndSave(
-              {
-                id: `ai-minutaconfirm-${Date.now()}`,
-                content:
-                  matches.length === 0
-                    ? `No encontre a "${hint}" en el equipo. ¿A quien asigno el tema "${tema}"?`
-                    : `Hay varias personas que coinciden con "${hint}". ¿A quien asigno el tema "${tema}"?`,
-                sender_id: 'ai',
-                category: null,
-                created_at: new Date().toISOString(),
-                team_id: teamId,
-                sender: { full_name: 'Lumix', avatar_url: null },
-                metadata: { type: 'name_confirm', candidates, minuta: topic },
-              },
-              false,
-            )
+            await appendAndSave({
+              id: `ai-minutaconfirm-${Date.now()}`,
+              content:
+                matches.length === 0
+                  ? `No encontre a "${hint}" en el equipo. ¿A quien asigno el tema "${tema}"?`
+                  : `Hay varias personas que coinciden con "${hint}". ¿A quien asigno el tema "${tema}"?`,
+              sender_id: 'ai',
+              category: null,
+              created_at: new Date().toISOString(),
+              team_id: teamId,
+              sender: { full_name: 'Lumix', avatar_url: null },
+              metadata: { type: 'name_confirm', candidates, minuta: topic },
+            })
           }
         } else {
           if (hint && !canAssignMinuta) {
@@ -1426,71 +1818,7 @@ export function useChatMessages() {
           return
         }
 
-        const [activities, errors, members] = await Promise.all([
-          activitiesService.getByTeam(teamId),
-          errorsService.getByTeam(teamId),
-          profilesService.getByTeam(teamId),
-        ])
-
-        const visibleActivities = isColaborador
-          ? activities.filter((a) => a.responsible_id === message.sender_id)
-          : activities
-
-        membersRef.current = members
-
-        const teamData = {
-          today: new Date().toLocaleDateString('es-CL', {
-            weekday: 'long',
-            day: 'numeric',
-            month: 'long',
-          }),
-          activities: visibleActivities.map((a) => {
-            const [y, m, d] = a.due_date.split('T')[0].split('-').map(Number)
-            return {
-              title: a.title,
-              status: a.status,
-              priority: a.priority,
-              due_date: new Date(y, m - 1, d).toLocaleDateString('es-CL'),
-              responsible:
-                members.find((m) => m.id === a.responsible_id)?.full_name || 'Sin asignar',
-            }
-          }),
-          errors: errors
-            .filter((e) => e.status !== 'cerrado')
-            .map((e) => ({
-              title: e.title,
-              severity: e.severity,
-              status: e.status,
-            })),
-          members: isColaborador
-            ? [
-                {
-                  name: profile?.full_name || 'Tu',
-                  activeTasks: visibleActivities.filter((a) => a.status !== 'completado').length,
-                  load: Math.min(
-                    Math.round(
-                      (visibleActivities
-                        .filter((a) => a.status !== 'completado')
-                        .reduce((sum, a) => sum + (a.estimated_hours ?? 3), 0) /
-                        42) *
-                        100,
-                    ),
-                    100,
-                  ),
-                },
-              ]
-            : members.map((m) => {
-                const tasks = activities.filter(
-                  (a) => a.responsible_id === m.id && a.status !== 'completado',
-                )
-                const totalHours = tasks.reduce((sum, a) => sum + (a.estimated_hours ?? 3), 0)
-                return {
-                  name: m.full_name,
-                  activeTasks: tasks.length,
-                  load: Math.min(Math.round((totalHours / 42) * 100), 100),
-                }
-              }),
-        }
+        const teamData = await buildTeamData(message.sender_id)
 
         try {
           const answer = await askQuestion(content, teamData)
@@ -1506,71 +1834,9 @@ export function useChatMessages() {
       // ACTUALIZACION: si el mensaje suena a editar una actividad existente (solo en Auto),
       // consultamos a la IA de update. Si no aplica, cae a creacion normal.
       if (isAutoMode && teamId && UPDATE_VERBS.test(content)) {
-        try {
-          const memList = await ensureMembers()
-          const acts = await activitiesService.getByTeam(teamId)
-          const scope = canAssignOthers
-            ? acts
-            : acts.filter((a) => a.responsible_id === message.sender_id)
-          const open = scope.filter((a) => a.status !== 'completado')
-
-          if (open.length) {
-            const upd = await resolveUpdate(
-              content,
-              open.map((a) => ({
-                title: a.title,
-                responsible: memberName(a.responsible_id),
-                status: a.status,
-                due_date: a.due_date.split('T')[0],
-                priority: a.priority,
-              })),
-              memList.map((m) => m.full_name),
-            )
-
-            if (upd.isUpdate) {
-              if (upd.targetIndex >= 0 && upd.targetIndex < open.length) {
-                const { updates, newResponsibleName, unresolvedResponsible, unresolvedReason } =
-                  buildUpdatesFromChanges(upd.changes)
-                await commitUpdate(open[upd.targetIndex], updates, {
-                  replyText: upd.reply,
-                  newResponsibleName,
-                  unresolvedResponsible,
-                  unresolvedReason,
-                })
-              } else {
-                // Ambiguo: preguntar a cual actividad se refiere
-                const candidates = pickActivityCandidates(content, open).map((a) => ({
-                  id: a.id,
-                  title: a.title.replace(/^\[Ingesta\]\s*/, ''),
-                }))
-                await appendAndSave(
-                  {
-                    id: `ai-actpick-${Date.now()}`,
-                    content: '¿A cual actividad te refieres? Toca para elegir.',
-                    sender_id: 'ai',
-                    category: null,
-                    created_at: new Date().toISOString(),
-                    team_id: teamId,
-                    sender: { full_name: 'Lumix', avatar_url: null },
-                    metadata: {
-                      type: 'activity_pick',
-                      candidates,
-                      pending: { changes: upd.changes, action: upd.action, reply: upd.reply },
-                    },
-                  },
-                  false,
-                )
-              }
-              setMessages((prev) =>
-                prev.map((m) => (m.id === message.id ? { ...m, category: 'actividad' } : m)),
-              )
-              setAiProcessing(false)
-              return
-            }
-            // isUpdate=false => continua al flujo de creacion
-          }
-        } catch (err) {
-          console.error('Update resolution failed, fallback to create:', err)
+        if (await runUpdateFlow(message, content, false)) {
+          setAiProcessing(false)
+          return
         }
       }
 
@@ -1580,7 +1846,7 @@ export function useChatMessages() {
 
       let result: ClassifyResult
       try {
-        result = await classifyMessage(content, memberNames)
+        result = await classifyMessage(content, memberNames, recentHistory(message.id))
       } catch (err) {
         console.error('AI classification failed:', err)
         await aiSay('No pude procesar tu mensaje ahora. Intentalo de nuevo en unos segundos.')
@@ -1617,6 +1883,37 @@ export function useChatMessages() {
         predictedEntities: result.entities,
       })
 
+      // CONSULTA: el mensaje no crea nada. Es continuacion de una pregunta anterior ("y para
+      // la proxima") o un acuse ("ok", "gracias"). Solo lo detecta la IA cuando recibe el
+      // hilo de contexto; antes cualquiera de esos se volvia una actividad con ese titulo.
+      //
+      // Solo se acepta si HAY hilo previo que continuar. Medido con mensajes reales: sin
+      // hilo, el modelo llega a marcar como consulta cosas como "agregar actividad para
+      // genaro", y ahi el costo del error es alto: consulta = no se crea nada, asi que la
+      // actividad se pierde en silencio. Una actividad de mas se ve y se borra; una que
+      // nunca existio, no. Ante la duda, se crea.
+      if (category === 'consulta' && recentHistory(message.id).length > 0) {
+        // Se detecta el ACUSE, no la pregunta: "y para la proxima" no lleva signo ni empieza
+        // con palabra interrogativa, y es justamente el caso que hay que responder.
+        //
+        // Acuse => se avisa que no se creo nada, en vez de quedarse mudo: si la IA se
+        // equivoco al llamarlo consulta, el usuario lo ve al toque. Un silencio se confunde
+        // con "quedo listo". Todo lo demas se trata como pregunta encadenada.
+        if (teamId && !ACUSE_RE.test(content)) {
+          try {
+            await aiSay(await askQuestion(content, await buildTeamData(message.sender_id)))
+          } catch (err) {
+            console.error('AI question failed:', err)
+            await aiSay('No pude responder tu consulta en este momento.')
+          }
+        } else {
+          await aiSay('Anotado. No cree ninguna actividad con esto.')
+        }
+        // Sin categoria: no crea nada, asi que no se marca como actividad ni error.
+        setAiProcessing(false)
+        return
+      }
+
       // Primer filtro: si el texto menciona la palabra "error" o "ingesta", en modo Auto
       // siempre preguntamos que tipo es (actividad / error / ingesta). Si el usuario ya eligio
       // el tipo con el selector del chat, forcedType != 'auto' y no entra aca (es explicito).
@@ -1642,19 +1939,16 @@ export function useChatMessages() {
         const optLabel = options
           .map((o) => (o === 'ingesta' ? 'una ingesta de datos' : 'un error'))
           .join(' o ')
-        await appendAndSave(
-          {
-            id: `ai-catconfirm-${Date.now()}`,
-            content: `¿"${title}" es una actividad o ${optLabel}?`,
-            sender_id: 'ai',
-            category: null,
-            created_at: new Date().toISOString(),
-            team_id: teamId,
-            sender: { full_name: 'Lumix', avatar_url: null },
-            metadata: { type: 'category_confirm', pending },
-          },
-          false,
-        )
+        await appendAndSave({
+          id: `ai-catconfirm-${Date.now()}`,
+          content: `¿"${title}" es una actividad o ${optLabel}?`,
+          sender_id: 'ai',
+          category: null,
+          created_at: new Date().toISOString(),
+          team_id: teamId,
+          sender: { full_name: 'Lumix', avatar_url: null },
+          metadata: { type: 'category_confirm', pending },
+        })
         return
       }
 
@@ -1666,6 +1960,7 @@ export function useChatMessages() {
           severity: (result.entities.severity as string) || 'media',
           senderId: message.sender_id,
           sourceMessageId: message.id,
+          decisionId,
         })
         return
       }
@@ -1681,6 +1976,7 @@ export function useChatMessages() {
         senderId: message.sender_id,
         responsibleHint: result.entities.responsible,
         sourceMessageId: message.id,
+        decisionId,
       })
     } catch (err) {
       console.error('AI processing failed:', err)

@@ -2,9 +2,10 @@ import { serve } from 'https://deno.land/std@0.168.0/http/server.ts'
 import { buildCors, jsonResponse } from '../_shared/cors.ts'
 import { getUser } from '../_shared/auth.ts'
 import { checkRateLimit } from '../_shared/rate-limit.ts'
+import { pickModel, tuningParams, jsonSchemaFormat } from '../_shared/model.ts'
 
 const OPENAI_API_KEY = Deno.env.get('OPENAI_API_KEY')!
-const AI_MODEL = Deno.env.get('AI_MODEL') || 'gpt-4o'
+const AI_MODEL = pickModel('bulk')
 
 const RATE_LIMIT_MAX = 15
 
@@ -31,6 +32,30 @@ REGLAS:
 - Nunca inventes fechas.
 
 Responde SOLO con el objeto JSON, sin texto adicional ni bloques de codigo.`
+
+// Forma exacta que debe devolver el modelo (modo strict, ver _shared/model.ts).
+const BULK_SCHEMA = {
+  type: 'object',
+  additionalProperties: false,
+  required: ['activities'],
+  properties: {
+    activities: {
+      type: 'array',
+      items: {
+        type: 'object',
+        additionalProperties: false,
+        required: ['title', 'description', 'responsible', 'priority', 'due_date'],
+        properties: {
+          title: { type: 'string' },
+          description: { type: 'string' },
+          responsible: { type: ['string', 'null'] },
+          priority: { type: 'number' },
+          due_date: { type: ['string', 'null'] },
+        },
+      },
+    },
+  },
+}
 
 function stripFences(text: string): string {
   return text
@@ -97,7 +122,7 @@ serve(async (req: Request) => {
       },
       body: JSON.stringify({
         model: AI_MODEL,
-        response_format: { type: 'json_object' },
+        response_format: jsonSchemaFormat('carga_masiva', BULK_SCHEMA),
         messages: [
           { role: 'system', content: SYSTEM_PROMPT },
           {
@@ -105,8 +130,7 @@ serve(async (req: Request) => {
             content: `Hoy es ${todayStr} (${today}). ${roster}\nTexto con las actividades:\n"""\n${content}\n"""`,
           },
         ],
-        temperature: 0.2,
-        max_tokens: 2000,
+        ...tuningParams(AI_MODEL, 2000, 0.2),
       }),
     })
 
@@ -120,7 +144,14 @@ serve(async (req: Request) => {
     }
 
     const data = await response.json()
-    const aiText = data.choices?.[0]?.message?.content
+    const mensaje = data.choices?.[0]?.message
+    // Con json_schema aparece un caso que con json_object no existia: el modelo puede
+    // responder `refusal` en vez de `content`. Sin esto se leeria como respuesta vacia y
+    // no quedaria rastro de por que.
+    if (mensaje?.refusal) {
+      console.error('El modelo rechazo la peticion:', mensaje.refusal)
+    }
+    const aiText = mensaje?.content
 
     if (!aiText) {
       return new Response(JSON.stringify({ error: 'No response from AI' }), {
