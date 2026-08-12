@@ -98,10 +98,24 @@ export function parseCSV(text: string): Record<string, string>[] {
     })
 }
 
-/** Texto CSV a partir de cabeceras y filas, con BOM para que Excel respete los acentos. */
-export function buildCSV(headers: string[], rows: string[][]): string {
-  const escapar = (v: string) => (/[",\n;]/.test(v) ? `"${v.replace(/"/g, '""')}"` : v)
-  return BOM + [headers, ...rows].map((r) => r.map(escapar).join(',')).join('\r\n')
+/**
+ * Texto CSV a partir de cabeceras y filas.
+ *
+ * Separador PUNTO Y COMA, no coma. Excel en español usa la coma como separador decimal, asi
+ * que espera punto y coma para separar columnas: un archivo con comas lo abre con todas las
+ * columnas metidas en una sola celda. Se veia como "el CSV es incomodo" cuando en realidad
+ * era el separador equivocado para el Excel de quien lo abre.
+ *
+ * Leer no cambia: parseCSV detecta el separador solo, asi que una planilla guardada con
+ * comas (o con tabulaciones) se sigue entendiendo.
+ */
+export function buildCSV(headers: string[], rows: string[][], delim = ';'): string {
+  // Se entrecomilla solo cuando hace falta: el separador que se este usando, comillas o
+  // saltos de linea. Con punto y coma, "Juan Diaz, Manuel" ya no necesita comillas, y una
+  // celda sin comillas es mas facil de leer para quien abre el archivo.
+  const escapar = (v: string) =>
+    v.includes(delim) || v.includes('"') || v.includes('\n') ? `"${v.replace(/"/g, '""')}"` : v
+  return BOM + [headers, ...rows].map((r) => r.map(escapar).join(delim)).join('\r\n')
 }
 
 /** Dispara la descarga de un archivo de texto en el navegador. */
