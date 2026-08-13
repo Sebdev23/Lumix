@@ -200,7 +200,8 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
       linked_activity_ids: [],
       created_by: user.id,
     })
-    await load()
+    // La fila creada ya viene completa desde la base: se agrega y listo, sin recargar.
+    setItems((cur) => [...cur, created])
     return created.id
   }
 
@@ -259,9 +260,32 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     return { creados, fallidos }
   }
 
+  /**
+   * Aplica el cambio en pantalla al instante y despues lo persiste.
+   *
+   * Antes cada click esperaba DOS viajes antes de mostrar nada: el update y un load()
+   * completo, que ademas pide las tres consultas (temas, miembros y TODAS las actividades
+   * del equipo: 166 en Analitica y BI) aunque solo hubieras cambiado un responsable. De ahi
+   * el retraso entre tocar y ver.
+   *
+   * Recargar no aportaba nada: el unico cambio es el que acabamos de hacer. Si el guardado
+   * falla, se revierte al estado anterior y se avisa; asi la pantalla nunca miente.
+   *
+   * Esto es seguro porque el realtime esta apagado (publicacion vacia, decision del equipo):
+   * no hay eventos llegando por detras que puedan pisar el estado local.
+   */
   const updateItem = async (id: string, patch: Partial<MinuteItem>) => {
-    await minutesService.update(id, patch)
-    await load()
+    let anterior: MinuteItem | undefined
+    setItems((cur) => {
+      anterior = cur.find((i) => i.id === id)
+      return cur.map((i) => (i.id === id ? { ...i, ...patch } : i))
+    })
+    try {
+      await minutesService.update(id, patch)
+    } catch (err) {
+      if (anterior) setItems((cur) => cur.map((i) => (i.id === id ? anterior! : i)))
+      throw err
+    }
   }
 
   // Cambio de plazo con trazabilidad. La PRIMERA asignacion no cuenta como cambio;
@@ -271,17 +295,26 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     const hadPlazo = !!item.plazo
     const history = [...(item.plazo_history ?? [])]
     if (newPlazo) history.push({ date: newPlazo, at: new Date().toISOString() })
-    await minutesService.update(item.id, {
+    // Mismo criterio que updateItem: se pinta primero y se guarda despues.
+    await updateItem(item.id, {
       plazo: newPlazo,
       plazo_change_count: (item.plazo_change_count ?? 0) + (hadPlazo ? 1 : 0),
       plazo_history: history,
     })
-    await load()
   }
 
   const removeItem = async (id: string) => {
-    await minutesService.remove(id)
-    await load()
+    let anterior: MinuteItem[] = []
+    setItems((cur) => {
+      anterior = cur
+      return cur.filter((i) => i.id !== id)
+    })
+    try {
+      await minutesService.remove(id)
+    } catch (err) {
+      setItems(anterior)
+      throw err
+    }
   }
 
   // Crea una actividad por cada responsable elegido y las vincula al tema (estado sincronizado)

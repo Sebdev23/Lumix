@@ -32,6 +32,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
   const titulo = esIngesta ? 'Hoja de Ingesta' : 'Minuta Semanal'
   const {
     items,
+    allItems,
     counts,
     members,
     loading,
@@ -65,6 +66,14 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
   const [createDue, setCreateDue] = useState('')
   const [busy, setBusy] = useState(false)
   const toast = useToast()
+
+  // El cambio se pinta al instante y se guarda despues (ver updateItem). Si el guardado
+  // falla, el hook revierte: sin este aviso, el valor volveria solo y sin explicacion.
+  const guardar = (id: string, patch: Parameters<typeof updateItem>[1]) =>
+    updateItem(id, patch).catch(() => toast.error('No se pudo guardar el cambio'))
+
+  const guardarPlazo = (item: DecoratedItem, v: string | null) =>
+    changePlazo(item, v).catch(() => toast.error('No se pudo guardar la fecha'))
 
   const memberName = (id: string) => members.find((m) => m.id === id)?.full_name || 'Desconocido'
 
@@ -277,7 +286,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                       defaultValue={it.tema}
                       onBlur={(e) => {
                         if (e.target.value.trim() && e.target.value !== it.tema)
-                          updateItem(it.id, { tema: e.target.value })
+                          guardar(it.id, { tema: e.target.value })
                       }}
                       rows={2}
                       spellCheck={false}
@@ -304,7 +313,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           members={members}
                           selected={it.responsables}
                           paraTodos={it.para_todos}
-                          onChange={(next) => updateItem(it.id, next)}
+                          onChange={(next) => guardar(it.id, next)}
                         />
                       ) : (
                         <span className="text-xs text-slate-400">{responsablesLabel(it)}</span>
@@ -321,7 +330,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                         <select
                           value={it.estado}
                           onChange={(e) =>
-                            updateItem(it.id, { estado: e.target.value as MinuteEstado })
+                            guardar(it.id, { estado: e.target.value as MinuteEstado })
                           }
                           className="w-full rounded border border-slate-700 bg-slate-800 px-1.5 py-1 text-[11px] text-slate-200"
                         >
@@ -343,7 +352,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                       {canManage ? (
                         <DatePicker
                           value={it.plazo}
-                          onChange={(v) => changePlazo(it, v)}
+                          onChange={(v) => guardarPlazo(it, v)}
                           placeholder="+ fecha"
                         />
                       ) : (
@@ -368,7 +377,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                         defaultValue={it.comentarios}
                         onBlur={(e) => {
                           if (e.target.value !== it.comentarios)
-                            updateItem(it.id, { comentarios: e.target.value })
+                            guardar(it.id, { comentarios: e.target.value })
                         }}
                         rows={2}
                         spellCheck={false}
@@ -439,7 +448,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           defaultValue={it.tema}
                           onBlur={(e) => {
                             if (e.target.value.trim() && e.target.value !== it.tema)
-                              updateItem(it.id, { tema: e.target.value })
+                              guardar(it.id, { tema: e.target.value })
                           }}
                           rows={Math.max(1, Math.ceil(it.tema.length / 48))}
                           spellCheck={false}
@@ -465,7 +474,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           members={members}
                           selected={it.responsables}
                           paraTodos={it.para_todos}
-                          onChange={(next) => updateItem(it.id, next)}
+                          onChange={(next) => guardar(it.id, next)}
                         />
                       ) : (
                         <span className="text-slate-400">{responsablesLabel(it)}</span>
@@ -484,7 +493,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                         <select
                           value={it.estado}
                           onChange={(e) =>
-                            updateItem(it.id, { estado: e.target.value as MinuteEstado })
+                            guardar(it.id, { estado: e.target.value as MinuteEstado })
                           }
                           className="rounded border border-slate-700 bg-slate-800 px-1.5 py-1 text-[11px] text-slate-200"
                         >
@@ -506,7 +515,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                       {canManage ? (
                         <DatePicker
                           value={it.plazo}
-                          onChange={(v) => changePlazo(it, v)}
+                          onChange={(v) => guardarPlazo(it, v)}
                           placeholder="+ fecha"
                         />
                       ) : (
@@ -532,7 +541,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           defaultValue={it.comentarios}
                           onBlur={(e) => {
                             if (e.target.value !== it.comentarios)
-                              updateItem(it.id, { comentarios: e.target.value })
+                              guardar(it.id, { comentarios: e.target.value })
                           }}
                           rows={Math.max(1, Math.ceil((it.comentarios.length || 1) / 34))}
                           placeholder="Notas..."
@@ -743,6 +752,9 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
         open={cargaMasiva}
         onClose={() => setCargaMasiva(false)}
         members={members}
+        // allItems y no items: items esta filtrado por vista y busqueda, asi que un tema
+        // resuelto u oculto no se veria como repetido y entraria igual.
+        temasExistentes={allItems.map((i) => i.tema)}
         onConfirm={bulkAdd}
       />
     </div>

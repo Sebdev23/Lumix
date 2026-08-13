@@ -18,23 +18,39 @@ type Props = {
   open: boolean
   onClose: () => void
   members: Profile[]
+  /** Temas que ya estan en la hoja, para detectar los repetidos antes de escribir. */
+  temasExistentes: string[]
   onConfirm: (
     filas: FilaValidada[],
   ) => Promise<{ creados: number; fallidos: { linea: number; motivo: string }[] }>
 }
 
-export function CargaMasivaModal({ open, onClose, members, onConfirm }: Props) {
+export function CargaMasivaModal({ open, onClose, members, temasExistentes, onConfirm }: Props) {
   const [filas, setFilas] = useState<FilaValidada[] | null>(null)
+  // Lineas marcadas para importar. Los repetidos entran desmarcados: el caso tipico es
+  // corregir tres filas y volver a subir el archivo entero, y ahi lo que se quiere es que
+  // entren solo las nuevas. Se pueden marcar a mano si de verdad se quiere repetir el tema.
+  const [marcadas, setMarcadas] = useState<Set<number>>(new Set())
   const [nombreArchivo, setNombreArchivo] = useState('')
   const [importando, setImportando] = useState(false)
   const toast = useToast()
 
-  const validas = filas?.filter((f) => !f.errores.length) ?? []
+  const importables = filas?.filter((f) => !f.errores.length) ?? []
+  const validas = importables.filter((f) => marcadas.has(f.linea))
   const conError = filas?.filter((f) => f.errores.length) ?? []
-  const conAviso = validas.filter((f) => f.avisos.length)
+  const duplicadas = importables.filter((f) => f.duplicado)
+
+  const alternar = (linea: number) =>
+    setMarcadas((cur) => {
+      const n = new Set(cur)
+      if (n.has(linea)) n.delete(linea)
+      else n.add(linea)
+      return n
+    })
 
   const cerrar = () => {
     setFilas(null)
+    setMarcadas(new Set())
     setNombreArchivo('')
     onClose()
   }
@@ -43,13 +59,16 @@ export function CargaMasivaModal({ open, onClose, members, onConfirm }: Props) {
     setNombreArchivo(file.name)
     try {
       const texto = await file.text()
-      const resultado = validarFilas(texto, members)
+      const resultado = validarFilas(texto, members, temasExistentes)
       if (!resultado.length) {
         toast.error('La planilla no tiene filas con datos.')
         setFilas(null)
         return
       }
       setFilas(resultado)
+      setMarcadas(
+        new Set(resultado.filter((f) => !f.errores.length && !f.duplicado).map((f) => f.linea)),
+      )
     } catch (err) {
       console.error('Lectura de planilla fallida:', err)
       toast.error('No pude leer el archivo. Debe ser un CSV.')
@@ -112,13 +131,27 @@ export function CargaMasivaModal({ open, onClose, members, onConfirm }: Props) {
           <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
             <p className="text-xs text-slate-300 font-medium mb-2">3. Revisa antes de importar</p>
 
-            <div className="flex flex-wrap gap-3 text-[11px] mb-3">
-              <span className="text-emerald-400">{validas.length} se van a importar</span>
-              {conAviso.length > 0 && (
-                <span className="text-amber-400">{conAviso.length} con aviso</span>
+            <div className="flex flex-wrap items-center gap-3 text-[11px] mb-3">
+              <span className="text-emerald-400">{validas.length} marcadas para importar</span>
+              {duplicadas.length > 0 && (
+                <span className="text-amber-400">{duplicadas.length} ya existen, desmarcadas</span>
               )}
               {conError.length > 0 && (
                 <span className="text-red-400">{conError.length} con error, se omiten</span>
+              )}
+              {importables.length > 0 && (
+                <button
+                  onClick={() =>
+                    setMarcadas(
+                      validas.length === importables.length
+                        ? new Set()
+                        : new Set(importables.map((f) => f.linea)),
+                    )
+                  }
+                  className="ml-auto text-indigo-400 hover:text-indigo-300 underline"
+                >
+                  {validas.length === importables.length ? 'Desmarcar todas' : 'Marcar todas'}
+                </button>
               )}
             </div>
 
@@ -126,6 +159,7 @@ export function CargaMasivaModal({ open, onClose, members, onConfirm }: Props) {
               <table className="w-full text-[11px]">
                 <thead className="bg-slate-800 sticky top-0">
                   <tr className="text-slate-400">
+                    <th className="px-2 py-1.5 text-left font-medium w-6"></th>
                     <th className="px-2 py-1.5 text-left font-medium">#</th>
                     <th className="px-2 py-1.5 text-left font-medium">Tema</th>
                     <th className="px-2 py-1.5 text-left font-medium">Responsables</th>
@@ -139,8 +173,21 @@ export function CargaMasivaModal({ open, onClose, members, onConfirm }: Props) {
                     return (
                       <tr
                         key={f.linea}
-                        className={`border-t border-slate-700/60 ${malo ? 'bg-red-500/5' : ''}`}
+                        className={`border-t border-slate-700/60 ${
+                          malo ? 'bg-red-500/5' : f.duplicado ? 'bg-amber-500/5' : ''
+                        }`}
                       >
+                        <td className="px-2 py-1.5 align-top">
+                          {!malo && (
+                            <input
+                              type="checkbox"
+                              checked={marcadas.has(f.linea)}
+                              onChange={() => alternar(f.linea)}
+                              className="accent-indigo-500 mt-0.5"
+                              aria-label={`Importar la linea ${f.linea}`}
+                            />
+                          )}
+                        </td>
                         <td className="px-2 py-1.5 text-slate-500 align-top">{f.linea}</td>
                         <td className="px-2 py-1.5 align-top">
                           <span className={malo ? 'text-slate-500 line-through' : 'text-slate-200'}>

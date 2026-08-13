@@ -31,6 +31,8 @@ export interface FilaValidada {
   paraTodos: boolean
   errores: string[] // bloquean la fila
   avisos: string[] // se importa igual, pero conviene mirarlo
+  /** Ya hay un tema con ese nombre en la hoja. No bloquea: se omite salvo que se marque. */
+  duplicado: boolean
 }
 
 const ESTADOS: Record<string, MinuteEstado> = {
@@ -121,14 +123,26 @@ export function plantillaCSV(): string {
 }
 
 /**
- * Valida la planilla completa contra los miembros del equipo.
+ * Valida la planilla completa contra los miembros del equipo y contra lo que ya hay.
  *
  * Un nombre que no calza NO bloquea la fila: el modelo de la minuta ya tiene
  * responsables_text justamente para externos y para "Todos". Queda como aviso, no como
  * error, y el tema se importa con ese nombre en texto libre.
+ *
+ * temasExistentes son los temas que YA estan en la hoja. El caso real es corregir tres
+ * filas malas y volver a subir el archivo completo: sin esto entran los veinte de nuevo y
+ * quedan treinta y siete. Los repetidos se marcan y quedan fuera salvo que se pidan
+ * explicitamente; no se bloquean, porque repetir un tema puede ser legitimo.
  */
-export function validarFilas(texto: string, miembros: Profile[]): FilaValidada[] {
+export function validarFilas(
+  texto: string,
+  miembros: Profile[],
+  temasExistentes: string[] = [],
+): FilaValidada[] {
   const porNombre = new Map(miembros.map((m) => [normalizar(m.full_name), m]))
+  const yaEstan = new Set(temasExistentes.map(normalizar))
+  // Tambien se detecta el repetido DENTRO del mismo archivo, no solo contra la hoja.
+  const vistosEnElArchivo = new Set<string>()
 
   return parseCSV(texto).map((row, i) => {
     const errores: string[] = []
@@ -168,6 +182,16 @@ export function validarFilas(texto: string, miembros: Profile[]): FilaValidada[]
     if (sinCalzar.length)
       avisos.push(`No estan en el equipo: ${sinCalzar.join(', ')}. Quedan como texto, sin asignar.`)
 
+    const temaNorm = normalizar(tema)
+    const duplicado = !!tema && (yaEstan.has(temaNorm) || vistosEnElArchivo.has(temaNorm))
+    if (duplicado)
+      avisos.push(
+        vistosEnElArchivo.has(temaNorm)
+          ? 'Repetido dentro de esta misma planilla.'
+          : 'Ya existe un tema con este nombre en la hoja.',
+      )
+    if (tema) vistosEnElArchivo.add(temaNorm)
+
     const paraTodosRaw = normalizar(row['Para todos'] ?? '')
     const paraTodos = ['si', 'sí', 'x', 'true', '1', 'verdadero'].includes(paraTodosRaw)
     if (paraTodos && responsables.length)
@@ -184,6 +208,7 @@ export function validarFilas(texto: string, miembros: Profile[]): FilaValidada[]
       paraTodos,
       errores,
       avisos,
+      duplicado,
     }
   })
 }
