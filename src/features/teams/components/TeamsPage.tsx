@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Card } from '@shared/components/ui/Card'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
@@ -9,6 +9,7 @@ import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { CAPABILITIES, ROLE_DEFAULTS } from '@core/auth/capabilities'
 import { useTeams, useTeamMembers } from '@features/teams/hooks/useTeams'
+import { teamsService } from '@infrastructure/supabase/teams.service'
 
 const MEMBER_ROLES = ['jefatura', 'colaborador', 'invitado']
 
@@ -30,6 +31,9 @@ export function TeamsPage() {
     updatePermissions,
   } = useTeamMembers(selectedTeam ?? '')
   const [inviteEmail, setInviteEmail] = useState('')
+  // Umbral del equipo seleccionado. Se guarda al instante y se refleja al tiro; si la base
+  // lo rechaza se revierte, para que el control nunca muestre algo que no quedo guardado.
+  const [umbral, setUmbral] = useState(2)
   const [error, setError] = useState('')
 
   // Puede gestionar el equipo seleccionado el admin global o la jefatura de ESE equipo.
@@ -38,6 +42,33 @@ export function TeamsPage() {
   const myMembership = members.find((m) => m.user_id === profile?.id && m.team_id === selectedTeam)
   const canManageThis =
     isGlobalAdmin || myMembership?.role === 'jefatura' || myMembership?.role === 'admin'
+
+  // Al abrir un equipo se trae su umbral. La lista de equipos del hook no lo incluye, y
+  // pedirlo aca es una consulta chica que solo ocurre al desplegar el panel.
+  useEffect(() => {
+    if (!selectedTeam) return
+    let cancelado = false
+    teamsService
+      .getById(selectedTeam)
+      .then((t) => {
+        if (!cancelado) setUmbral(t?.umbral_sobrecarga ?? 2)
+      })
+      .catch(() => {})
+    return () => {
+      cancelado = true
+    }
+  }, [selectedTeam])
+
+  const cambiarUmbral = async (teamId: string, valor: number) => {
+    const anterior = umbral
+    setUmbral(valor)
+    try {
+      await teamsService.setUmbralSobrecarga(teamId, valor)
+    } catch {
+      setUmbral(anterior)
+      setError('No se pudo guardar el umbral')
+    }
+  }
 
   const handleCreate = async () => {
     if (!newName.trim()) return
@@ -94,6 +125,35 @@ export function TeamsPage() {
 
               {selectedTeam === team.id && (
                 <div className="mt-4 pt-3 border-t border-slate-700">
+                  {/* Ajustes del equipo. Solo quien lo administra: la RLS lo exige igual,
+                      pero mostrar un control que va a ser rechazado es peor que esconderlo. */}
+                  {canManageThis && (
+                    <div className="mb-4 pb-3 border-b border-slate-700/60">
+                      <h4 className="text-xs font-medium text-slate-400 mb-2">Ajustes</h4>
+                      <label className="flex flex-wrap items-center gap-2 text-xs text-slate-300">
+                        <span>Avisar cuando alguien ya tenga</span>
+                        <select
+                          value={umbral}
+                          onChange={(e) => cambiarUmbral(team.id, Number(e.target.value))}
+                          className="rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        >
+                          <option value={0}>no avisar</option>
+                          {[1, 2, 3, 4, 5, 6, 8, 10].map((n) => (
+                            <option key={n} value={n}>
+                              {n}
+                            </option>
+                          ))}
+                        </select>
+                        <span>actividades para el mismo día</span>
+                      </label>
+                      <p className="text-[11px] text-slate-500 mt-1.5 leading-snug">
+                        {umbral === 0
+                          ? 'Lumix no avisará por carga en un mismo día.'
+                          : `Al asignar la actividad número ${umbral + 1} de un día a la misma persona, Lumix se detiene y pregunta qué hacer.`}
+                      </p>
+                    </div>
+                  )}
+
                   <h4 className="text-xs font-medium text-slate-400 mb-3">Miembros</h4>
 
                   {membersLoading ? (

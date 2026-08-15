@@ -3,6 +3,9 @@ import { supabase } from '@infrastructure/supabase/client'
 interface Team {
   id: string
   name: string
+  /** Cuantas actividades puede tener alguien para un mismo dia antes de que Lumix avise.
+   *  0 = sin aviso. Lo decide la jefatura del equipo (migracion 036). */
+  umbral_sobrecarga?: number
   description: string | null
   created_by: string
   created_at: string
@@ -55,6 +58,15 @@ export const teamsService = {
       .neq('role', 'admin')
     if (error) throw error
     return data as unknown as (TeamMember & { profile: { full_name: string; email: string } })[]
+  },
+
+  /** Cambia el umbral de sobrecarga del equipo. La RLS solo lo permite a admin/jefatura. */
+  async setUmbralSobrecarga(teamId: string, umbral: number): Promise<void> {
+    const { error } = await supabase
+      .from('teams')
+      .update({ umbral_sobrecarga: umbral })
+      .eq('id', teamId)
+    if (error) throw error
   },
 
   async create(name: string, description: string, userId: string): Promise<Team> {

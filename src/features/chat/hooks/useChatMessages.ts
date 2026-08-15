@@ -13,6 +13,7 @@ import {
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
+import { teamsService } from '@infrastructure/supabase/teams.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { minutesService } from '@infrastructure/supabase/minutes.service'
 import { aiDecisionsService } from '@infrastructure/supabase/ai-decisions.service'
@@ -352,6 +353,9 @@ export function useChatMessages() {
   const { user, profile } = useAuth()
   const channelRef = useRef<ReturnType<typeof supabase.channel> | null>(null)
   const membersRef = useRef<Member[]>([])
+  // Umbral de sobrecarga del equipo (migracion 036). Se lee una vez: cambia muy de vez en
+  // cuando y consultarlo en cada creacion agregaria un viaje a algo que ya hace varios.
+  const umbralRef = useRef<number>(2)
   const teamId = profile?.team_id ?? ''
   // Capacidades segun el rol del EQUIPO ACTIVO (una persona puede ser jefatura en un equipo
   // y colaboradora en otro). isAdmin = admin global (ve toda la conversacion del equipo).
@@ -368,11 +372,13 @@ export function useChatMessages() {
     let cancelled = false
 
     async function load() {
-      const [data, members] = await Promise.all([
+      const [data, members, equipo] = await Promise.all([
         messagesService.getByTeam(teamId, 50),
         profilesService.getByTeam(teamId),
+        teamsService.getById(teamId),
       ])
       if (cancelled) return
+      umbralRef.current = equipo?.umbral_sobrecarga ?? 2
       membersRef.current = members
       // Cada usuario ve SOLO su propia conversacion (sus mensajes + las respuestas de
       // Lumix a el, que se guardan con su sender_id). El admin ve todo.
@@ -1668,7 +1674,9 @@ export function useChatMessages() {
             a.status !== 'completado' &&
             a.due_date.startsWith(dueDateStr),
         )
-        if (sameDay.length >= 2) {
+        // 0 = el equipo desactivo el aviso.
+        const umbral = umbralRef.current
+        if (umbral > 0 && sameDay.length >= umbral) {
           const whoHas = responsibleId === senderId ? 'Ya tienes' : `${responsibleName} ya tiene`
           const pending: PendingOverload = {
             title,
