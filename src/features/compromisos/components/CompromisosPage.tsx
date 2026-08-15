@@ -264,6 +264,17 @@ export function CompromisosPage() {
                           </p>
                           <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px]">
                             <span className="text-slate-500">{formatDateLocal(c.due_date)}</span>
+                            {/* Cuantas veces se movio la fecha (migracion 035, trigger en la
+                                base). Un compromiso movido varias veces no es un atraso mas:
+                                es señal de que hay otra conversacion pendiente. */}
+                            {(c.plazo_change_count ?? 0) > 0 && (
+                              <span
+                                className="text-amber-400"
+                                title="Veces que se movio la fecha de entrega desde que se creo"
+                              >
+                                movida {c.plazo_change_count}x
+                              </span>
+                            )}
                             {hecha && c.aTiempo && (
                               <span className="text-emerald-500">a tiempo</span>
                             )}
