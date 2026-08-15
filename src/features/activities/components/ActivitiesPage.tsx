@@ -55,6 +55,7 @@ export function ActivitiesPage() {
     filterStatus,
     setFilterStatus,
     changeStatus,
+    deleteActivity,
     counts,
     allActivities,
     teamNames,
@@ -79,7 +80,8 @@ export function ActivitiesPage() {
   const [showBlockModal, setShowBlockModal] = useState(false)
   const [editingPriority, setEditingPriority] = useState(false)
   const { profile, user } = useAuth()
-  const { canAssignOthers } = useCapabilities()
+  const { canAssignOthers, canDeleteActivities } = useCapabilities()
+  const [confirmDelete, setConfirmDelete] = useState<Activity | null>(null)
   const toast = useToast()
   const location = useLocation()
   const navigate = useNavigate()
@@ -648,6 +650,19 @@ export function ActivitiesPage() {
                               ▶
                             </Button>
                           )}
+                          {/* Eliminar solo aparece con permiso, y siempre pide confirmacion:
+                              es la unica accion de esta pantalla que no se puede revertir. */}
+                          {canDeleteActivities && (
+                            <Button
+                              size="sm"
+                              variant="ghost"
+                              title="Eliminar actividad"
+                              onClick={() => setConfirmDelete(activity)}
+                              className="text-slate-500 hover:text-red-400"
+                            >
+                              🗑
+                            </Button>
+                          )}
                         </div>
                       </td>
                     </tr>
@@ -658,6 +673,43 @@ export function ActivitiesPage() {
           </div>
         )}
       </div>
+
+      {/* Confirmacion de borrado. Se nombra la actividad y se advierte lo que arrastra:
+          borrar es lo unico irreversible de esta pantalla. */}
+      <Modal
+        open={!!confirmDelete}
+        onClose={() => setConfirmDelete(null)}
+        title="Eliminar actividad"
+      >
+        {confirmDelete && (
+          <div className="space-y-4">
+            <p className="text-sm text-slate-300">
+              ¿Seguro que quieres eliminar{' '}
+              <span className="text-slate-100">"{confirmDelete.title}"</span>?
+            </p>
+            <p className="text-xs text-slate-500 leading-snug">
+              No se puede deshacer. Si estaba vinculada a un tema de la minuta, el tema queda sin
+              ese vínculo. Las actividades delegadas a partir de esta no se borran.
+            </p>
+            <div className="flex justify-end gap-2">
+              <Button size="sm" variant="ghost" onClick={() => setConfirmDelete(null)}>
+                Cancelar
+              </Button>
+              <Button
+                size="sm"
+                variant="danger"
+                onClick={() => {
+                  const id = confirmDelete.id
+                  setConfirmDelete(null)
+                  deleteActivity(id)
+                }}
+              >
+                Eliminar
+              </Button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Detail modal */}
       <Modal

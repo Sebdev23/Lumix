@@ -131,6 +131,23 @@ export function useActivities() {
     countBase = countBase.filter(matches)
   }
 
+  /**
+   * Elimina una actividad. La RLS decide quien puede (migracion 038) y un trigger limpia el
+   * vinculo con la minuta y las notificaciones. Se saca de la lista al tiro para que la
+   * pantalla no muestre algo que ya no existe.
+   */
+  const deleteActivity = async (id: string) => {
+    const anterior = activities
+    setActivities((cur) => cur.filter((a) => a.id !== id))
+    try {
+      await activitiesService.remove(id)
+      toast.success('Actividad eliminada')
+    } catch {
+      setActivities(anterior)
+      toast.error('No se pudo eliminar')
+    }
+  }
+
   const changeStatus = async (id: string, newStatus: ActivityStatus) => {
     try {
       await activitiesService.update(id, { status: newStatus })
@@ -202,6 +219,7 @@ export function useActivities() {
     filterStatus,
     setFilterStatus,
     changeStatus,
+    deleteActivity,
     counts,
     filterTeam,
     setFilterTeam,

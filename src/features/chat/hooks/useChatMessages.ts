@@ -44,8 +44,24 @@ const isSavedId = (id?: string | null): boolean => !!id && UUID_RE.test(id)
 const ACUSE_RE =
   /^(?:(?:ok|oka?y|dale|listo|gracias|muchas|perfecto|bien|buenisimo|genial|ya|bueno|de acuerdo|entendido|👍|✅)[\s,.!]*)+$/i
 
+// "Deshaz eso". Se exige que sea una frase corta y dedicada: "deshaz" dentro de una oracion
+// larga casi siempre es otra cosa ("hay que deshacer el nudo del proceso").
+const DESHACER_RE =
+  /^(deshaz|deshacer|deshacelo|deshazlo|b[oó]rra(la|lo)|elimina(la|lo)?|cancela(la|lo)?|no era (eso|esa|ese)|me equivoqu[eé]|equivocado|mal)(\s+(eso|esa|ese|esto|la|lo))?[\s.!]*$/i
+
+// Cuando un mensaje habla de "lo ultimo" sin nombrarlo.
+//
+// El primer intento fue detectar pronombres con una expresion regular y fallo en los dos
+// sentidos: no pillaba encliticos tras consonante ("ponle") ni frases sin pronombre ("ya
+// esta lista"). La señal buena es otra y es mas simple: es CORTO, pide un cambio, y no
+// nombra ninguna actividad. Si nombra alguna, se va al flujo normal.
+const LARGO_MAXIMO_ANAFORA = 70
+
+// Cuanto se espera antes de avisar de la carga acumulada. Ver registrarSobrecarga.
+const ESPERA_RESUMEN_SOBRECARGA = 25_000
+
 const UPDATE_VERBS =
-  /(\blist[oa]s?\b|complet|termin|finaliz|\bhech[oa]\b|mueve|p[aá]sala|p[aá]sale|reprogram|posterg|adelant|reasign|as[ií]gnal|bloque|desbloque|en proceso|falta info|esperando aprob|prioridad|cambia)/i
+  /(\blist[oa]s?\b|complet|termin|finaliz|\bhech[oa]\b|mu[eé]ve|p[aá]sa|reprogram|posterg|adelant|reasign|as[ií]gna|bloque|desbloque|en proceso|falta info|esperando aprob|prioridad|c[aá]mbi|pon[lg]|deja(la|lo)|atrasa)/i
 
 // Primer filtro para el popout: si el texto MENCIONA la palabra "error" o "ingesta",
 // en modo Auto siempre preguntamos que tipo es (actividad / error / ingesta). Solo se salta
@@ -130,6 +146,25 @@ function pickActivityCandidates(text: string, activities: Activity[]): Activity[
     .sort((x, y) => y.score - x.score)
   const withScore = scored.filter((x) => x.score > 0)
   return (withScore.length ? withScore : scored).slice(0, 6).map((x) => x.a)
+}
+
+/**
+ * Actividades que el texto nombra de verdad.
+ *
+ * Distinto de pickActivityCandidates, que siempre devuelve algo -sirve para ofrecer opciones
+ * cuando hay que preguntar-. Aca hace falta lo contrario: saber si el mensaje NO nombra
+ * ninguna, que es la señal de que habla de la ultima. Por eso solo cuentan las palabras
+ * largas: "la" o "para" aparecen en todos los titulos y no nombran nada.
+ */
+function actividadesMencionadas(text: string, activities: Activity[]): Activity[] {
+  const tokens = normalizeName(text)
+    .split(/\s+/)
+    .filter((t) => t.length > 3)
+  if (!tokens.length) return []
+  return activities.filter((a) => {
+    const titulo = normalizeName(a.title)
+    return tokens.some((t) => titulo.includes(t))
+  })
 }
 
 const NAME_STOPWORDS = new Set([
@@ -304,6 +339,20 @@ export interface PendingOverload {
   decisionId?: string | null
 }
 
+/**
+ * Varias actividades creadas para un dia que ya venia cargado, agrupadas en un solo aviso.
+ *
+ * Reemplaza a PendingOverload, que avisaba de a una y ANTES de crear. Cinco mensajes seguidos
+ * producian cinco interrupciones, y si no se contestaba, el trabajo no se registraba.
+ */
+export interface PendingLoteSobrecarga {
+  responsibleId: string
+  responsibleName: string
+  dia: string
+  yaTenia: number
+  items: { id: string; title: string }[]
+}
+
 export interface PendingUpdate {
   changes: {
     status: string | null
@@ -356,6 +405,24 @@ export function useChatMessages() {
   // Umbral de sobrecarga del equipo (migracion 036). Se lee una vez: cambia muy de vez en
   // cuando y consultarlo en cada creacion agregaria un viaje a algo que ya hace varios.
   const umbralRef = useRef<number>(2)
+  // EL HILO. La ultima actividad de la que se hablo en esta sesion -creada o modificada-.
+  // Es el sujeto implicito de "muevela al viernes" o "pasasela a Manuel".
+  const ultimaActividadRef = useRef<{ id: string; title: string } | null>(null)
+  // Lo ultimo deshacible. Solo se guarda lo que Lumix hizo en ESTA sesion: "deshaz eso" no
+  // puede alcanzar algo de ayer ni de otra persona.
+  const ultimaCreacionRef = useRef<{ id: string; title: string } | null>(null)
+  // Actividades creadas hoy sobre un dia que ya venia cargado, esperando avisarse juntas.
+  const sobrecargaBufferRef = useRef<
+    {
+      activityId: string
+      title: string
+      dueDate: string
+      responsibleId: string
+      responsibleName: string
+      yaTenia: number
+    }[]
+  >([])
+  const sobrecargaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
   const teamId = profile?.team_id ?? ''
   // Capacidades segun el rol del EQUIPO ACTIVO (una persona puede ser jefatura en un equipo
   // y colaboradora en otro). isAdmin = admin global (ve toda la conversacion del equipo).
@@ -415,6 +482,12 @@ export function useChatMessages() {
 
     return () => {
       cancelled = true
+      // Si quedaba un aviso de carga esperando, se emite ahora: si no, se perderia al
+      // cambiar de pagina y nadie se enteraria de la acumulacion.
+      if (sobrecargaTimerRef.current) {
+        clearTimeout(sobrecargaTimerRef.current)
+        void emitirResumenSobrecarga()
+      }
     }
   }, [user, teamId])
 
@@ -593,6 +666,133 @@ export function useChatMessages() {
           }),
     }
   }
+
+  /**
+   * Deshace lo ultimo que Lumix creo en esta sesion.
+   *
+   * La base decide de verdad (funcion deshacer_actividad, migracion 037): tiene que ser tuya,
+   * reciente, sin empezar y sin delegadas. Aca solo se traduce el motivo del rechazo a una
+   * frase, porque "no se pudo" no le sirve a nadie.
+   */
+  async function deshacerUltima() {
+    const ultima = ultimaCreacionRef.current
+    if (!ultima) {
+      await aiSay('No tengo nada reciente que deshacer.')
+      return
+    }
+
+    let resultado: string
+    try {
+      resultado = await activitiesService.deshacer(ultima.id)
+    } catch (err) {
+      console.error('Deshacer fallo:', err)
+      await aiSay('No pude deshacerlo. Intentalo de nuevo.')
+      return
+    }
+
+    const motivos: Record<string, string> = {
+      no_existe: `"${ultima.title}" ya no existe.`,
+      no_es_tuya: `No puedo deshacer "${ultima.title}": la creo otra persona.`,
+      muy_antigua: `"${ultima.title}" se creo hace mas de 30 minutos. Ciérrala o editala desde Actividades.`,
+      ya_empezada: `"${ultima.title}" ya esta en curso, asi que no la borro. Si igual sobra, cambiala desde Actividades.`,
+      tiene_delegadas: `"${ultima.title}" tiene actividades delegadas a otras personas. Borrarla las dejaria huerfanas.`,
+    }
+
+    if (resultado === 'ok') {
+      ultimaCreacionRef.current = null
+      if (ultimaActividadRef.current?.id === ultima.id) ultimaActividadRef.current = null
+      await aiSay(`Listo, deshice "${ultima.title}". No quedo registrada.`)
+    } else {
+      await aiSay(motivos[resultado] ?? `No pude deshacer "${ultima.title}".`)
+    }
+  }
+
+  /**
+   * Anota una creacion sobre un dia cargado y reprograma el aviso.
+   *
+   * La espera es larga a proposito. Midiendo un caso real, la gente escribe una tarea cada
+   * 10 a 23 segundos: con una ventana corta se avisaria entre mensaje y mensaje y volveriamos
+   * a las interrupciones encadenadas. Como la actividad YA quedo creada, esperar no bloquea
+   * nada: solo retrasa una sugerencia.
+   */
+  function registrarSobrecarga(e: {
+    activityId: string
+    title: string
+    dueDate: string
+    responsibleId: string
+    responsibleName: string
+    yaTenia: number
+  }) {
+    sobrecargaBufferRef.current.push(e)
+    if (sobrecargaTimerRef.current) clearTimeout(sobrecargaTimerRef.current)
+    sobrecargaTimerRef.current = setTimeout(() => {
+      void emitirResumenSobrecarga()
+    }, ESPERA_RESUMEN_SOBRECARGA)
+  }
+
+  /** Un aviso por persona y dia, con todo lo que se acumulo en ese rato. */
+  async function emitirResumenSobrecarga() {
+    const buffer = sobrecargaBufferRef.current
+    sobrecargaBufferRef.current = []
+    sobrecargaTimerRef.current = null
+    if (!buffer.length || !teamId) return
+
+    const grupos = new Map<string, typeof buffer>()
+    for (const e of buffer) {
+      const clave = `${e.responsibleId}|${e.dueDate.split('T')[0]}`
+      grupos.set(clave, [...(grupos.get(clave) ?? []), e])
+    }
+
+    for (const items of grupos.values()) {
+      const primero = items[0]
+      const quien =
+        primero.responsibleId === user?.id ? 'Tenias' : `${primero.responsibleName} tenia`
+      const cuantas = items.length === 1 ? 'una actividad mas' : `${items.length} actividades mas`
+      const pending: PendingLoteSobrecarga = {
+        responsibleId: primero.responsibleId,
+        responsibleName: primero.responsibleName,
+        dia: primero.dueDate,
+        yaTenia: primero.yaTenia,
+        items: items.map((i) => ({ id: i.activityId, title: i.title })),
+      }
+      await appendAndSave({
+        id: `ai-lote-${Date.now()}`,
+        content: `⚠️ ${quien} ${primero.yaTenia} actividades para el ${formatDateLocal(primero.dueDate)} y ${items.length === 1 ? 'se sumo' : 'se sumaron'} ${cuantas}. Ya ${items.length === 1 ? 'quedo creada' : 'quedaron creadas'}; toca si quieres moverlas.`,
+        sender_id: 'ai',
+        category: null,
+        created_at: new Date().toISOString(),
+        team_id: teamId,
+        sender: { full_name: 'Lumix', avatar_url: null },
+        metadata: { type: 'overload_lote', pending },
+      })
+    }
+  }
+
+  /** Mueve el lote N dias habiles. Devuelve la fecha nueva para poder confirmarla. */
+  const moverLoteSobrecarga = async (
+    pending: PendingLoteSobrecarga,
+    diasHabiles: number,
+    confirmMessageId?: string,
+  ): Promise<string | null> => {
+    const nueva = addBusinessDays(toLocalDate(pending.dia), diasHabiles).toISOString()
+    try {
+      for (const it of pending.items) {
+        await activitiesService.update(it.id, { due_date: nueva })
+      }
+    } catch (err) {
+      console.error('No pude mover el lote:', err)
+      await aiSay('No pude mover las actividades. Intentalo desde el listado.')
+      return null
+    }
+    if (confirmMessageId) {
+      await resolveInteractive(confirmMessageId, `Movidas al ${formatDateLocal(nueva)}`)
+    }
+    return formatDateLocal(nueva)
+  }
+
+  /** Se decidio dejarlas donde estan. Queda registrado para que el aviso no reaparezca. */
+  const dejarLoteSobrecarga = (confirmMessageId: string) =>
+    resolveInteractive(confirmMessageId, 'Se dejaron en esa fecha')
 
   // Ultimos turnos del hilo, para que el clasificador entienda los mensajes que solo tienen
   // sentido con lo anterior. Sin esto, "y para la proxima" despues de una pregunta se lee
@@ -799,6 +999,10 @@ export function useChatMessages() {
     // tenia 52 decisiones y ninguna ligada a su actividad.
     void aiDecisionsService.linkEntity(opts.decisionId ?? null, 'activities', activity.id)
 
+    // Pasa a ser el sujeto del hilo y lo ultimo deshacible.
+    ultimaActividadRef.current = { id: activity.id, title: cleanTitle }
+    ultimaCreacionRef.current = { id: activity.id, title: cleanTitle }
+
     const assignedToOther = opts.responsibleId !== opts.senderId
 
     if (assignedToOther) {
@@ -969,6 +1173,24 @@ export function useChatMessages() {
     let open: Activity[]
     let upd: Awaited<ReturnType<typeof resolveUpdate>> | null = null
 
+    // EL SUJETO IMPLICITO. Si el mensaje habla de "la", "esa", "ponle", sin nombrar nada, se
+    // refiere a lo ultimo de lo que hablamos. Se resuelve igual que responder a un mensaje:
+    // modo dirigido, sin lista y sin adivinanza.
+    //
+    // Se exige que NO nombre otra actividad: "mueve el reporte al viernes" nombra una y tiene
+    // que pasar por el flujo normal, aunque tambien traiga un "el". Ante la duda, flujo
+    // normal, que en el peor caso pregunta.
+    const ultima = ultimaActividadRef.current
+    if (ultima && content.length <= LARGO_MAXIMO_ANAFORA) {
+      const abiertas = (await activitiesService.getByTeam(teamId)).filter(
+        (a) => a.status !== 'completado',
+      )
+      const mencionadas = actividadesMencionadas(content, abiertas)
+      const soloLaUltima =
+        mencionadas.length === 0 || (mencionadas.length === 1 && mencionadas[0].id === ultima.id)
+      if (soloLaUltima && (await applyTargetedUpdate(ultima.id, content))) return true
+    }
+
     try {
       const memList = await ensureMembers()
       const acts = await activitiesService.getByTeam(teamId)
@@ -1134,6 +1356,11 @@ export function useChatMessages() {
       void aiDecisionsService.markCorrectionByEntity('activities', activity.id, {
         source: 'edicion_manual',
       })
+    }
+
+    ultimaActividadRef.current = {
+      id: updated.id,
+      title: updated.title.replace(/^\[Ingesta\]\s*/, ''),
     }
 
     if (updates.status === 'bloqueado') {
@@ -1663,7 +1890,12 @@ export function useChatMessages() {
       }
     }
 
-    // Chequeo de sobrecarga antes de crear (solo actividad normal, no ingesta)
+    // Chequeo de carga del dia (solo actividad normal, no ingesta). No bloquea: anota.
+    let sobrecargaDetectada: {
+      yaTenia: number
+      responsibleId: string
+      responsibleName: string
+    } | null = null
     if (actCategory === 'actividad' && teamId) {
       try {
         const userActivities = await activitiesService.getByTeam(teamId)
@@ -1676,46 +1908,22 @@ export function useChatMessages() {
         )
         // 0 = el equipo desactivo el aviso.
         const umbral = umbralRef.current
+        // Ya NO se detiene la creacion. Antes la alerta bloqueaba: si nadie decidia, la
+        // actividad no existia. Paso de verdad -alguien escribio la tarea, cerro la ventana y
+        // el trabajo no quedo registrado en ninguna parte-.
+        //
+        // Ahora se crea igual y la carga se avisa DESPUES, agrupada. Nadie pierde trabajo por
+        // no contestar una ventana, y cinco mensajes seguidos ya no producen cinco
+        // interrupciones encadenadas.
         if (umbral > 0 && sameDay.length >= umbral) {
-          const whoHas = responsibleId === senderId ? 'Ya tienes' : `${responsibleName} ya tiene`
-          const pending: PendingOverload = {
-            title,
-            description: content,
-            priority,
-            dueDate,
-            category: actCategory,
-            responsibleId,
-            responsibleName,
-            senderId,
-            sameDayCount: sameDay.length,
-            sourceMessageId: opts.sourceMessageId,
-            decisionId: opts.decisionId,
-          }
-          await appendAndSave({
-            id: `ai-warn-${Date.now()}`,
-            content: `⚠️ ${whoHas} ${sameDay.length} actividades para el ${formatDateLocal(dueDate)}. Elige que hacer con "${title}".`,
-            sender_id: 'ai',
-            category: null,
-            created_at: new Date().toISOString(),
-            team_id: teamId,
-            sender: { full_name: 'Lumix', avatar_url: null },
-            metadata: { type: 'overload', pending },
-          })
-          if (opts.sourceMessageId) {
-            setMessages((prev) =>
-              prev.map((m) =>
-                m.id === opts.sourceMessageId ? { ...m, category: 'actividad' } : m,
-              ),
-            )
-          }
-          return
+          sobrecargaDetectada = { yaTenia: sameDay.length, responsibleId, responsibleName }
         }
       } catch (err) {
         console.error('Overload check failed:', err)
       }
     }
 
-    await persistActivity({
+    const creada = await persistActivity({
       title,
       description: content,
       priority,
@@ -1727,6 +1935,15 @@ export function useChatMessages() {
       sourceMessageId: opts.sourceMessageId,
       decisionId: opts.decisionId,
     })
+
+    if (sobrecargaDetectada && creada) {
+      registrarSobrecarga({
+        activityId: creada.id,
+        title,
+        dueDate,
+        ...sobrecargaDetectada,
+      })
+    }
 
     if (opts.sourceMessageId) {
       setMessages((prev) =>
@@ -1791,6 +2008,14 @@ export function useChatMessages() {
     const content = message.content.trim()
 
     try {
+      // DESHACER. Va primero: si no, "borrala" se clasificaria como una actividad nueva
+      // titulada "borrala", que es exactamente el tipo de basura que esto viene a limpiar.
+      if (DESHACER_RE.test(content)) {
+        await deshacerUltima()
+        setAiProcessing(false)
+        return
+      }
+
       // RESPUESTA A UN MENSAJE: si se sabe de que actividad habla el mensaje citado, no hay
       // nada que adivinar. Se salta la lista, el targetIndex y el popout de "¿a cual te
       // refieres?": la IA solo tiene que leer que cambio se pide. Ver migracion 032.
@@ -1991,10 +2216,22 @@ export function useChatMessages() {
       // el tipo con el selector del chat, forcedType != 'auto' y no entra aca (es explicito).
       const mentionsError = MENTIONS_ERROR.test(content)
       const mentionsIngesta = MENTIONS_INGESTA.test(content)
-      if (isAutoMode && (mentionsError || mentionsIngesta)) {
+
+      // La IA devuelve cuanta confianza tiene y el prompt le pide bajar de 0.6 cuando duda.
+      // Ese dato se guardaba para telemetria y NO cambiaba nada: en 8 de 67 clasificaciones
+      // el modelo dijo "no estoy seguro" y la actividad se creo igual, a ciegas.
+      //
+      // Ahora, si duda, se pregunta. Es el mismo popout que ya existe para cuando el texto
+      // menciona "error" o "ingesta"; solo cambia el motivo por el que se abre.
+      const dudaDelModelo = typeof result.confidence === 'number' && result.confidence < 0.6
+
+      if (isAutoMode && (mentionsError || mentionsIngesta || dudaDelModelo)) {
         const options: ('error' | 'ingesta')[] = []
         if (mentionsError) options.push('error')
         if (mentionsIngesta) options.push('ingesta')
+        // Si se abre por duda y no hay pistas en el texto, se ofrecen las dos alternativas:
+        // el modelo no supo, asi que acotar las opciones seria inventar una certeza que no hay.
+        if (!options.length) options.push('error', 'ingesta')
         const pending: PendingCategory = {
           content,
           title,
@@ -2011,9 +2248,13 @@ export function useChatMessages() {
         const optLabel = options
           .map((o) => (o === 'ingesta' ? 'una ingesta de datos' : 'un error'))
           .join(' o ')
+        // Se dice POR QUE se pregunta. "No estoy seguro" es informacion util: le avisa a la
+        // persona que conviene mirar, en vez de parecer una pregunta caprichosa.
+        const preambulo =
+          dudaDelModelo && !mentionsError && !mentionsIngesta ? 'No estoy seguro. ' : ''
         await appendAndSave({
           id: `ai-catconfirm-${Date.now()}`,
-          content: `¿"${title}" es una actividad o ${optLabel}?`,
+          content: `${preambulo}¿"${title}" es una actividad o ${optLabel}?`,
           sender_id: 'ai',
           category: null,
           created_at: new Date().toISOString(),
@@ -2079,6 +2320,8 @@ export function useChatMessages() {
     bulkCreate,
     createResolvedActivity,
     createOverloadActivity,
+    moverLoteSobrecarga,
+    dejarLoteSobrecarga,
     // Para que "Cancelar (no crear)" deje registrada la decision en vez de solo cerrar.
     descartarAlerta: (messageId: string) => resolveInteractive(messageId, 'Se decidio no crearla'),
     createMinutaTopic,

@@ -15,6 +15,8 @@ import {
 } from '@features/chat/components/ActivityListMessage'
 import { LumixPromptBubble } from '@features/chat/components/LumixPromptBubble'
 import { QuotedMessage } from '@features/chat/components/QuotedMessage'
+import { useToast } from '@shared/components/ui/Toast'
+import { formatDateLocal } from '@shared/utils/date'
 import type { ReplyTarget } from '@features/chat/types'
 import type { ActivityStatus } from '@shared/types'
 import type {
@@ -22,6 +24,7 @@ import type {
   PendingUpdate,
   PendingCategory,
   PendingOverload,
+  PendingLoteSobrecarga,
   PendingMinuta,
 } from '@features/chat/hooks/useChatMessages'
 
@@ -37,6 +40,9 @@ type ActivityPick = { candidates: { id: string; title: string }[]; pending: Pend
 
 // Popouts que son una PREGUNTA: se abren solos, porque si quedan como una burbuja
 // mas el usuario cree que ya se creo la actividad y nunca las responde.
+// 'overload_lote' NO se abre solo: las actividades ya quedaron creadas, asi que es una
+// sugerencia, no una pregunta pendiente. Interrumpir por algo ya resuelto es justo lo que
+// se estaba tratando de evitar.
 const AUTO_OPEN_TYPES = ['category_confirm', 'overload', 'name_confirm', 'activity_pick']
 
 const STATUS_OPTIONS: { value: ActivityStatus; label: string }[] = [
@@ -56,6 +62,10 @@ export function ChatPage() {
     messageId: string
   } | null>(null)
   const [creatingOverload, setCreatingOverload] = useState(false)
+  const [lote, setLote] = useState<{ pending: PendingLoteSobrecarga; messageId: string } | null>(
+    null,
+  )
+  const [loteBusy, setLoteBusy] = useState(false)
   const [nameConfirm, setNameConfirm] = useState<{
     data: NameConfirm
     messageId: string
@@ -95,6 +105,7 @@ export function ChatPage() {
     'auto' | 'actividad' | 'error' | 'ingesta' | 'masivo' | 'minuta'
   >('auto')
   const [teamName, setTeamName] = useState('')
+  const toast = useToast()
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
 
@@ -115,6 +126,8 @@ export function ChatPage() {
     bulkCreate,
     createResolvedActivity,
     createOverloadActivity,
+    moverLoteSobrecarga,
+    dejarLoteSobrecarga,
     descartarAlerta,
     createMinutaTopic,
     reassignResolved,
@@ -419,6 +432,22 @@ export function ChatPage() {
                     })
                   }
                 />
+              ) : msg.metadata?.type === 'overload_lote' ? (
+                <LumixPromptBubble
+                  key={msg.id}
+                  content={msg.content}
+                  timestamp={msg.created_at}
+                  accent="amber"
+                  resolution={msg.metadata.resolution as string | undefined}
+                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                  onOpen={() =>
+                    setLote({
+                      pending: (msg.metadata as unknown as { pending: PendingLoteSobrecarga })
+                        .pending,
+                      messageId: msg.id,
+                    })
+                  }
+                />
               ) : msg.metadata?.type === 'name_confirm' ? (
                 <LumixPromptBubble
                   key={msg.id}
@@ -632,6 +661,65 @@ export function ChatPage() {
           </p>
         </div>
       </div>
+
+      {/* Carga acumulada del dia, agrupada. A diferencia del popout de abajo, aca las
+          actividades YA estan creadas: esto es una sugerencia y se puede cerrar tocando
+          afuera sin consecuencias. */}
+      {lote && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => !loteBusy && setLote(null)}
+        >
+          <div
+            className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-sm w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <p className="text-sm font-medium text-amber-400 mb-1">Día cargado</p>
+            <p className="text-xs text-slate-400 mb-3 leading-snug">
+              {lote.pending.responsibleName} ya tenía {lote.pending.yaTenia} actividades para el{' '}
+              {formatDateLocal(lote.pending.dia)}. Se sumaron estas:
+            </p>
+            <ul className="mb-3 space-y-1 max-h-40 overflow-y-auto">
+              {lote.pending.items.map((it) => (
+                <li key={it.id} className="text-xs text-slate-300 leading-snug">
+                  • {it.title}
+                </li>
+              ))}
+            </ul>
+            <div className="space-y-2">
+              {[3, 7].map((d) => (
+                <button
+                  key={d}
+                  disabled={loteBusy}
+                  onClick={async () => {
+                    setLoteBusy(true)
+                    const cuando = await moverLoteSobrecarga(lote.pending, d, lote.messageId)
+                    setLoteBusy(false)
+                    setLote(null)
+                    if (cuando) toast.success(`Movidas al ${cuando}`)
+                  }}
+                  className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-indigo-300 transition-colors"
+                >
+                  Mover {lote.pending.items.length === 1 ? 'la actividad' : 'las actividades'} +{d}{' '}
+                  días hábiles
+                </button>
+              ))}
+              <button
+                disabled={loteBusy}
+                onClick={async () => {
+                  setLoteBusy(true)
+                  await dejarLoteSobrecarga(lote.messageId)
+                  setLoteBusy(false)
+                  setLote(null)
+                }}
+                className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-300 transition-colors"
+              >
+                Dejarlas en esa fecha
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
 
       {/* Alerta de sobrecarga. Se abre sola al detectarla y no se cierra tocando afuera:
           la actividad NO existe todavia, hay que decidir antes de seguir. */}

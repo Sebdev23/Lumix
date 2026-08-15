@@ -83,6 +83,29 @@ export const activitiesService = {
     return data
   },
 
+  /**
+   * Elimina una actividad (migracion 038). La RLS decide quien puede: admin, jefatura del
+   * equipo, o quien tenga el permiso 'actividades.eliminar' concedido ahi. Un trigger limpia
+   * el vinculo con la minuta y las notificaciones.
+   */
+  async remove(id: string): Promise<void> {
+    const { error } = await supabase.from('activities').delete().eq('id', id)
+    if (error) throw error
+  },
+
+  /**
+   * Deshace una actividad recien creada (migracion 037).
+   *
+   * No es un borrado general: la base exige que sea tuya, de hace menos de 30 minutos, que
+   * siga pendiente y que no tenga delegadas. Devuelve 'ok' o el motivo del rechazo, para
+   * poder explicarlo en vez de decir "no se pudo".
+   */
+  async deshacer(id: string): Promise<string> {
+    const { data, error } = await supabase.rpc('deshacer_actividad', { p_id: id })
+    if (error) throw error
+    return data as string
+  },
+
   async subscribeToTeam(
     teamId: string,
     callback: (payload: { new: Activity; old: Activity }) => void,

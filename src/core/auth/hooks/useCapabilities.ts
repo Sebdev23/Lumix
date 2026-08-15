@@ -24,6 +24,7 @@ export function useCapabilities() {
     canAssignOthers: can('actividades.asignar_otros'),
     canViewAllActivities: can('actividades.ver_todas'),
     canEditAllActivities: can('actividades.editar_todas'),
+    canDeleteActivities: can('actividades.eliminar'),
     canManageErrors: can('errores.gestionar'),
     canManageIngestas: can('ingestas.gestionar'),
     // "Ve solo lo suyo" en actividades (compat con filtros existentes).
