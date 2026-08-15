@@ -1,5 +1,5 @@
-const CACHE_NAME = 'lumix-v1'
-const STATIC_ASSETS = ['/', '/index.html', '/manifest.json', '/icon.svg']
+const CACHE_NAME = 'lumix-v2'
+const STATIC_ASSETS = ['/manifest.json', '/icon.svg']
 
 self.addEventListener('install', (event) => {
   event.waitUntil(
@@ -39,6 +39,24 @@ self.addEventListener('fetch', (event) => {
 
   if (url.origin.includes('supabase.co') || url.origin.includes('api.openai.com')) {
     event.respondWith(fetch(request))
+    return
+  }
+
+  // El documento (navegacion a "/", index.html) NUNCA se sirve cache-first: si quedara
+  // cacheado apuntando a un build viejo, sus archivos con hash (ej. ChatPage-ABC123.js) ya no
+  // existen despues del proximo deploy -Netlify reemplaza dist/ entero-, y el catch-all de
+  // netlify.toml (/* -> /index.html) devuelve HTML donde el navegador esperaba JavaScript.
+  // Red primero, y la cache solo como respaldo si no hay conexion.
+  if (request.mode === 'navigate') {
+    event.respondWith(
+      fetch(request)
+        .then((response) => {
+          const clone = response.clone()
+          caches.open(CACHE_NAME).then((cache) => cache.put(request, clone))
+          return response
+        })
+        .catch(() => caches.match(request)),
+    )
     return
   }
 

@@ -11,14 +11,17 @@ export function AppLayout() {
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
-          className="fixed inset-0 z-40 bg-black/60 lg:hidden"
+          className="fixed inset-0 z-40 bg-black/60 md:hidden"
           onClick={() => setSidebarOpen(false)}
         />
       )}
 
-      {/* Sidebar - desktop always visible, mobile slide-over */}
+      {/* Sidebar - desktop always visible, mobile slide-over.
+          El corte es en md (768px) y no lg (1024px): un notebook con escalado de Windows al
+          125-150% (muy comun) reporta un ancho logico de ~900-1100px, y con el corte en lg
+          caia del lado "movil" (drawer + header + bottom nav) en vez del de escritorio. */}
       <div
-        className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-200 ease-in-out lg:relative lg:translate-x-0 ${
+        className={`fixed inset-y-0 left-0 z-50 w-64 transform transition-transform duration-200 ease-in-out md:relative md:translate-x-0 ${
           sidebarOpen ? 'translate-x-0' : '-translate-x-full'
         }`}
         style={{ paddingTop: 'env(safe-area-inset-top)' }}
@@ -30,7 +33,7 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile header */}
         <header
-          className="flex items-center gap-3 px-3 border-b border-slate-800 bg-slate-900 lg:hidden flex-shrink-0"
+          className="flex items-center gap-3 px-3 border-b border-slate-800 bg-slate-900 md:hidden flex-shrink-0"
           style={{
             height: 'calc(3rem + env(safe-area-inset-top))',
             paddingTop: 'env(safe-area-inset-top)',

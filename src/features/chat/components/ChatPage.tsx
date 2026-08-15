@@ -346,198 +346,206 @@ export function ChatPage() {
           )}
         </div>
 
-        {/* Messages */}
-        <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4 space-y-4">
-          {loading ? (
-            <div className="flex items-center justify-center h-full">
-              <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
-            </div>
-          ) : messages.length === 0 ? (
-            <div className="flex flex-col items-center justify-center h-full text-center">
-              <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
-                <svg
-                  className="w-8 h-8 text-slate-600"
-                  fill="none"
-                  viewBox="0 0 24 24"
-                  stroke="currentColor"
-                >
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={1.5}
-                    d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
-                  />
-                </svg>
+        {/* Messages. El ancho se acota en pantallas grandes (max-w-3xl, centrado): en un
+            notebook o monitor ancho, una columna de chat que ocupa todo el ancho disponible
+            se lee peor (lineas larguisimas), igual que WhatsApp Web o Slack. */}
+        <div ref={scrollRef} className="flex-1 overflow-y-auto px-3 sm:px-4 py-4">
+          <div className="max-w-3xl mx-auto space-y-4">
+            {loading ? (
+              <div className="flex items-center justify-center h-full">
+                <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
               </div>
-              <p className="text-sm text-slate-400">No hay mensajes aun</p>
-              <p className="text-xs text-slate-600 mt-1">Escribe algo para empezar</p>
-            </div>
-          ) : (
-            messages.map((msg) =>
-              msg.metadata?.type === 'activity_card' ? (
-                <ActivityCard
-                  key={msg.id}
-                  meta={msg.metadata as unknown as ActivityCardMeta}
-                  reply={msg.content}
-                  canAssignOthers={canAssignOthers}
-                  onComplete={() =>
-                    quickUpdate((msg.metadata as unknown as ActivityCardMeta).activityId, {
-                      status: 'completado',
-                    })
-                  }
-                  onReschedule={(dueDate) =>
-                    quickUpdate((msg.metadata as unknown as ActivityCardMeta).activityId, {
-                      due_date: dueDate,
-                    })
-                  }
-                  onReassign={(memberId, memberName) =>
-                    quickUpdate((msg.metadata as unknown as ActivityCardMeta).activityId, {
-                      responsibleId: memberId,
-                      responsibleName: memberName,
-                    })
-                  }
-                  onReply={() => startReply(msg)}
-                  listMembers={async () => {
-                    const m = await listMembers()
-                    return m.map((x) => ({ id: x.id, full_name: x.full_name }))
-                  }}
-                />
-              ) : msg.metadata?.type === 'activity_list' ? (
-                <ActivityListMessage
-                  key={msg.id}
-                  header={msg.content}
-                  items={(msg.metadata as unknown as { activities: ActivityListItem[] }).activities}
-                  onSelect={openEdit}
-                  canAssignOthers={canAssignOthers}
-                  members={editMembers}
-                  onBulkUpdate={bulkQuickUpdate}
-                  onQuickUpdate={async (id, changes) => {
-                    await quickUpdate(id, changes)
-                  }}
-                />
-              ) : msg.metadata?.type === 'overload' ? (
-                <LumixPromptBubble
-                  key={msg.id}
-                  content={msg.content}
-                  timestamp={msg.created_at}
-                  accent="amber"
-                  resolution={msg.metadata.resolution as string | undefined}
-                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
-                  onOpen={() =>
-                    setOverloadData({
-                      pending: (msg.metadata as unknown as { pending: PendingOverload }).pending,
-                      messageId: msg.id,
-                    })
-                  }
-                />
-              ) : msg.metadata?.type === 'overload_lote' ? (
-                <LumixPromptBubble
-                  key={msg.id}
-                  content={msg.content}
-                  timestamp={msg.created_at}
-                  accent="amber"
-                  resolution={msg.metadata.resolution as string | undefined}
-                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
-                  onOpen={() =>
-                    setLote({
-                      pending: (msg.metadata as unknown as { pending: PendingLoteSobrecarga })
-                        .pending,
-                      messageId: msg.id,
-                    })
-                  }
-                />
-              ) : msg.metadata?.type === 'name_confirm' ? (
-                <LumixPromptBubble
-                  key={msg.id}
-                  content={msg.content}
-                  timestamp={msg.created_at}
-                  accent="indigo"
-                  resolution={msg.metadata.resolution as string | undefined}
-                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
-                  onOpen={() =>
-                    setNameConfirm({
-                      data: msg.metadata as unknown as NameConfirm,
-                      messageId: msg.id,
-                    })
-                  }
-                />
-              ) : msg.metadata?.type === 'activity_pick' ? (
-                <LumixPromptBubble
-                  key={msg.id}
-                  content={msg.content}
-                  timestamp={msg.created_at}
-                  accent="indigo"
-                  resolution={msg.metadata.resolution as string | undefined}
-                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
-                  onOpen={() =>
-                    setActivityPick({
-                      data: msg.metadata as unknown as ActivityPick,
-                      messageId: msg.id,
-                    })
-                  }
-                />
-              ) : msg.metadata?.type === 'category_confirm' ? (
-                <LumixPromptBubble
-                  key={msg.id}
-                  content={msg.content}
-                  timestamp={msg.created_at}
-                  accent="amber"
-                  resolution={msg.metadata.resolution as string | undefined}
-                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
-                  onOpen={() =>
-                    setCategoryConfirm({
-                      pending: (msg.metadata as unknown as { pending: PendingCategory }).pending,
-                      messageId: msg.id,
-                    })
-                  }
-                />
-              ) : (
-                <div key={msg.id} ref={registerBubble(msg.id)}>
-                  <ChatBubble
-                    content={msg.content}
-                    sender={{
-                      name: msg.sender?.full_name ?? 'Usuario',
-                      avatar_url: msg.sender?.avatar_url,
-                    }}
-                    timestamp={msg.created_at}
-                    isOwn={msg.sender_id === user?.id}
-                    category={msg.category}
-                    isOptimistic={msg.id.startsWith('opt-')}
-                    onClick={undefined}
-                    quoted={quotedOf(msg)}
+            ) : messages.length === 0 ? (
+              <div className="flex flex-col items-center justify-center h-full text-center">
+                <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                  <svg
+                    className="w-8 h-8 text-slate-600"
+                    fill="none"
+                    viewBox="0 0 24 24"
+                    stroke="currentColor"
+                  >
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={1.5}
+                      d="M8 12h.01M12 12h.01M16 12h.01M21 12c0 4.418-4.03 8-9 8a9.863 9.863 0 01-4.255-.949L3 20l1.395-3.72C3.512 15.042 3 13.574 3 12c0-4.418 4.03-8 9-8s9 3.582 9 8z"
+                    />
+                  </svg>
+                </div>
+                <p className="text-sm text-slate-400">No hay mensajes aun</p>
+                <p className="text-xs text-slate-600 mt-1">Escribe algo para empezar</p>
+              </div>
+            ) : (
+              messages.map((msg) =>
+                msg.metadata?.type === 'activity_card' ? (
+                  <ActivityCard
+                    key={msg.id}
+                    meta={msg.metadata as unknown as ActivityCardMeta}
+                    reply={msg.content}
+                    canAssignOthers={canAssignOthers}
+                    onComplete={() =>
+                      quickUpdate((msg.metadata as unknown as ActivityCardMeta).activityId, {
+                        status: 'completado',
+                      })
+                    }
+                    onReschedule={(dueDate) =>
+                      quickUpdate((msg.metadata as unknown as ActivityCardMeta).activityId, {
+                        due_date: dueDate,
+                      })
+                    }
+                    onReassign={(memberId, memberName) =>
+                      quickUpdate((msg.metadata as unknown as ActivityCardMeta).activityId, {
+                        responsibleId: memberId,
+                        responsibleName: memberName,
+                      })
+                    }
                     onReply={() => startReply(msg)}
+                    listMembers={async () => {
+                      const m = await listMembers()
+                      return m.map((x) => ({ id: x.id, full_name: x.full_name }))
+                    }}
+                  />
+                ) : msg.metadata?.type === 'activity_list' ? (
+                  <ActivityListMessage
+                    key={msg.id}
+                    header={msg.content}
+                    items={
+                      (msg.metadata as unknown as { activities: ActivityListItem[] }).activities
+                    }
+                    onSelect={openEdit}
+                    canAssignOthers={canAssignOthers}
+                    members={editMembers}
+                    onBulkUpdate={bulkQuickUpdate}
+                    onQuickUpdate={async (id, changes) => {
+                      await quickUpdate(id, changes)
+                    }}
+                  />
+                ) : msg.metadata?.type === 'overload' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="amber"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() =>
+                      setOverloadData({
+                        pending: (msg.metadata as unknown as { pending: PendingOverload }).pending,
+                        messageId: msg.id,
+                      })
+                    }
+                  />
+                ) : msg.metadata?.type === 'overload_lote' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="amber"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() =>
+                      setLote({
+                        pending: (msg.metadata as unknown as { pending: PendingLoteSobrecarga })
+                          .pending,
+                        messageId: msg.id,
+                      })
+                    }
+                  />
+                ) : msg.metadata?.type === 'name_confirm' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="indigo"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() =>
+                      setNameConfirm({
+                        data: msg.metadata as unknown as NameConfirm,
+                        messageId: msg.id,
+                      })
+                    }
+                  />
+                ) : msg.metadata?.type === 'activity_pick' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="indigo"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() =>
+                      setActivityPick({
+                        data: msg.metadata as unknown as ActivityPick,
+                        messageId: msg.id,
+                      })
+                    }
+                  />
+                ) : msg.metadata?.type === 'category_confirm' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="amber"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() =>
+                      setCategoryConfirm({
+                        pending: (msg.metadata as unknown as { pending: PendingCategory }).pending,
+                        messageId: msg.id,
+                      })
+                    }
+                  />
+                ) : (
+                  <div key={msg.id} ref={registerBubble(msg.id)}>
+                    <ChatBubble
+                      content={msg.content}
+                      sender={{
+                        name: msg.sender?.full_name ?? 'Usuario',
+                        avatar_url: msg.sender?.avatar_url,
+                      }}
+                      timestamp={msg.created_at}
+                      isOwn={msg.sender_id === user?.id}
+                      category={msg.category}
+                      isOptimistic={msg.id.startsWith('opt-')}
+                      onClick={undefined}
+                      quoted={quotedOf(msg)}
+                      onReply={() => startReply(msg)}
+                    />
+                  </div>
+                ),
+              )
+            )}
+
+            {/* Typing indicator */}
+            {typingText && (
+              <div className="flex items-center gap-2 pl-12">
+                <div className="flex gap-1">
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce"
+                    style={{ animationDelay: '0ms' }}
+                  />
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce"
+                    style={{ animationDelay: '150ms' }}
+                  />
+                  <span
+                    className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce"
+                    style={{ animationDelay: '300ms' }}
                   />
                 </div>
-              ),
-            )
-          )}
-
-          {/* Typing indicator */}
-          {typingText && (
-            <div className="flex items-center gap-2 pl-12">
-              <div className="flex gap-1">
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce"
-                  style={{ animationDelay: '0ms' }}
-                />
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce"
-                  style={{ animationDelay: '150ms' }}
-                />
-                <span
-                  className="w-1.5 h-1.5 rounded-full bg-slate-500 animate-bounce"
-                  style={{ animationDelay: '300ms' }}
-                />
+                <span className="text-xs text-slate-500">{typingText}</span>
               </div>
-              <span className="text-xs text-slate-500">{typingText}</span>
-            </div>
-          )}
+            )}
+          </div>
         </div>
 
         {/* Respondiendo a: se ve arriba del input hasta que se envia o se cancela */}
         {replyTo && (
           <div className="px-4 py-2 bg-slate-800 border-t border-slate-700">
-            <QuotedMessage reply={replyTo} onCancel={() => setReplyTo(null)} />
+            <div className="max-w-3xl mx-auto">
+              <QuotedMessage reply={replyTo} onCancel={() => setReplyTo(null)} />
+            </div>
           </div>
         )}
 
@@ -546,76 +554,78 @@ export function ChatPage() {
           className="flex-shrink-0 border-t border-slate-800 bg-slate-900 p-2 sm:p-3"
           style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
         >
-          {/* Type selector */}
-          <div className="flex gap-1 mb-2">
-            {(['auto', 'actividad', 'error', 'ingesta', 'masivo', 'minuta'] as const)
-              .filter((t) => t !== 'minuta' || canManageMinuta)
-              .map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setMessageType(t)}
-                  className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${
-                    messageType === t
-                      ? t === 'ingesta'
-                        ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
-                        : t === 'error'
-                          ? 'bg-red-600/20 text-red-400 border border-red-500/30'
-                          : t === 'actividad'
-                            ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
-                            : t === 'masivo'
-                              ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
-                              : t === 'minuta'
-                                ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
-                                : 'bg-slate-700 text-slate-200'
-                      : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
-                  }`}
-                >
-                  {t === 'auto' ? 'Auto' : t.charAt(0).toUpperCase() + t.slice(1)}
-                </button>
-              ))}
+          <div className="max-w-3xl mx-auto">
+            {/* Type selector */}
+            <div className="flex gap-1 mb-2">
+              {(['auto', 'actividad', 'error', 'ingesta', 'masivo', 'minuta'] as const)
+                .filter((t) => t !== 'minuta' || canManageMinuta)
+                .map((t) => (
+                  <button
+                    key={t}
+                    onClick={() => setMessageType(t)}
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                      messageType === t
+                        ? t === 'ingesta'
+                          ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
+                          : t === 'error'
+                            ? 'bg-red-600/20 text-red-400 border border-red-500/30'
+                            : t === 'actividad'
+                              ? 'bg-indigo-600/20 text-indigo-400 border border-indigo-500/30'
+                              : t === 'masivo'
+                                ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
+                                : t === 'minuta'
+                                  ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
+                                  : 'bg-slate-700 text-slate-200'
+                        : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                    }`}
+                  >
+                    {t === 'auto' ? 'Auto' : t.charAt(0).toUpperCase() + t.slice(1)}
+                  </button>
+                ))}
+            </div>
+            <div className="flex items-end gap-2">
+              <textarea
+                ref={inputRef}
+                value={input}
+                onChange={handleInputChange}
+                onKeyDown={handleKeyDown}
+                placeholder={
+                  messageType === 'masivo'
+                    ? 'Pega la lista de actividades (una por linea)...'
+                    : 'Escribe un mensaje...'
+                }
+                rows={1}
+                className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+              />
+              <Button
+                size="sm"
+                onClick={handleSend}
+                disabled={!input.trim() || sending || aiProcessing || bulkParsing}
+              >
+                {sending || aiProcessing || bulkParsing ? (
+                  <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
+                ) : (
+                  <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
+                    <path
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      strokeWidth={2}
+                      d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
+                    />
+                  </svg>
+                )}
+              </Button>
+            </div>
+            <p className="text-[10px] text-slate-600 mt-2 text-center">
+              {bulkParsing
+                ? 'Analizando la lista de actividades...'
+                : aiProcessing
+                  ? 'Lumix esta procesando tu mensaje...'
+                  : messageType === 'masivo'
+                    ? 'Modo masivo: pega varias actividades y confirma antes de crear.'
+                    : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
+            </p>
           </div>
-          <div className="flex items-end gap-2">
-            <textarea
-              ref={inputRef}
-              value={input}
-              onChange={handleInputChange}
-              onKeyDown={handleKeyDown}
-              placeholder={
-                messageType === 'masivo'
-                  ? 'Pega la lista de actividades (una por linea)...'
-                  : 'Escribe un mensaje...'
-              }
-              rows={1}
-              className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
-            />
-            <Button
-              size="sm"
-              onClick={handleSend}
-              disabled={!input.trim() || sending || aiProcessing || bulkParsing}
-            >
-              {sending || aiProcessing || bulkParsing ? (
-                <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
-              ) : (
-                <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                  <path
-                    strokeLinecap="round"
-                    strokeLinejoin="round"
-                    strokeWidth={2}
-                    d="M12 19l9 2-9-18-9 18 9-2zm0 0v-8"
-                  />
-                </svg>
-              )}
-            </Button>
-          </div>
-          <p className="text-[10px] text-slate-600 mt-2 text-center">
-            {bulkParsing
-              ? 'Analizando la lista de actividades...'
-              : aiProcessing
-                ? 'Lumix esta procesando tu mensaje...'
-                : messageType === 'masivo'
-                  ? 'Modo masivo: pega varias actividades y confirma antes de crear.'
-                  : 'Escribe en lenguaje natural. La IA clasificara tu mensaje automaticamente.'}
-          </p>
         </div>
       </div>
 

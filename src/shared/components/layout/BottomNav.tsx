@@ -5,7 +5,7 @@ import { bottomNavItems } from './navItems'
 export function BottomNav() {
   return (
     <nav
-      className="lg:hidden flex-shrink-0 flex items-stretch border-t border-slate-800 bg-slate-900"
+      className="md:hidden flex-shrink-0 flex items-stretch border-t border-slate-800 bg-slate-900"
       style={{ paddingBottom: 'env(safe-area-inset-bottom, 0px)' }}
     >
       {bottomNavItems.map((item) => (
