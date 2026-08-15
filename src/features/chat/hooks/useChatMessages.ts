@@ -17,6 +17,7 @@ import { teamsService } from '@infrastructure/supabase/teams.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { minutesService } from '@infrastructure/supabase/minutes.service'
 import { aiDecisionsService } from '@infrastructure/supabase/ai-decisions.service'
+import { deriveEstado, compromisosEnVentana, compromisoStats } from '@shared/utils/compromisos'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
@@ -290,7 +291,11 @@ function wantsEditList(content: string): boolean {
       n,
     )
   const genericActs = /\b(activ|tarea|pendient)\w*/.test(n)
-  return (editVerb && pluralRef) || (startsEdit && genericActs)
+  // "quiero modificar algunas/varias" no nombra "actividades", pero el intento es el mismo:
+  // gestionar mas de una. Caso real: sin esto caia a "consulta" y Lumix solo daba ejemplos de
+  // como escribir el cambio ("cambia la fecha de X..."), en vez de mostrar la lista para elegir.
+  const vagoPlural = /\b(algun\w*|vari[oa]s|un[oa]s)\b/.test(n)
+  return (editVerb && pluralRef) || (startsEdit && (genericActs || vagoPlural))
 }
 
 // Preguntas tipo "que actividades tiene X" / "que tengo esta semana" => tabla editable.
@@ -629,6 +634,38 @@ export function useChatMessages() {
     const loadPct = (acts: Activity[]) =>
       Math.min(Math.round((acts.reduce((s, a) => s + (a.estimated_hours ?? 3), 0) / 42) * 100), 100)
 
+    // Temas que TODAVIA se conversan en la reunion: sin actividad vinculada, o escalados
+    // desde Compromisos ("definir en reunion"). Mismo criterio que la vista "Pendientes"
+    // de la Minuta (useMinuta.ts): estado efectivo distinto de resuelto, y (sin vinculo
+    // O estado crudo "definir"). Ver deriveEstado en shared/utils/compromisos.ts.
+    const activitiesById = Object.fromEntries(activities.map((a) => [a.id, a]))
+    const temasParaConversar = temas
+      .filter((t) => {
+        if (deriveEstado(t, activitiesById) === 'resuelto') return false
+        return t.linked_activity_ids.length === 0 || t.estado === 'definir'
+      })
+      .map((t) => ({
+        tema: t.tema,
+        responsable: t.responsables.length
+          ? t.responsables
+              .map((id) => members.find((m) => m.id === id)?.full_name ?? '?')
+              .join(', ')
+          : t.responsables_text || null,
+        plazo: t.plazo,
+      }))
+
+    // Cumplimiento semanal de compromisos (Level 10 Meeting de EOS, ver useCompromisos.ts):
+    // solo lo que nacio de un tema de minuta y vence esta semana. Un colaborador solo ve lo
+    // suyo, igual que el resto de teamData.
+    const semanaActual = weekRange(0)
+    const compromisosSemanaBase = compromisosEnVentana(
+      activities,
+      temas,
+      semanaActual.from,
+      semanaActual.to,
+    ).filter((a) => !isColaborador || a.responsible_id === senderId)
+    const compromisosSemana = compromisoStats(compromisosSemanaBase)
+
     return {
       today: new Date().toLocaleDateString('es-CL', {
         weekday: 'long',
@@ -647,6 +684,8 @@ export function useChatMessages() {
         }
       }),
       sinAsignar: aMedioCamino,
+      temasParaConversar,
+      compromisosSemana,
       errors: errors
         .filter((e) => e.status !== 'cerrado')
         .map((e) => ({ title: e.title, severity: e.severity, status: e.status })),
@@ -917,9 +956,6 @@ export function useChatMessages() {
       created_at: new Date().toISOString(),
       team_id: teamId,
       sender: { full_name: profile?.full_name ?? '', avatar_url: profile?.avatar_url ?? null },
-      file_url: payload.file_url,
-      file_name: payload.file_name,
-      file_type: payload.file_type,
       // reply_to tiene FK: si el mensaje citado todavia lleva un id temporal (no alcanzo a
       // guardarse) el insert fallaria y se perderia la respuesta entera. En ese caso se
       // manda sin FK: la cita se sigue viendo, porque el texto va en la copia.
@@ -1107,7 +1143,11 @@ export function useChatMessages() {
 
   // Aplica un cambio a una actividad ya identificada (llegamos aca respondiendo un mensaje).
   // Devuelve true si el mensaje quedo atendido, false si hay que seguir con el flujo normal.
-  async function applyTargetedUpdate(activityId: string, content: string): Promise<boolean> {
+  async function applyTargetedUpdate(
+    activityId: string,
+    content: string,
+    history: HistoryTurn[] = [],
+  ): Promise<boolean> {
     const activity = await activitiesService.getById(activityId)
     if (!activity) {
       // La actividad ya no existe: mejor decirlo que tratar el mensaje como una nueva.
@@ -1131,6 +1171,7 @@ export function useChatMessages() {
         ],
         memList.map((m) => m.full_name),
         true,
+        history,
       )
     } catch (err) {
       console.error('Targeted update failed:', err)
@@ -1188,7 +1229,11 @@ export function useChatMessages() {
       const mencionadas = actividadesMencionadas(content, abiertas)
       const soloLaUltima =
         mencionadas.length === 0 || (mencionadas.length === 1 && mencionadas[0].id === ultima.id)
-      if (soloLaUltima && (await applyTargetedUpdate(ultima.id, content))) return true
+      if (
+        soloLaUltima &&
+        (await applyTargetedUpdate(ultima.id, content, recentHistory(message.id)))
+      )
+        return true
     }
 
     try {
@@ -1210,6 +1255,8 @@ export function useChatMessages() {
             priority: a.priority,
           })),
           memList.map((m) => m.full_name),
+          false,
+          recentHistory(message.id),
         )
       }
     } catch (err) {
@@ -1485,6 +1532,57 @@ export function useChatMessages() {
       replyText,
       newResponsibleName: changes.responsibleName,
     })
+  }
+
+  // Accion masiva desde la seleccion multiple del listado (activity_list). A diferencia de
+  // quickUpdate, NO pasa por commitUpdate: con varias decenas de filas seleccionadas eso
+  // dejaria una tarjeta de actividad POR CADA UNA en el chat. Mismo patron que
+  // moverLoteSobrecarga: se actualiza directo y se deja un solo mensaje resumen al final.
+  const bulkQuickUpdate = async (activityIds: string[], changes: QuickChanges) => {
+    const updates: Partial<Activity> = {}
+    if (changes.status) updates.status = changes.status
+    if (changes.due_date) updates.due_date = changes.due_date
+    if (changes.responsibleId) updates.responsible_id = changes.responsibleId
+
+    let ok = 0
+    let skipped = 0
+    for (const id of activityIds) {
+      const activity = await activitiesService.getById(id)
+      // Colaborador/invitado: igual que commitUpdate, solo puede tocar lo suyo.
+      if (!activity || (!canAssignOthers && activity.responsible_id !== user?.id)) {
+        skipped++
+        continue
+      }
+      try {
+        await activitiesService.update(id, updates)
+        ok++
+        if (changes.responsibleId && changes.responsibleId !== activity.responsible_id) {
+          await notificationsService
+            .send(changes.responsibleId, {
+              title: 'Actividad reasignada',
+              body: `"${activity.title.replace(/^\[Ingesta\]\s*/, '')}"`,
+              type: 'deadline_soon',
+              metadata: { activity_id: id },
+            })
+            .catch((err) => console.error('Bulk reassign notify failed:', err))
+        }
+      } catch (err) {
+        console.error('Bulk update item failed:', err)
+        skipped++
+      }
+    }
+
+    const plural = (n: number) => (n === 1 ? '' : 'es')
+    let summary: string
+    if (changes.status === 'completado')
+      summary = `✅ ${ok} actividad${plural(ok)} completada${plural(ok)}.`
+    else if (changes.due_date)
+      summary = `📅 ${ok} actividad${plural(ok)} movida${plural(ok)} al ${formatDateLocal(changes.due_date)}.`
+    else if (changes.responsibleId)
+      summary = `${ok} actividad${plural(ok)} reasignada${plural(ok)} a ${changes.responsibleName ?? 'otro miembro'}.`
+    else summary = `${ok} actividad${plural(ok)} actualizada${plural(ok)}.`
+    if (skipped) summary += ` ${skipped} no se pudo${skipped === 1 ? '' : 'ieron'} actualizar.`
+    await aiSay(summary)
   }
 
   // Edicion completa desde el modal del listado (prioridad, fecha, descripcion, estado)
@@ -2025,7 +2123,9 @@ export function useChatMessages() {
         // Con la actividad identificada no hay nada que adivinar. Sin ella, se busca entre
         // las abiertas o se pregunta cual es: lo que NO se hace nunca es crear una actividad
         // nueva con el texto de la instruccion.
-        const handled = repliedActivityId && (await applyTargetedUpdate(repliedActivityId, content))
+        const handled =
+          repliedActivityId &&
+          (await applyTargetedUpdate(repliedActivityId, content, recentHistory(message.id)))
         // Si el modo dirigido no pudo (fallo la IA), se reintenta contra las abiertas antes
         // de rendirse. Aun asi nunca cae a creacion: es una respuesta.
         if (!handled) await runUpdateFlow(message, content, true)
@@ -2095,8 +2195,14 @@ export function useChatMessages() {
       }
 
       // PREGUNTAS: detectar con prefijo ? o palabras interrogativas
+      //
+      // "ver " suelto NO cuenta: en español "ver X" tambien es una tarea ("ver pedido de
+      // produccion con el SME" = revisarlo, no preguntar por el). Caso real: eso se
+      // clasificaba como pregunta, Lumix contestaba "no encontre nada" en vez de crear la
+      // actividad. wantsEditList/wantsQuestionList ya cubren "ver" + palabra de tarea
+      // (activ/tarea/pendient/labor) por su cuenta, asi que no se pierde ese caso.
       const questionWords =
-        /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|ver |mis |cuales son)\b/i
+        /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |entregame |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|mis |cuales son)\b/i
       const isQuestion = /^[?¿/]/.test(content) || questionWords.test(content)
       const isAutoMode = !forcedType || forcedType === 'auto'
 
@@ -2118,7 +2224,7 @@ export function useChatMessages() {
         const teamData = await buildTeamData(message.sender_id)
 
         try {
-          const answer = await askQuestion(content, teamData)
+          const answer = await askQuestion(content, teamData, recentHistory(message.id))
           await aiSay(answer)
         } catch (err) {
           console.error('AI question failed:', err)
@@ -2198,7 +2304,13 @@ export function useChatMessages() {
         // con "quedo listo". Todo lo demas se trata como pregunta encadenada.
         if (teamId && !ACUSE_RE.test(content)) {
           try {
-            await aiSay(await askQuestion(content, await buildTeamData(message.sender_id)))
+            await aiSay(
+              await askQuestion(
+                content,
+                await buildTeamData(message.sender_id),
+                recentHistory(message.id),
+              ),
+            )
           } catch (err) {
             console.error('AI question failed:', err)
             await aiSay('No pude responder tu consulta en este momento.')
@@ -2328,6 +2440,7 @@ export function useChatMessages() {
     reassignResolved,
     confirmCategory,
     quickUpdate,
+    bulkQuickUpdate,
     applyPendingUpdate,
     editActivityFields,
     listMembers,

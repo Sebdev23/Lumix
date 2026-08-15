@@ -10,8 +10,6 @@ interface ChatBubbleProps {
   timestamp: string
   isOwn?: boolean
   category?: string | null
-  fileUrl?: string | null
-  fileName?: string | null
   isOptimistic?: boolean
   onClick?: () => void
   /** Bloque citado, si este mensaje responde a otro. Va dentro de la burbuja. */
@@ -35,15 +33,11 @@ export function ChatBubble({
   timestamp,
   isOwn = false,
   category,
-  fileUrl,
-  fileName,
   isOptimistic = false,
   onClick,
   quoted,
   onReply,
 }: ChatBubbleProps) {
-  const isFile = !!fileUrl
-
   return (
     <div className={`group flex gap-3 ${isOwn ? 'flex-row-reverse' : ''}`}>
       {!isOwn && (
@@ -56,33 +50,6 @@ export function ChatBubble({
       )}
       <div className={`flex flex-col ${isOwn ? 'items-end' : ''} max-w-[80%]`}>
         {!isOwn && <span className="text-xs text-slate-400 mb-1 ml-1">{sender.name}</span>}
-
-        {/* File attachment */}
-        {isFile && fileUrl && (
-          <a
-            href={fileUrl}
-            target="_blank"
-            rel="noopener noreferrer"
-            className={`flex items-center gap-2 px-4 py-2.5 rounded-2xl text-sm ${
-              isOwn ? 'bg-indigo-500 text-white' : 'bg-slate-700 text-slate-200'
-            } mb-1 hover:underline`}
-          >
-            <svg
-              className="w-4 h-4 flex-shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z"
-              />
-            </svg>
-            <span className="truncate">{fileName}</span>
-          </a>
-        )}
 
         {/* Text content. El boton de responder aparece al lado, al pasar el mouse; en tactil
             queda siempre visible, porque ahi no hay hover que valga. */}

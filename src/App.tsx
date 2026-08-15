@@ -39,9 +39,6 @@ const AdminPage = lazy(() =>
 const IngestasTabs = lazy(() =>
   import('@features/ingestas/components/IngestasTabs').then((m) => ({ default: m.IngestasTabs })),
 )
-const MeetingsPage = lazy(() =>
-  import('@features/meetings/components/MeetingsPage').then((m) => ({ default: m.MeetingsPage })),
-)
 const DashboardPage = lazy(() =>
   import('@features/dashboard/components/DashboardPage').then((m) => ({
     default: m.DashboardPage,
@@ -103,7 +100,6 @@ export function App() {
                     <Route path="/minuta" element={<MinutaPage />} />
                     <Route path="/compromisos" element={<CompromisosPage />} />
                     <Route path="/errors" element={<ErrorsPage />} />
-                    <Route path="/meetings" element={<MeetingsPage />} />
                     <Route path="/dashboard" element={<DashboardPage />} />
                     <Route path="/gantt" element={<GanttPage />} />
                     <Route path="/notifications" element={<NotificationsPage />} />

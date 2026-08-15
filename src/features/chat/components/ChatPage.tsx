@@ -5,7 +5,6 @@ import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { useChatMessages } from '@features/chat/hooks/useChatMessages'
 import { useTypingIndicator } from '@features/chat/hooks/useTypingIndicator'
-import { useFileUpload } from '@features/chat/hooks/useFileUpload'
 import { type BulkActivity } from '@core/ai-engine/client'
 import { teamsService } from '@infrastructure/supabase/teams.service'
 import { ActivityCard, type ActivityCardMeta } from '@features/chat/components/ActivityCard'
@@ -56,7 +55,6 @@ const STATUS_OPTIONS: { value: ActivityStatus; label: string }[] = [
 
 export function ChatPage() {
   const [input, setInput] = useState('')
-  const [attachedFile, setAttachedFile] = useState<File | null>(null)
   const [overloadData, setOverloadData] = useState<{
     pending: PendingOverload
     messageId: string
@@ -133,12 +131,23 @@ export function ChatPage() {
     reassignResolved,
     confirmCategory,
     quickUpdate,
+    bulkQuickUpdate,
     applyPendingUpdate,
     editActivityFields,
     listMembers,
   } = useChatMessages()
 
   const { canAssignOthers, canManageMinuta } = useCapabilities()
+
+  // Compartido entre "editar una" (modal) y "reasignar varias" (barra de accion masiva del
+  // listado): ambos necesitan el roster, y no vale la pena pedirlo dos veces.
+  const ensureEditMembers = () => {
+    if (canAssignOthers && editMembers.length === 0) {
+      listMembers()
+        .then((m) => setEditMembers(m.map((x) => ({ id: x.id, full_name: x.full_name }))))
+        .catch(() => {})
+    }
+  }
 
   const openEdit = (item: ActivityListItem) => {
     setEditForm({
@@ -149,14 +158,16 @@ export function ChatPage() {
       responsibleId: item.responsibleId,
     })
     setEditTarget(item)
-    if (canAssignOthers && editMembers.length === 0) {
-      listMembers()
-        .then((m) => setEditMembers(m.map((x) => ({ id: x.id, full_name: x.full_name }))))
-        .catch(() => {})
-    }
+    ensureEditMembers()
   }
   const { typingUsers, broadcastTyping } = useTypingIndicator()
-  const { upload, uploading } = useFileUpload()
+
+  // Se precarga una vez si puede asignar a otros: la barra de accion masiva del listado
+  // ofrece "Reasignar" apenas aparece, sin esperar a que se abra el modal de edicion.
+  useEffect(() => {
+    ensureEditMembers()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [canAssignOthers])
 
   useEffect(() => {
     scrollRef.current?.scrollTo(0, scrollRef.current.scrollHeight)
@@ -276,52 +287,33 @@ export function ChatPage() {
 
   const handleSend = useCallback(async () => {
     const text = input.trim()
-    if (!text && !attachedFile) return
+    if (!text) return
 
-    let fileUrl: string | undefined
-    let fileName: string | undefined
-    let fileType: string | undefined
+    const sent = await sendMessage({
+      content: text,
+      category: null,
+      reply_to: replyTo,
+    })
+    setInput('')
+    setReplyTo(null)
 
-    if (attachedFile) {
-      const result = await upload(attachedFile)
-      if (result) {
-        fileUrl = result.url
-        fileName = result.name
-        fileType = result.type
-      }
-      setAttachedFile(null)
-    }
-
-    if (text || fileUrl) {
-      const sent = await sendMessage({
-        content: text,
-        category: null,
-        file_url: fileUrl,
-        file_name: fileName,
-        file_type: fileType,
-        reply_to: replyTo,
-      })
-      setInput('')
-      setReplyTo(null)
-
-      if (sent && text) {
-        if (messageType === 'masivo') {
-          setBulkParsing(true)
-          try {
-            const items = await parseBulk(text)
-            setBulkItems(items)
-          } catch (err) {
-            console.error('Bulk parse failed:', err)
-            setBulkItems([])
-          } finally {
-            setBulkParsing(false)
-          }
-        } else {
-          classifyAndAct(sent, messageType)
+    if (sent) {
+      if (messageType === 'masivo') {
+        setBulkParsing(true)
+        try {
+          const items = await parseBulk(text)
+          setBulkItems(items)
+        } catch (err) {
+          console.error('Bulk parse failed:', err)
+          setBulkItems([])
+        } finally {
+          setBulkParsing(false)
         }
+      } else {
+        classifyAndAct(sent, messageType)
       }
     }
-  }, [input, attachedFile, replyTo, sendMessage, upload, classifyAndAct, parseBulk, messageType])
+  }, [input, replyTo, sendMessage, classifyAndAct, parseBulk, messageType])
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === 'Enter' && !e.shiftKey) {
@@ -416,6 +408,12 @@ export function ChatPage() {
                   header={msg.content}
                   items={(msg.metadata as unknown as { activities: ActivityListItem[] }).activities}
                   onSelect={openEdit}
+                  canAssignOthers={canAssignOthers}
+                  members={editMembers}
+                  onBulkUpdate={bulkQuickUpdate}
+                  onQuickUpdate={async (id, changes) => {
+                    await quickUpdate(id, changes)
+                  }}
                 />
               ) : msg.metadata?.type === 'overload' ? (
                 <LumixPromptBubble
@@ -504,8 +502,6 @@ export function ChatPage() {
                     timestamp={msg.created_at}
                     isOwn={msg.sender_id === user?.id}
                     category={msg.category}
-                    fileUrl={msg.file_url}
-                    fileName={msg.file_name}
                     isOptimistic={msg.id.startsWith('opt-')}
                     onClick={undefined}
                     quoted={quotedOf(msg)}
@@ -542,39 +538,6 @@ export function ChatPage() {
         {replyTo && (
           <div className="px-4 py-2 bg-slate-800 border-t border-slate-700">
             <QuotedMessage reply={replyTo} onCancel={() => setReplyTo(null)} />
-          </div>
-        )}
-
-        {/* Attached file preview */}
-        {attachedFile && (
-          <div className="flex items-center gap-2 px-4 py-2 bg-slate-800 border-t border-slate-700">
-            <svg
-              className="w-4 h-4 text-indigo-400 flex-shrink-0"
-              fill="none"
-              viewBox="0 0 24 24"
-              stroke="currentColor"
-            >
-              <path
-                strokeLinecap="round"
-                strokeLinejoin="round"
-                strokeWidth={2}
-                d="M15.172 7l-6.586 6.586a2 2 0 102.828 2.828l6.414-6.586a4 4 0 00-5.656-5.656l-6.415 6.585a6 6 0 108.486 8.486L20.5 13"
-              />
-            </svg>
-            <span className="text-xs text-slate-300 truncate flex-1">{attachedFile.name}</span>
-            <button
-              onClick={() => setAttachedFile(null)}
-              className="p-1 rounded hover:bg-slate-700 text-slate-500 hover:text-slate-300"
-            >
-              <svg className="w-3.5 h-3.5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
-                <path
-                  strokeLinecap="round"
-                  strokeLinejoin="round"
-                  strokeWidth={2}
-                  d="M6 18L18 6M6 6l12 12"
-                />
-              </svg>
-            </button>
           </div>
         )}
 
@@ -628,15 +591,9 @@ export function ChatPage() {
             <Button
               size="sm"
               onClick={handleSend}
-              disabled={
-                (!input.trim() && !attachedFile) ||
-                sending ||
-                uploading ||
-                aiProcessing ||
-                bulkParsing
-              }
+              disabled={!input.trim() || sending || aiProcessing || bulkParsing}
             >
-              {sending || uploading || aiProcessing || bulkParsing ? (
+              {sending || aiProcessing || bulkParsing ? (
                 <div className="w-4 h-4 border-2 border-white border-t-transparent rounded-full animate-spin" />
               ) : (
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">

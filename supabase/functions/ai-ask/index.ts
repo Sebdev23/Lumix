@@ -34,7 +34,7 @@ serve(async (req: Request) => {
     return jsonResponse({ error: 'Too many requests. Try again in a minute.' }, 429, cors)
   }
   try {
-    const { question, teamData } = await req.json()
+    const { question, teamData, history } = await req.json()
 
     const today =
       teamData?.today ||
@@ -75,12 +75,47 @@ serve(async (req: Request) => {
       )
       .join('\n')
 
+    // Hilo previo, si el cliente lo mando. Mismo recorte que ai-classify/ai-update: como
+    // maximo los ultimos 6 turnos y 300 caracteres cada uno. Sirve para preguntas de
+    // seguimiento ("¿y la proxima semana?") que solo tienen sentido con la pregunta anterior.
+    const turns: { role?: string; text?: string }[] = Array.isArray(history) ? history : []
+    const thread = turns.length
+      ? `CONVERSACION PREVIA (solo como contexto):\n${turns
+          .slice(-6)
+          .map(
+            (t) =>
+              `${t.role === 'lumix' ? 'Lumix' : 'Usuario'}: ${String(t.text ?? '').slice(0, 300)}`,
+          )
+          .join('\n')}\n\n`
+      : ''
+
     const errorsStr = teamData.errors
       .map(
         (e: { title: string; severity: string; status: string }) =>
           `- ${e.title} | ${e.severity} | ${e.status}`,
       )
       .join('\n')
+
+    const temasParaConversarStr =
+      (teamData.temasParaConversar ?? [])
+        .map(
+          (t: { tema: string; responsable: string | null; plazo: string | null }) =>
+            `- ${t.tema}${t.responsable ? ` | responsable: ${t.responsable}` : ''}${t.plazo ? ` | plazo: ${t.plazo}` : ''}`,
+        )
+        .join('\n') || '(ninguno)'
+
+    const compromisosSemana = teamData.compromisosSemana as
+      | {
+          total: number
+          cumplidos: number
+          vencidos: number
+          porcentaje: number | null
+          meta: number
+        }
+      | undefined
+    const compromisosSemanaStr = compromisosSemana
+      ? `total: ${compromisosSemana.total} | cumplidos: ${compromisosSemana.cumplidos} | vencidos: ${compromisosSemana.vencidos} | cumplimiento: ${compromisosSemana.porcentaje ?? 0}% | meta EOS: ${compromisosSemana.meta}%`
+      : '(sin datos)'
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',
@@ -94,6 +129,8 @@ serve(async (req: Request) => {
           {
             role: 'system',
             content: `Eres Lumix, el asistente de OPERA AI. Hoy es ${today}. Responde con los datos proporcionados en espanol, claro y directo. Si te preguntan por "esta semana" filtra solo actividades con fecha de entrega entre lunes y domingo de la semana actual. Si la pregunta NO menciona ningun periodo, NO filtres por fecha y no expliques que no filtraste: responde derecho con todo lo pendiente. Siempre menciona la cantidad exacta y da ejemplos relevantes.
+
+Puede venir una CONVERSACION PREVIA como contexto. Usala para entender preguntas de seguimiento cortas ("¿y la proxima semana?", "¿y Pedro?") que solo tienen sentido junto con la pregunta anterior. No la repitas en tu respuesta ni la cites: contesta directo la pregunta actual.
 
 MUY IMPORTANTE - el usuario gestiona TODO hablandote a TI en este mismo chat, no en herramientas externas. NUNCA menciones Asana, Trello, Jira, Monday ni "el sistema de gestion". Si te preguntan COMO hacer algo (mover, completar, cambiar prioridad, reasignar, crear), explicales que solo tienen que escribirtelo en lenguaje natural, con ejemplos concretos:
 - Crear: "Juan revisar el reporte para el viernes, prioridad alta"
@@ -115,11 +152,23 @@ TEMAS SIN ASIGNAR. Puede venir una lista de temas de minuta que tienen responsab
 que NUNCA se convirtieron en actividad. Esos no le suman carga a nadie ni aparecen en ninguna
 otra parte del sistema. Si la lista trae algo y la pregunta es sobre pendientes del equipo,
 mencionalo al final en una linea, diciendo cuantos son y que falta apretar "Asignar actividad"
-en la minuta para que existan de verdad. Si la lista viene vacia, no digas nada al respecto.`,
+en la minuta para que existan de verdad. Si la lista viene vacia, no digas nada al respecto.
+
+TEMAS PARA CONVERSAR EN LA MINUTA. Lista de temas sin actividad vinculada, o marcados
+"definir en reunion" (volvieron de Compromisos porque no se cumplieron y hay un bloqueo de
+fondo). Si preguntan por la minuta, que falta definir, o que hay que conversar en la reunion,
+usa esta lista. No la mezcles con actividades ni compromisos: son temas, no tareas.
+
+COMPROMISOS DE LA SEMANA. Viene un resumen ya calculado (total, cumplidos, vencidos, %
+cumplimiento, meta) de las actividades que nacieron de la minuta y vencen esta semana. Si
+preguntan "como vamos con los compromisos", "cumplimiento de la semana" o algo similar, usa
+ESTOS numeros (no los cuentes vos mismo de la lista de actividades). El criterio es el Level
+10 Meeting de EOS: 90% de cumplimiento semanal es un equipo sano. Si el % esta por debajo de
+la meta, decilo sin dramatizar; si esta en o por encima, confirmalo brevemente.`,
           },
           {
             role: 'user',
-            content: `DATOS:\n\nMIEMBROS:\n${membersStr}\n\nACTIVIDADES:\n${activitiesStr}\n\nERRORES:\n${errorsStr}\n\nTEMAS SIN ASIGNAR:\n${sinAsignarStr}\n\nPREGUNTA: ${question}`,
+            content: `${thread}DATOS:\n\nMIEMBROS:\n${membersStr}\n\nACTIVIDADES:\n${activitiesStr}\n\nERRORES:\n${errorsStr}\n\nTEMAS SIN ASIGNAR:\n${sinAsignarStr}\n\nTEMAS PARA CONVERSAR EN LA MINUTA:\n${temasParaConversarStr}\n\nCOMPROMISOS DE LA SEMANA:\n${compromisosSemanaStr}\n\nPREGUNTA: ${question}`,
           },
         ],
         ...tuningParams(AI_MODEL, 600, 0.3),

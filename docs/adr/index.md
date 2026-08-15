@@ -87,6 +87,20 @@ El producto depende de IA para clasificar mensajes, extraer entidades, transcrib
 > pantalla de Reuniones (hoy un stub) la usa o si también se retira. Las columnas `audio` y
 > `transcript` de la tabla `meetings` se dejaron intactas.
 
+> **Actualización 2026-08-14: se retira Reuniones y se da de baja `ai-minutes`.** Decisión de
+> producto: el módulo no se va a usar. Se borró `src/features/meetings` (el stub nunca llegó a leer
+> datos reales, ni siquiera usaba `meetingsService`), la ruta `/meetings` en `App.tsx`, el tipo
+> `Meeting`, y la Edge Function `ai-minutes` junto con `generateMinutes()` en `ai-engine/client.ts`
+> (no tenía ningún caller). Las tablas `meetings` y `meeting_participants` se dejan intactas en la
+> base de datos — no se toca el esquema sin necesidad — pero quedan sin ningún consumidor en la app.
+>
+> En la misma decisión se retira adjuntar archivos/fotos del chat. Ya estaba roto en la práctica
+> (ver ADR-004: no hay bucket de Storage) y además no tenía ningún control en la UI para activarlo
+> — no había botón ni input de archivo, solo el estado y el hook quedaban conectados sin que nadie
+> pudiera dispararlos. Se borró `useFileUpload.ts`, los campos `file_url`/`file_name`/`file_type` de
+> `ChatMessage`/`SendMessagePayload`, y el bloque de adjunto en `ChatBubble`. La tabla `messages`
+> nunca tuvo esas columnas, así que no hay nada que migrar.
+
 - La capa AI Engine está desacoplada del frontend via Edge Functions de Supabase.
 - Las llamadas a OpenAI se hacen desde Edge Functions para no exponer la API key.
 

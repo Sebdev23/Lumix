@@ -1,6 +1,8 @@
 import { Card } from '@shared/components/ui/Card'
 import { Badge } from '@shared/components/ui/Badge'
 import { useDashboard } from '@features/dashboard/hooks/useDashboard'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
+import { AiAccuracyPanel } from '@features/dashboard/components/AiAccuracyPanel'
 import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 
 function getLoadColor(percentage: number): string {
@@ -25,6 +27,7 @@ function getLoadBadge(percentage: number) {
 }
 
 export function DashboardPage() {
+  const { isGlobalAdmin } = useCapabilities()
   const {
     pendingActivities,
     openErrors,
@@ -205,6 +208,9 @@ export function DashboardPage() {
             </div>
           )}
         </Card>
+
+        {/* Precision de la IA: solo el admin global, es una senal de operacion del producto. */}
+        {isGlobalAdmin && <AiAccuracyPanel />}
       </div>
     </div>
   )

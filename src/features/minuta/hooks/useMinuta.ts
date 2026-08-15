@@ -6,6 +6,7 @@ import { notificationsService } from '@infrastructure/supabase/notifications.ser
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
+import { deriveEstado } from '@shared/utils/compromisos'
 import type { Activity, HojaTipo, MinuteEstado, MinuteItem, Profile } from '@shared/types'
 
 const MESES_ABBR = [
@@ -28,15 +29,6 @@ export const estadoLabels: Record<MinuteEstado, string> = {
   en_desarrollo: 'En desarrollo',
   resuelto: 'Resuelto',
   definir: 'Definir en reunion',
-}
-
-// Estado efectivo: si el tema tiene actividades vinculadas, se deriva de ellas (sincronizado).
-function deriveEstado(item: MinuteItem, byId: Record<string, Activity>): MinuteEstado {
-  const acts = item.linked_activity_ids.map((id) => byId[id]).filter(Boolean)
-  if (acts.length === 0) return item.estado
-  if (acts.every((a) => a.status === 'completado')) return 'resuelto'
-  if (acts.some((a) => a.status !== 'pendiente')) return 'en_desarrollo'
-  return 'pendiente'
 }
 
 export interface DecoratedItem extends MinuteItem {

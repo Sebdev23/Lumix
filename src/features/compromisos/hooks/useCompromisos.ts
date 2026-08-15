@@ -35,7 +35,8 @@ import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { minutesService } from '@infrastructure/supabase/minutes.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
-import type { Activity, Profile } from '@shared/types'
+import { compromisosEnVentana, compromisoStats } from '@shared/utils/compromisos'
+import type { Activity, MinuteItem, Profile } from '@shared/types'
 
 const MESES = ['ene', 'feb', 'mar', 'abr', 'may', 'jun', 'jul', 'ago', 'sep', 'oct', 'nov', 'dic']
 
@@ -80,13 +81,12 @@ export interface GrupoPersona {
 
 export function useCompromisos() {
   const [todas, setTodas] = useState<Activity[]>([])
+  const [temas, setTemas] = useState<MinuteItem[]>([])
   const [miembros, setMiembros] = useState<Profile[]>([])
   // Actividades que ya tienen un tema de minuta esperando conversacion. Sin esto la fila no
   // cambiaba al escalarla y la gente volvia a apretar el boton: pasó de verdad, tres temas
   // identicos en 25 segundos.
   const [escaladas, setEscaladas] = useState<Set<string>>(new Set())
-  // Actividades nacidas de un tema de minuta: son las unicas que cuentan como compromiso.
-  const [deMinuta, setDeMinuta] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [offset, setOffset] = useState(0)
   const { profile } = useAuth()
@@ -101,6 +101,7 @@ export function useCompromisos() {
       minutesService.getByTeam(teamId, 'minuta'),
     ])
     setTodas(acts)
+    setTemas(temas)
     setMiembros(gente)
     setEscaladas(
       new Set(
@@ -109,7 +110,6 @@ export function useCompromisos() {
           .flatMap((t) => t.linked_activity_ids as string[]),
       ),
     )
-    setDeMinuta(new Set(temas.flatMap((t) => t.linked_activity_ids as string[])))
     setLoading(false)
   }, [teamId])
 
@@ -125,12 +125,11 @@ export function useCompromisos() {
 
   // Quien ve a quien: la misma regla del resto de la app. Un colaborador ve lo suyo; quien
   // puede ver todo el equipo, ve a todos. La reunion la conduce esa persona.
-  const visibles = todas.filter((a) => {
-    // Nacio de un tema de minuta. Esto reemplaza al filtro por prefijo "[Ingesta]" que habia
-    // antes: una actividad suelta ya no entra por ningun lado, venga de donde venga.
-    if (!deMinuta.has(a.id)) return false
-    const d = new Date(a.due_date)
-    if (d < desde || d > hasta) return false
+  //
+  // El filtro "nacio de un tema de minuta + cae en esta semana" es el mismo que usa el chat
+  // (ver buildTeamData en useChatMessages.ts) para no responder con numeros distintos a los
+  // que muestra esta pantalla; vive en shared/utils/compromisos.ts.
+  const visibles = compromisosEnVentana(todas, temas, desde, hasta).filter((a) => {
     if (!canViewAllActivities && !isGlobalAdmin && a.responsible_id !== profile?.id) return false
     return true
   })
@@ -174,16 +173,9 @@ export function useCompromisos() {
     .filter((g) => g.compromisos.length > 0)
     .sort((a, b) => b.compromisos.length - a.compromisos.length)
 
-  const total = compromisos.length
-  const cumplidos = compromisos.filter((c) => c.status === 'completado').length
   const resumen = {
-    total,
-    cumplidos,
+    ...compromisoStats(compromisos),
     aTiempo: compromisos.filter((c) => c.aTiempo).length,
-    vencidos: compromisos.filter((c) => c.diasVencida > 0).length,
-    // El 90% es la referencia de EOS para un equipo sano, no un invento.
-    porcentaje: total ? Math.round((cumplidos / total) * 100) : null,
-    meta: 90,
   }
 
   /** Marca hecho o deshecho. El trigger de la base pone completed_at. */

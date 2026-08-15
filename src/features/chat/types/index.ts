@@ -2,9 +2,6 @@ import type { Message, MessageCategory, Profile } from '@shared/types'
 
 export interface ChatMessage extends Message {
   sender: Pick<Profile, 'full_name' | 'avatar_url'> | null
-  file_url?: string | null
-  file_name?: string | null
-  file_type?: string | null
   // metadata se hereda de Message (migracion 031): ya no vive solo en memoria.
   is_ai?: boolean
   /**
@@ -20,9 +17,6 @@ export interface ChatMessage extends Message {
 export interface SendMessagePayload {
   content: string
   category: MessageCategory | null
-  file_url?: string
-  file_name?: string
-  file_type?: string
   reply_to?: ReplyTarget | null
 }
 

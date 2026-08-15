@@ -124,4 +124,34 @@ export const aiDecisionsService = {
       // silencio intencional
     }
   },
+
+  /**
+   * Filas crudas para armar la tasa de correccion por categoria/modelo.
+   *
+   * "corrected" no captura TODO error de clasificacion (solo lo que el usuario corrigio por
+   * popout o editando en los 30 minutos siguientes, ver markCorrectionByEntity), pero es la
+   * unica señal real que hay: mejor una aproximacion medida que ninguna.
+   */
+  async getRecentDecisions(
+    teamId: string,
+    sinceDays = 30,
+  ): Promise<{ predicted_category: string | null; model: string | null; corrected: boolean }[]> {
+    try {
+      const since = new Date(Date.now() - sinceDays * 86_400_000).toISOString()
+      const { data, error } = await supabase
+        .from('ai_decisions')
+        .select('predicted_category, model, corrected')
+        .eq('team_id', teamId)
+        .gte('created_at', since)
+        .not('predicted_category', 'is', null)
+      if (error) {
+        console.warn('ai_decisions fetch failed (ignorado):', error.message)
+        return []
+      }
+      return data ?? []
+    } catch (err) {
+      console.warn('ai_decisions fetch failed (ignorado):', err)
+      return []
+    }
+  },
 }

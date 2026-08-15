@@ -1,4 +1,4 @@
-export { classifyMessage, classifyBulk, resolveUpdate, generateMinutes } from './client'
+export { classifyMessage, classifyBulk, resolveUpdate } from './client'
 export type {
   ClassifyResult,
   ClassifyCategory,

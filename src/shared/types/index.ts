@@ -93,18 +93,6 @@ export interface MinuteItem {
   updated_at: string
 }
 
-export interface Meeting {
-  id: string
-  title: string
-  scheduled_at: string
-  audio_url: string | null
-  transcript: string | null
-  minutes: string | null
-  created_by: string
-  team_id: string
-  created_at: string
-}
-
 export interface Message {
   id: string
   content: string

@@ -175,6 +175,7 @@ serve(async (req: Request) => {
       activities,
       members,
       targeted,
+      history,
       todayISO: clientISO,
       today: clientToday,
     } = await req.json()
@@ -209,9 +210,23 @@ serve(async (req: Request) => {
     const isTargeted = targeted === true && list.length === 1
     const numbered = list.map(describe).join('\n')
 
+    // Hilo previo, si el cliente lo mando. Mismo recorte que ai-classify: como maximo los
+    // ultimos 6 turnos y 300 caracteres cada uno. Sirve para mensajes cortos que solo se
+    // entienden con lo que se dijo antes ("y para el viernes" despues de crear la actividad).
+    const turns: { role?: string; text?: string }[] = Array.isArray(history) ? history : []
+    const thread = turns.length
+      ? `Conversacion previa (solo como contexto, NO la clasifiques):\n${turns
+          .slice(-6)
+          .map(
+            (t) =>
+              `${t.role === 'lumix' ? 'Lumix' : 'Usuario'}: ${String(t.text ?? '').slice(0, 300)}`,
+          )
+          .join('\n')}\n\n`
+      : ''
+
     const userPrompt = isTargeted
-      ? `Hoy es ${todayStr} (${today}). ${roster}\n\nActividad a la que el usuario respondio:\n${describe(list[0], 0)}\n\nMensaje del usuario: "${content}"`
-      : `Hoy es ${todayStr} (${today}). ${roster}\n\nActividades abiertas:\n${numbered || '(ninguna)'}\n\nMensaje del usuario: "${content}"`
+      ? `Hoy es ${todayStr} (${today}). ${roster}\n\n${thread}Actividad a la que el usuario respondio:\n${describe(list[0], 0)}\n\nMensaje del usuario: "${content}"`
+      : `Hoy es ${todayStr} (${today}). ${roster}\n\n${thread}Actividades abiertas:\n${numbered || '(ninguna)'}\n\nMensaje del usuario: "${content}"`
 
     const response = await fetch('https://api.openai.com/v1/chat/completions', {
       method: 'POST',

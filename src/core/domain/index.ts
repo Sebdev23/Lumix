@@ -6,10 +6,4 @@ export type {
   MessageCategory,
 } from '../../shared/types'
 
-export type {
-  Profile,
-  Activity,
-  AppError,
-  Meeting,
-  Message,
-} from '../../shared/types'
+export type { Profile, Activity, AppError, Message } from '../../shared/types'

@@ -115,9 +115,10 @@ export async function resolveUpdate(
   activities: UpdateActivityLite[],
   members: string[] = [],
   targeted = false,
+  history: HistoryTurn[] = [],
 ): Promise<UpdateResult> {
   const { data, error } = await supabase.functions.invoke('ai-update', {
-    body: { content, activities, members, targeted, ...todayContext() },
+    body: { content, activities, members, targeted, history, ...todayContext() },
   })
 
   if (error) throw new Error(error.message)
@@ -134,15 +135,6 @@ export async function classifyBulk(content: string, members: string[] = []): Pro
   return { activities: Array.isArray(result?.activities) ? result.activities : [] }
 }
 
-export async function generateMinutes(transcript: string): Promise<string> {
-  const { data, error } = await supabase.functions.invoke('ai-minutes', {
-    body: { transcript },
-  })
-
-  if (error) throw new Error(error.message)
-  return (data as { minutes: string }).minutes
-}
-
 interface TeamData {
   today: string
   activities: {
@@ -151,14 +143,28 @@ interface TeamData {
     priority: number
     due_date: string
     responsible: string
+    origen?: string
   }[]
   errors: { title: string; severity: string; status: string }[]
   members: { name: string; activeTasks: number; load: number }[]
+  sinAsignar?: { tema: string; responsables: string; plazo: string | null }[]
+  temasParaConversar?: { tema: string; responsable: string | null; plazo: string | null }[]
+  compromisosSemana?: {
+    total: number
+    cumplidos: number
+    vencidos: number
+    porcentaje: number | null
+    meta: number
+  }
 }
 
-export async function askQuestion(question: string, teamData: TeamData): Promise<string> {
+export async function askQuestion(
+  question: string,
+  teamData: TeamData,
+  history: HistoryTurn[] = [],
+): Promise<string> {
   const { data, error } = await supabase.functions.invoke('ai-ask', {
-    body: { question, teamData },
+    body: { question, teamData, history },
   })
 
   if (error) throw new Error(error.message)

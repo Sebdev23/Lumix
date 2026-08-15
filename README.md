@@ -8,17 +8,23 @@ Sistema Operativo Conversacional para Equipos de Trabajo.
 
 ## Que hace
 
-| Modulo                 | Descripcion                                                                       |
-| ---------------------- | --------------------------------------------------------------------------------- |
-| **Chat con IA**        | Escribis en lenguaje natural y Lumix clasifica, crea y asigna automaticamente     |
-| **Actividades**        | Gestion de tareas con prioridad chilena (1=urgente, 5=baja), fechas, responsables |
-| **Errores (Bitacora)** | Registro de incidencias con severidad, tipo, timeline y comentarios               |
-| **Ingestas**           | Tareas de datos gestionadas por el ingeniero de datos (rol invitado)              |
-| **Dashboard**          | KPIs en tiempo real: pendientes, criticas, carga laboral por miembro              |
-| **Gantt**              | Planificacion semanal con indicadores de saturacion (0-70% normal, +90% critico)  |
-| **Notificaciones**     | Alertas en tiempo real por actividad bloqueada, deadlines, sobrecarga             |
-| **Equipos**            | Multi-tenant: crea equipos, invita miembros, asigna roles                         |
-| **Admin**              | Crea usuarios con clave temporal, gestiona roles por equipo                       |
+| Modulo                 | Descripcion                                                                                |
+| ---------------------- | ------------------------------------------------------------------------------------------ |
+| **Chat con IA**        | Escribis en lenguaje natural y Lumix clasifica, crea y asigna automaticamente              |
+| **Actividades**        | Gestion de tareas con prioridad chilena (1=urgente, 5=baja), fechas, responsables          |
+| **Errores (Bitacora)** | Registro de incidencias con severidad, tipo, timeline y comentarios                        |
+| **Ingestas**           | Tareas de datos gestionadas por el ingeniero de datos (rol invitado)                       |
+| **Minuta**             | Minuta semanal por estado de actividad, exportable a CSV                                   |
+| **Compromisos**        | Hoja de compromisos con trazabilidad de plazo (estilo Level 10 Meeting de EOS)             |
+| **Dashboard**          | KPIs en tiempo real: pendientes, criticas, carga laboral por miembro                       |
+| **Gantt**              | Planificacion semanal con indicadores de saturacion (umbral configurable por equipo)       |
+| **Notificaciones**     | Alertas por actividad bloqueada, deadlines, sobrecarga (se releen al navegar, ver ADR-004) |
+| **Equipos**            | Multi-tenant: crea equipos, invita miembros, asigna roles                                  |
+| **Admin**              | Crea usuarios con clave temporal, gestiona roles por equipo                                |
+| **Perfil**             | Datos propios del usuario                                                                  |
+
+> El chat no admite adjuntar archivos ni fotos, y no hay modulo de Reuniones: se
+> retiraron ambos por decision de producto (ver ADR-003 y ADR-004).
 
 ---
 
@@ -35,13 +41,13 @@ Sistema Operativo Conversacional para Equipos de Trabajo.
 
 ## Stack
 
-| Capa         | Tecnologia                                                     |
-| ------------ | -------------------------------------------------------------- |
-| Frontend     | React 19, Vite, TypeScript, Tailwind CSS 4                     |
-| Backend      | Supabase (PostgreSQL, Auth, Realtime, Storage, Edge Functions) |
-| IA           | OpenAI GPT-4o (clasificacion)                                  |
-| Hosting      | Netlify (frontend), Supabase (backend)                         |
-| Arquitectura | Clean Architecture + Feature-Based + DDD                       |
+| Capa         | Tecnologia                                                                               |
+| ------------ | ---------------------------------------------------------------------------------------- |
+| Frontend     | React 19, Vite, TypeScript, Tailwind CSS 4                                               |
+| Backend      | Supabase (PostgreSQL, Auth, Edge Functions). Realtime y Storage no se usan (ver ADR-004) |
+| IA           | OpenAI GPT-4o (clasificacion)                                                            |
+| Hosting      | Netlify (frontend), Supabase (backend)                                                   |
+| Arquitectura | Clean Architecture + Feature-Based + DDD                                                 |
 
 ---
 
@@ -50,19 +56,20 @@ Sistema Operativo Conversacional para Equipos de Trabajo.
 ```
 src/
 ├── core/           # auth, ai-engine, domain, notifications
-├── features/       # chat, activities, errors, ingestas, dashboard, gantt, teams, admin
+├── features/       # chat, activities, errors, ingestas, minuta, compromisos,
+│                   # dashboard, gantt, notifications, teams, admin, profile
 ├── shared/         # componentes UI, hooks, utils, types
 ├── infrastructure/ # supabase services
 supabase/
-├── functions/      # ai-classify, ai-ask, ai-update, ai-bulk, ai-minutes, admin-users
-└── migrations/     # 12 migraciones SQL
+├── functions/      # ai-classify, ai-ask, ai-update, ai-bulk, admin-users
+└── migrations/     # 38 migraciones SQL
 ```
 
 ---
 
 ## API / Edge Functions
 
-6 Edge Functions desplegadas en Supabase. La API key de OpenAI esta como secreto del servidor, nunca expuesta al cliente.
+5 Edge Functions desplegadas en Supabase. La API key de OpenAI esta como secreto del servidor, nunca expuesta al cliente.
 
 **Todas las funciones de IA exigen un usuario autenticado.** La anon key viaja dentro del bundle que
 sirve Netlify (es publica por diseno: cualquier variable `VITE_*` queda escrita en el JavaScript
@@ -84,7 +91,6 @@ El codigo comun vive en `supabase/functions/_shared/`:
 | `ai-ask`      | `POST /functions/v1/ai-ask`      | Responde preguntas con datos del equipo. Recibe `{ question, teamData }`, devuelve `{ answer }`      |
 | `ai-update`   | `POST /functions/v1/ai-update`   | Decide si un mensaje modifica una actividad existente y que cambios aplicar                          |
 | `ai-bulk`     | `POST /functions/v1/ai-bulk`     | Modo masivo: parte un texto largo en varias actividades. Devuelve `{ activities }`                   |
-| `ai-minutes`  | `POST /functions/v1/ai-minutes`  | Genera una minuta a partir de un transcript. **Hoy sin uso** (ver ADR-003)                           |
 | `admin-users` | `POST /functions/v1/admin-users` | Crea usuarios y cambia roles. Usa service_role key. Acciones: `create-user`, `change-role`           |
 
 ### Ejemplo ai-classify
@@ -119,18 +125,21 @@ Respuesta:
 
 ## Base de Datos
 
-9 tablas con Row Level Security por equipo:
+11 tablas con Row Level Security por equipo:
 
-| Tabla           | Descripcion                                           |
-| --------------- | ----------------------------------------------------- |
-| `teams`         | Equipos                                               |
-| `profiles`      | Usuarios (extiende auth.users)                        |
-| `team_members`  | Miembros por equipo con rol                           |
-| `activities`    | Actividades (prioridad, estado, completed_at)         |
-| `errors`        | Errores (severidad, tipo, observaciones, resolved_at) |
-| `messages`      | Chat (is_ai flag para respuestas de IA)               |
-| `meetings`      | Reuniones (audio, transcript, minuta)                 |
-| `notifications` | Notificaciones por usuario                            |
+| Tabla                  | Descripcion                                                                                     |
+| ---------------------- | ----------------------------------------------------------------------------------------------- |
+| `teams`                | Equipos                                                                                         |
+| `profiles`             | Usuarios (extiende auth.users)                                                                  |
+| `team_members`         | Miembros por equipo con rol                                                                     |
+| `activities`           | Actividades (prioridad, estado, completed_at)                                                   |
+| `errors`               | Errores (severidad, tipo, observaciones, resolved_at)                                           |
+| `messages`             | Chat (is_ai flag para respuestas de IA). Sin columnas de archivo: el chat no admite adjuntos    |
+| `notifications`        | Notificaciones por usuario                                                                      |
+| `minute_items`         | Items de la minuta semanal (migracion 018)                                                      |
+| `ai_decisions`         | Que modelo de IA produjo cada clasificacion (migracion 027)                                     |
+| `meetings`             | **Sin uso.** Quedo de un modulo de Reuniones retirado (ver ADR-003/004); la tabla no se elimino |
+| `meeting_participants` | **Sin uso.** Idem `meetings`                                                                    |
 
 ### Politicas RLS
 
@@ -186,7 +195,7 @@ PROJECT_URL=<url-de-tu-proyecto-supabase>
 AI_MODEL=<opcional: modelo de OpenAI>
 ```
 
-`AI_MODEL` controla el modelo que usan las 5 Edge Functions de IA. En produccion esta definido como
+`AI_MODEL` controla el modelo que usan las 4 Edge Functions de IA. En produccion esta definido como
 `gpt-4o` (ver ADR-003). **Si no se define, todas caen al default del codigo, que tambien es `gpt-4o`**
 — no `gpt-4o-mini`. Conviene mantenerlo explicito para que el modelo no dependa de un default
 escondido en el codigo.
