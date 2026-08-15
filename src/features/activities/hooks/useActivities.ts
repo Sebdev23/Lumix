@@ -1,4 +1,4 @@
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useRef } from 'react'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
@@ -20,11 +20,30 @@ export function useActivities() {
   const [dateType, setDateType] = useState<'creadas' | 'cerradas' | 'entrega'>('entrega')
   const [dateFrom, setDateFrom] = useState('')
   const [dateTo, setDateTo] = useState('')
+  // Arranca en el equipo activo del selector de arriba, no en "todas".
+  //
+  // Esta pantalla es la unica que no seguia ese selector: cargaba mis actividades de todos
+  // los equipos mas las de los que lidero, y dejaba el filtro en "todas". Como usuario
+  // cambiabas de equipo arriba, no pasaba nada aca, y tenias que volver a filtrar adentro.
+  // Eran dos ideas distintas de "equipo actual" conviviendo en la misma app.
+  //
+  // La vista cruzada NO se pierde: sigue estando a un clic en la opcion "Todos los equipos".
+  // Lo que cambia es cual es el punto de partida.
   const [filterTeam, setFilterTeam] = useState<string>('todas')
   const [filterMember, setFilterMember] = useState<string>('todas')
   const [search, setSearch] = useState('')
   const { user, profile } = useAuth()
   const toast = useToast()
+
+  // El perfil llega despues del primer render, asi que el default se aplica cuando aparece.
+  // Con un ref y no con un estado para no re-renderizar de mas, y para que se aplique UNA
+  // sola vez: si no, cada recarga del perfil pisaria el filtro que el usuario acaba de elegir.
+  const defaultAplicado = useRef(false)
+  useEffect(() => {
+    if (defaultAplicado.current || !profile?.team_id) return
+    defaultAplicado.current = true
+    setFilterTeam(profile.team_id)
+  }, [profile?.team_id])
 
   const load = useCallback(async () => {
     if (!user) return

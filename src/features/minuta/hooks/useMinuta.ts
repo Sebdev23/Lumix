@@ -66,7 +66,7 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
   const [members, setMembers] = useState<Profile[]>([])
   const [activitiesById, setActivitiesById] = useState<Record<string, Activity>>({})
   const [loading, setLoading] = useState(true)
-  const [view, setView] = useState<'pendientes' | 'resueltos' | 'todos'>('pendientes')
+  const [view, setView] = useState<'pendientes' | 'asignados' | 'resueltos' | 'todos'>('pendientes')
   const [filterMember, setFilterMember] = useState<string>('todas')
   const [search, setSearch] = useState('')
   const [weekMode, setWeekMode] = useState(false)
@@ -169,18 +169,38 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     return true
   })
 
-  // Vista por estado
-  const visible = base.filter((it) =>
-    view === 'todos'
-      ? true
-      : view === 'resueltos'
-        ? it.effectiveEstado === 'resuelto'
-        : it.effectiveEstado !== 'resuelto',
-  )
+  // VISTAS
+  //
+  // "Pendientes" es lo que se conversa en la reunion: temas que TODAVIA no se asignaron.
+  // Un tema que ya genero actividades sale de ahi -su seguimiento pasa a Compromisos- pero
+  // no se borra: queda en "Asignados" y en "Todos", con el vinculo intacto.
+  //
+  // Elegir a una persona en el desplegable NO cuenta como asignar: mientras no se apriete
+  // "Asignar actividad" el tema sigue en Pendientes. Es a proposito, y ademas se corrige
+  // solo: el tema queda a la vista incomodando hasta que alguien complete el paso.
+  const resuelto = (it: DecoratedItem) => it.effectiveEstado === 'resuelto'
+
+  // "Definir en reunion" es literalmente el estado de lo que hay que conversar, asi que un
+  // tema marcado asi va a la lista de discusion AUNQUE tenga actividad vinculada. Es el caso
+  // de lo que vuelve desde la hoja de compromisos: no se cumplio, hay un bloqueo de fondo, y
+  // moverlo de semana otra vez no resuelve nada. Sin esta excepcion caia en "Asignados", que
+  // es justo la pestaña donde nadie lo iba a discutir.
+  //
+  // Se mira el estado CRUDO y no el efectivo: el efectivo lo pisan las actividades vinculadas.
+  const paraConversar = (it: DecoratedItem) =>
+    it.linked_activity_ids.length === 0 || it.estado === 'definir'
+
+  const visible = base.filter((it) => {
+    if (view === 'todos') return true
+    if (view === 'resueltos') return resuelto(it)
+    if (view === 'asignados') return !paraConversar(it) && !resuelto(it)
+    return paraConversar(it) && !resuelto(it)
+  })
 
   const counts = {
-    pendientes: base.filter((it) => it.effectiveEstado !== 'resuelto').length,
-    resueltos: base.filter((it) => it.effectiveEstado === 'resuelto').length,
+    pendientes: base.filter((it) => paraConversar(it) && !resuelto(it)).length,
+    asignados: base.filter((it) => !paraConversar(it) && !resuelto(it)).length,
+    resueltos: base.filter(resuelto).length,
     todos: base.length,
   }
 

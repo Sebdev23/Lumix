@@ -115,6 +115,7 @@ export function ChatPage() {
     bulkCreate,
     createResolvedActivity,
     createOverloadActivity,
+    descartarAlerta,
     createMinutaTopic,
     reassignResolved,
     confirmCategory,
@@ -151,15 +152,33 @@ export function ChatPage() {
   // Abrir los popouts automaticamente (sin que el usuario tenga que tocar el mensaje):
   // asi no cree que ya se creo y se olvide de elegir/asignar. El mensaje queda clickeable
   // por si cancela. Se abre solo el mas reciente que aun no se haya mostrado.
+  //
+  // DOS FILTROS QUE NO SON OPCIONALES, desde que estas alertas se guardan (migracion 031):
+  //
+  // 1. Solo las MIAS. El admin lee todo el chat del equipo, asi que sin esto le saltaba el
+  //    popout de la conversacion de otra persona -paso de verdad: al admin se le abria la
+  //    alerta de sobrecarga de Manuel- y podia resolver algo que no le correspondia.
+  // 2. Solo las que LLEGAN durante la sesion. Antes se perdian al recargar; ahora
+  //    sobreviven, y una sin resolver reaparecia en CADA recarga, para siempre. Las que ya
+  //    estaban al abrir el chat se marcan como vistas: quedan como burbuja clickeable, que
+  //    es suficiente para algo que uno ya vio antes.
   const autoOpenedRef = useRef<Set<string>>(new Set())
+  const cargaInicialRef = useRef(true)
   useEffect(() => {
+    // Se espera al fin de la carga y no a que haya mensajes: un chat que arranca vacio
+    // tambien tiene que quedar marcado, o la primera alerta de la sesion no se abriria.
+    if (loading) return
+    if (cargaInicialRef.current) {
+      cargaInicialRef.current = false
+      messages.forEach((m) => autoOpenedRef.current.add(m.id))
+      return
+    }
     const pendingMsg = messages.find(
       (m) =>
         m.metadata?.type &&
         AUTO_OPEN_TYPES.includes(m.metadata.type as string) &&
-        // Las preguntas ya respondidas ahora sobreviven a la recarga (migracion 031):
-        // sin este filtro se reabririan solas cada vez que se entra al chat.
         !m.metadata.resolved &&
+        (!m.owner_id || m.owner_id === user?.id) &&
         !autoOpenedRef.current.has(m.id),
     )
     if (!pendingMsg) return
@@ -182,7 +201,7 @@ export function ChatPage() {
         setActivityPick({ data: meta as unknown as ActivityPick, messageId: pendingMsg.id })
         break
     }
-  }, [messages])
+  }, [messages, loading, user?.id])
 
   // RESPONDER A UN MENSAJE (como WhatsApp).
   //
@@ -392,6 +411,7 @@ export function ChatPage() {
                   timestamp={msg.created_at}
                   accent="amber"
                   resolution={msg.metadata.resolution as string | undefined}
+                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
                   onOpen={() =>
                     setOverloadData({
                       pending: (msg.metadata as unknown as { pending: PendingOverload }).pending,
@@ -406,6 +426,7 @@ export function ChatPage() {
                   timestamp={msg.created_at}
                   accent="indigo"
                   resolution={msg.metadata.resolution as string | undefined}
+                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
                   onOpen={() =>
                     setNameConfirm({
                       data: msg.metadata as unknown as NameConfirm,
@@ -420,6 +441,7 @@ export function ChatPage() {
                   timestamp={msg.created_at}
                   accent="indigo"
                   resolution={msg.metadata.resolution as string | undefined}
+                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
                   onOpen={() =>
                     setActivityPick({
                       data: msg.metadata as unknown as ActivityPick,
@@ -434,6 +456,7 @@ export function ChatPage() {
                   timestamp={msg.created_at}
                   accent="amber"
                   resolution={msg.metadata.resolution as string | undefined}
+                  ajena={!!msg.owner_id && msg.owner_id !== user?.id}
                   onOpen={() =>
                     setCategoryConfirm({
                       pending: (msg.metadata as unknown as { pending: PendingCategory }).pending,
@@ -640,6 +663,14 @@ export function ChatPage() {
             setOverloadFeedback('')
           }
 
+          // Cancelar es una DECISION, no un cierre de ventana: queda registrada. Antes solo
+          // cerraba el popout, asi que la alerta seguia pendiente y volvia a aparecer en cada
+          // recarga, sin forma de decirle al sistema "ya lo decidi, no la quiero".
+          const cancelarOverload = async () => {
+            await descartarAlerta(overloadData.messageId)
+            closeOverload()
+          }
+
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
               <div className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4">
@@ -729,7 +760,7 @@ export function ChatPage() {
                         </button>
                         <button
                           disabled={creatingOverload}
-                          onClick={closeOverload}
+                          onClick={cancelarOverload}
                           className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
                         >
                           Cancelar (no crear)

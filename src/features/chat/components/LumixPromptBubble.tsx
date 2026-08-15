@@ -12,6 +12,14 @@ type Props = {
   accent: 'amber' | 'indigo'
   /** Texto de lo que se decidio. Si viene, la burbuja queda inerte. */
   resolution?: string | null
+  /**
+   * La pregunta es de otra conversacion (el admin lee el chat de todo el equipo).
+   *
+   * Se muestra, pero no se puede responder: solo su dueño puede cerrarla, y la base lo
+   * exige. Sin esto el admin podia resolver la alerta de otra persona, crear la actividad a
+   * su nombre y dejar la alerta abierta igual, porque la marca era rechazada.
+   */
+  ajena?: boolean
   onOpen: () => void
 }
 
@@ -20,7 +28,14 @@ const ACCENT_BORDER = {
   indigo: 'border-indigo-500/20',
 }
 
-export function LumixPromptBubble({ content, timestamp, accent, resolution, onOpen }: Props) {
+export function LumixPromptBubble({
+  content,
+  timestamp,
+  accent,
+  resolution,
+  ajena,
+  onOpen,
+}: Props) {
   const bubble = 'rounded-2xl rounded-bl-md px-4 py-2.5 text-sm text-left border'
 
   return (
@@ -34,6 +49,11 @@ export function LumixPromptBubble({ content, timestamp, accent, resolution, onOp
           <div className={`${bubble} bg-slate-800 text-slate-400 border-slate-700`}>
             <p className="whitespace-pre-wrap break-words">{content}</p>
             <p className="mt-1.5 text-xs text-emerald-500/80">✓ {resolution}</p>
+          </div>
+        ) : ajena ? (
+          <div className={`${bubble} bg-slate-800 text-slate-400 border-slate-700`}>
+            <p className="whitespace-pre-wrap break-words">{content}</p>
+            <p className="mt-1.5 text-xs text-slate-500">Pendiente de su responsable</p>
           </div>
         ) : (
           <button

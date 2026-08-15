@@ -381,7 +381,12 @@ export function useChatMessages() {
         personal.map((msg) => {
           const isAi = msg.sender_id === 'ai' || (msg as ChatMessage).is_ai
           if (isAi) {
-            return { ...msg, sender: { full_name: 'Lumix', avatar_url: null }, sender_id: 'ai' }
+            return {
+              ...msg,
+              sender: { full_name: 'Lumix', avatar_url: null },
+              owner_id: msg.sender_id, // antes de perderlo al marcarlo como 'ai'
+              sender_id: 'ai',
+            }
           }
           const member = members.find((m) => m.id === msg.sender_id)
           // El admin no esta en la lista de miembros: resolvemos su propio nombre con su perfil.
@@ -433,6 +438,7 @@ export function useChatMessages() {
               ...prev,
               {
                 ...newMsg,
+                owner_id: newMsg.sender_id,
                 sender: isAiMsg
                   ? { full_name: 'Lumix', avatar_url: null }
                   : member
@@ -477,6 +483,7 @@ export function useChatMessages() {
   // el id real para que resolverla despues apunte a la fila correcta y para que al recargar
   // no aparezca duplicada.
   const appendAndSave = async (message: ChatMessage, persist = true) => {
+    message = { ...message, owner_id: message.owner_id ?? user?.id }
     setMessages((prev) => {
       if (prev.some((m) => m.id === message.id)) return prev
       return [...prev, message]
@@ -587,7 +594,7 @@ export function useChatMessages() {
   // vuelve no clickeable. Antes se borraba del estado local, que alcanzaba solo porque el
   // mensaje no existia en la base; ahora que persiste, sin esto se podria volver a tocar
   // despues de recargar y crear la actividad dos veces.
-  const resolveInteractive = async (messageId: string, resolution: string) => {
+  const resolveInteractive = async (messageId: string, resolution: string): Promise<boolean> => {
     setMessages((prev) =>
       prev.map((m) =>
         m.id === messageId
@@ -597,8 +604,25 @@ export function useChatMessages() {
     )
     try {
       await messagesService.resolveInteractive(messageId, resolution)
+      return true
     } catch (err) {
+      // NO se traga el error: se revierte la marca local y se avisa.
+      //
+      // La funcion de la base solo deja marcar mensajes propios. Cuando el admin resolvia la
+      // alerta de otra persona el rechazo se perdia en la consola: la actividad SI se creaba,
+      // la alerta seguia pendiente, reaparecia, y se volvia a resolver. Resultado real: una
+      // actividad duplicada a nombre de Manuel.
       console.error('No pude marcar la alerta como resuelta:', err)
+      setMessages((prev) =>
+        prev.map((m) => {
+          if (m.id !== messageId) return m
+          const meta = { ...(m.metadata ?? {}) }
+          delete meta.resolved
+          delete meta.resolution
+          return { ...m, metadata: meta }
+        }),
+      )
+      return false
     }
   }
 
@@ -1346,7 +1370,18 @@ export function useChatMessages() {
       // Solo se marca resuelta si la actividad quedo creada: si falla, la alerta sigue viva
       // y se puede reintentar.
       if (confirmMessageId) {
-        await resolveInteractive(confirmMessageId, `Creada para el ${formatDateLocal(dueDate)}`)
+        const marcada = await resolveInteractive(
+          confirmMessageId,
+          `Creada para el ${formatDateLocal(dueDate)}`,
+        )
+        if (!marcada) {
+          // La actividad SI quedo creada; lo que fallo es cerrar la alerta. Hay que decirlo,
+          // porque si no la alerta reaparece y alguien la resuelve otra vez.
+          await aiSay(
+            'La actividad quedo creada, pero no pude cerrar la alerta: es de otra conversacion. ' +
+              'Solo su dueño puede cerrarla.',
+          )
+        }
       }
       return formatDateLocal(dueDate)
     } catch (err) {
@@ -2007,6 +2042,8 @@ export function useChatMessages() {
     bulkCreate,
     createResolvedActivity,
     createOverloadActivity,
+    // Para que "Cancelar (no crear)" deje registrada la decision en vez de solo cerrar.
+    descartarAlerta: (messageId: string) => resolveInteractive(messageId, 'Se decidio no crearla'),
     createMinutaTopic,
     reassignResolved,
     confirmCategory,

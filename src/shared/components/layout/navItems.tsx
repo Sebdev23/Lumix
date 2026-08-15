@@ -138,10 +138,24 @@ export interface NavItem {
   icon: (props: { className?: string }) => ReactNode
 }
 
+export function CheckCircleIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
+      />
+    </svg>
+  )
+}
+
 export const navItems: NavItem[] = [
   { to: '/chat', label: 'Chat', icon: ChatIcon },
   { to: '/activities', label: 'Actividades', icon: ListIcon },
   { to: '/minuta', label: 'Minuta', icon: ClipboardIcon },
+  { to: '/compromisos', label: 'Compromisos', icon: CheckCircleIcon },
   { to: '/errors', label: 'Errores', icon: BugIcon },
   { to: '/ingestas', label: 'Ingestas', icon: DatabaseIcon },
   { to: '/gantt', label: 'Planificacion', icon: CalendarIcon },

@@ -5,6 +5,7 @@ import { LumixIcon } from '@shared/components/ui/LumixIcon'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useNotificationsContext } from '@core/notifications/NotificationContext'
 import { teamsService } from '@infrastructure/supabase/teams.service'
+import { InstalarApp } from '@shared/components/ui/InstalarApp'
 import { supabase } from '@infrastructure/supabase/client'
 import { navItems, ShieldIcon } from './navItems'
 
@@ -116,6 +117,9 @@ export function Sidebar({ onClose }: SidebarProps) {
 
       {/* User */}
       <div className="flex-shrink-0 border-t border-slate-800 p-3">
+        {/* Se muestra solo si la app se puede instalar y todavia no lo esta: el propio
+            componente se esconde cuando no aplica. */}
+        <InstalarApp className="mb-2 px-2" />
         <div
           onClick={() => navigate('/profile')}
           className="flex items-center gap-3 px-2 py-2 rounded-lg hover:bg-slate-800 cursor-pointer group"

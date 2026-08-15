@@ -56,6 +56,7 @@ export function ActivitiesPage() {
     setFilterStatus,
     changeStatus,
     counts,
+    allActivities,
     teamNames,
     managedIds,
     isManager,
@@ -497,8 +498,27 @@ export function ActivitiesPage() {
                 d="M9 5H7a2 2 0 00-2 2v12a2 2 0 002 2h10a2 2 0 002-2V7a2 2 0 00-2-2h-2M9 5a2 2 0 002 2h2a2 2 0 002-2M9 5a2 2 0 012-2h2a2 2 0 012 2"
               />
             </svg>
-            <p className="text-sm text-slate-400">No hay actividades</p>
-            <p className="text-xs text-slate-600 mt-1">Escribe en el chat para crear una</p>
+            {/* El listado ahora parte filtrado por el equipo activo. Si el filtro deja la
+                lista vacia pero SI hay actividades en otros equipos, decirlo: "escribe en el
+                chat para crear una" mandaria a crear algo que ya existe al lado. */}
+            {allActivities.length > 0 && filterTeam !== 'todas' ? (
+              <>
+                <p className="text-sm text-slate-400">
+                  No hay actividades en {teamNames[filterTeam] ?? 'este equipo'}
+                </p>
+                <button
+                  onClick={() => setFilterTeam('todas')}
+                  className="text-xs text-indigo-400 hover:text-indigo-300 underline mt-1"
+                >
+                  Ver las de todos los equipos ({allActivities.length})
+                </button>
+              </>
+            ) : (
+              <>
+                <p className="text-sm text-slate-400">No hay actividades</p>
+                <p className="text-xs text-slate-600 mt-1">Escribe en el chat para crear una</p>
+              </>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">

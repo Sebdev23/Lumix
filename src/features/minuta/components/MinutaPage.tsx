@@ -75,6 +75,39 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
   const guardarPlazo = (item: DecoratedItem, v: string | null) =>
     changePlazo(item, v).catch(() => toast.error('No se pudo guardar la fecha'))
 
+  // Que decir cuando no hay nada. "Por asignar" vacio es una BUENA noticia -no queda nada
+  // que conversar-, no un error, y el mensaje tiene que reflejarlo.
+  const hoja = esIngesta ? 'la hoja de ingesta' : 'la minuta'
+  const textoVacio = () => {
+    if (weekMode) return 'No hubo temas con actividad en esa semana'
+    if (search || filterMember !== 'todas') return 'No hay temas que coincidan con el filtro'
+    if (view === 'resueltos') return 'No hay temas resueltos'
+    if (view === 'asignados') return 'No hay temas asignados todavia'
+    if (view === 'todos') return `No hay temas en ${hoja}`
+    return 'Todo asignado. No queda nada por conversar.'
+  }
+
+  // Personas que figuran como responsables del tema pero NO tienen actividad creada.
+  //
+  // Pasa cuando alguien agrega gente DESPUES de haber generado las actividades: el tema dice
+  // que son responsables, pero para el sistema no existen -sin notificacion, sin carga, sin
+  // aparecer en Compromisos-. Habia 4 casos asi cuando se reviso. No se crea nada solo: se
+  // muestra y se ofrece el boton.
+  const sinActividad = (it: DecoratedItem) =>
+    it.responsables.filter((rid) => !it.linkedActivities.some((a) => a.responsible_id === rid))
+
+  // Un tema que volvio desde Compromisos queda "Definir en reunion" para que se converse.
+  // Como al tener actividad vinculada el selector de estado se reemplaza por una etiqueta de
+  // solo lectura, sin este boton no habia forma de sacarlo: quedaba dando vueltas en la
+  // reunion para siempre, justamente el tema que estaba trancado.
+  const esEscalado = (it: DecoratedItem) =>
+    it.estado === 'definir' && it.linkedActivities.length > 0
+
+  const yaConversado = (it: DecoratedItem) =>
+    guardar(it.id, { estado: 'en_desarrollo' }).then(() =>
+      toast.success('Listo, sale de la lista de conversación'),
+    )
+
   const memberName = (id: string) => members.find((m) => m.id === id)?.full_name || 'Desconocido'
 
   const responsablesLabel = (it: DecoratedItem) => {
@@ -87,8 +120,10 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
   const createItem = createForId ? (items.find((i) => i.id === createForId) ?? null) : null
   const deleteItem = confirmDeleteId ? (items.find((i) => i.id === confirmDeleteId) ?? null) : null
 
-  const openCreate = (it: DecoratedItem) => {
-    setCreateResp(it.responsables.length ? it.responsables : [])
+  const openCreate = (it: DecoratedItem, soloEstos?: string[]) => {
+    // soloEstos: al completar los que faltan, se preselecciona SOLO a esa gente para no
+    // duplicarle la actividad a quien ya la tiene.
+    setCreateResp(soloEstos ?? (it.responsables.length ? it.responsables : []))
     setCreatePriority(2)
     setCreateDue(it.plazo ?? '')
     setCreateForId(it.id)
@@ -128,7 +163,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
               Carga masiva
             </button>
           )}
-          <span className="text-xs text-slate-500">{counts.pendientes} pendientes</span>
+          <span className="text-xs text-slate-500">{counts.pendientes} por asignar</span>
         </div>
       </div>
 
@@ -138,7 +173,8 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
         <div className="inline-flex rounded-lg bg-slate-800 p-0.5">
           {(
             [
-              { v: 'pendientes', label: 'Pendientes', n: counts.pendientes },
+              { v: 'pendientes', label: 'Por asignar', n: counts.pendientes },
+              { v: 'asignados', label: 'Asignados', n: counts.asignados },
               { v: 'resueltos', label: 'Resueltos', n: counts.resueltos },
               { v: 'todos', label: 'Todos', n: counts.todos },
             ] as const
@@ -256,18 +292,8 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
           <SkeletonRows rows={6} />
         ) : items.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-12 text-center">
-            <p className="text-sm text-slate-400">
-              {weekMode
-                ? 'No hubo temas con actividad en esa semana'
-                : search || filterMember !== 'todas'
-                  ? 'No hay temas que coincidan con el filtro'
-                  : view === 'resueltos'
-                    ? 'No hay temas resueltos'
-                    : view === 'todos'
-                      ? `No hay temas en ${esIngesta ? 'la hoja de ingesta' : 'la minuta'}`
-                      : 'No hay temas pendientes'}
-            </p>
-            {canManage && (
+            <p className="text-sm text-slate-400">{textoVacio()}</p>
+            {canManage && view !== 'pendientes' && (
               <p className="text-xs text-slate-600 mt-1">Toca "+ Nuevo tema" para empezar</p>
             )}
           </div>
@@ -398,7 +424,16 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                         !it.para_todos &&
                         it.responsables.length > 0 &&
                         (it.linkedActivities.length > 0 ? (
-                          <span className="text-[11px] text-slate-500">Actividad asignada</span>
+                          sinActividad(it).length > 0 ? (
+                            <button
+                              onClick={() => openCreate(it, sinActividad(it))}
+                              className="px-2 py-1 rounded-lg bg-amber-600/20 text-amber-400 border border-amber-500/30 text-[11px] font-medium hover:bg-amber-600/30"
+                            >
+                              Falta la actividad de {sinActividad(it).map(memberName).join(', ')}
+                            </button>
+                          ) : (
+                            <span className="text-[11px] text-slate-500">Actividad asignada</span>
+                          )
                         ) : (
                           <button
                             onClick={() => openCreate(it)}
@@ -407,6 +442,15 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                             Asignar actividad
                           </button>
                         ))}
+                      {canManage && esEscalado(it) && (
+                        <button
+                          onClick={() => yaConversado(it)}
+                          title="Cierra la conversación: el tema sale de aquí y su actividad sigue su curso"
+                          className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600"
+                        >
+                          Ya lo conversamos
+                        </button>
+                      )}
                       <div className="flex-1" />
                       {canDelete && (
                         <button
@@ -563,12 +607,22 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                             !it.para_todos &&
                             it.responsables.length > 0 &&
                             (it.linkedActivities.length > 0 ? (
-                              <span
-                                title="Este tema ya tiene actividad(es) asignada(s)"
-                                className="px-2 py-1 rounded-lg bg-slate-800 text-slate-500 text-[11px] font-medium cursor-not-allowed"
-                              >
-                                Actividad asignada
-                              </span>
+                              sinActividad(it).length > 0 ? (
+                                <button
+                                  onClick={() => openCreate(it, sinActividad(it))}
+                                  className="px-2 py-1 rounded-lg bg-amber-600/20 text-amber-400 border border-amber-500/30 text-[11px] font-medium hover:bg-amber-600/30 transition-colors text-right"
+                                >
+                                  Falta la actividad de{' '}
+                                  {sinActividad(it).map(memberName).join(', ')}
+                                </button>
+                              ) : (
+                                <span
+                                  title="Este tema ya tiene actividad(es) asignada(s)"
+                                  className="px-2 py-1 rounded-lg bg-slate-800 text-slate-500 text-[11px] font-medium cursor-not-allowed"
+                                >
+                                  Actividad asignada
+                                </span>
+                              )
                             ) : (
                               <button
                                 onClick={() => openCreate(it)}
@@ -577,6 +631,15 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                                 Asignar actividad
                               </button>
                             ))}
+                          {canManage && esEscalado(it) && (
+                            <button
+                              onClick={() => yaConversado(it)}
+                              title="Cierra la conversación: el tema sale de aquí y su actividad sigue su curso"
+                              className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600 transition-colors"
+                            >
+                              Ya lo conversamos
+                            </button>
+                          )}
                           {canDelete && (
                             <button
                               onClick={() => setConfirmDeleteId(it.id)}

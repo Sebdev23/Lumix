@@ -7,6 +7,14 @@ export interface ChatMessage extends Message {
   file_type?: string | null
   // metadata se hereda de Message (migracion 031): ya no vive solo en memoria.
   is_ai?: boolean
+  /**
+   * De quien es la conversacion.
+   *
+   * Las respuestas de Lumix se guardan con el sender_id de quien pregunto, pero al cargarlas
+   * se reemplaza por 'ai' para pintarlas como suyas. Eso borraba al dueño, y el admin -que
+   * lee todo el chat del equipo- terminaba recibiendo los popouts de otra persona.
+   */
+  owner_id?: string
 }
 
 export interface SendMessagePayload {
