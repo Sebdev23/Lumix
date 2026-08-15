@@ -25,6 +25,10 @@ export interface Profile {
 }
 
 export interface Activity {
+  // Trazabilidad del plazo (migracion 035). La mantiene un trigger, no la app: la fecha se
+  // cambia desde cinco lugares distintos y contarlo en cada uno seria olvidarlo en alguno.
+  plazo_change_count?: number
+  plazo_history?: PlazoHistoryEntry[]
   id: string
   title: string
   description: string

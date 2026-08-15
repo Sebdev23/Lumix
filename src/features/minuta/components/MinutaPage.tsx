@@ -96,6 +96,20 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
   const sinActividad = (it: DecoratedItem) =>
     it.responsables.filter((rid) => !it.linkedActivities.some((a) => a.responsible_id === rid))
 
+  // Actividades vivas de gente que YA NO figura como responsable del tema.
+  //
+  // Es el reverso de "Falta la actividad de X": alguien saca a una persona del desplegable y
+  // su actividad sigue existiendo a su nombre, con su fecha y su carga. Nadie se entera. No
+  // se toca sola -borrar trabajo asignado en silencio seria peor que el problema-, se avisa
+  // y quien corresponda decide si la reasigna, la cierra o la deja.
+  const huerfanas = (it: DecoratedItem) =>
+    it.linkedActivities.filter(
+      (a) =>
+        a.status !== 'completado' &&
+        a.responsible_id &&
+        !it.responsables.includes(a.responsible_id),
+    )
+
   // Un tema que volvio desde Compromisos queda "Definir en reunion" para que se converse.
   // Como al tener actividad vinculada el selector de estado se reemplaza por una etiqueta de
   // solo lectura, sin este boton no habia forma de sacarlo: quedaba dando vueltas en la
@@ -451,6 +465,18 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           Ya lo conversamos
                         </button>
                       )}
+                      {huerfanas(it).length > 0 && (
+                        <span
+                          className="text-[11px] text-amber-400"
+                          title="Sacaste a esa persona del tema, pero su actividad sigue abierta. Ciérrala o reasígnala desde Actividades."
+                        >
+                          ⚠{' '}
+                          {huerfanas(it)
+                            .map((a) => memberName(a.responsible_id))
+                            .join(', ')}{' '}
+                          ya no figura y su actividad sigue abierta
+                        </span>
+                      )}
                       <div className="flex-1" />
                       {canDelete && (
                         <button
@@ -639,6 +665,17 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                             >
                               Ya lo conversamos
                             </button>
+                          )}
+                          {huerfanas(it).length > 0 && (
+                            <span
+                              className="text-[11px] text-amber-400 text-right"
+                              title="Sacaste a esa persona del tema, pero su actividad sigue abierta. Ciérrala o reasígnala desde Actividades."
+                            >
+                              ⚠ actividad abierta de{' '}
+                              {huerfanas(it)
+                                .map((a) => memberName(a.responsible_id))
+                                .join(', ')}
+                            </span>
                           )}
                           {canDelete && (
                             <button

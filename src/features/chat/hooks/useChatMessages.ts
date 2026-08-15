@@ -508,11 +508,38 @@ export function useChatMessages() {
   // Foto del equipo que se le pasa a la IA para responder preguntas: actividades visibles
   // segun el rol, errores abiertos y carga por persona. Un colaborador solo se ve a si mismo.
   async function buildTeamData(senderId: string) {
-    const [activities, errors, members] = await Promise.all([
+    const [activities, errors, members, temas] = await Promise.all([
       activitiesService.getByTeam(teamId),
       errorsService.getByTeam(teamId),
       profilesService.getByTeam(teamId),
+      minutesService.getByTeam(teamId, 'minuta'),
     ])
+
+    // Compromiso = nacio de un tema de minuta, o sea alguien lo tomo delante del equipo.
+    // Lo demas es trabajo propio. Sin esta distincion, preguntar "que tiene pendiente el
+    // equipo" en un equipo real devolvia 88 cosas cuando los compromisos eran 12: seis
+    // veces mas ruido que señal, y la gente deja de creerle a la respuesta.
+    const deMinuta = new Set(temas.flatMap((t) => t.linked_activity_ids))
+
+    // Y lo que quedo a medio camino: tema con dueño escrito que nunca genero actividad.
+    // Para el resto del sistema no existe -no suma carga, no aparece en Compromisos- asi
+    // que si no se nombra aca, nadie se entera nunca.
+    const aMedioCamino = temas
+      .filter(
+        (t) =>
+          t.estado !== 'resuelto' &&
+          t.linked_activity_ids.length === 0 &&
+          (t.responsables.length > 0 || t.responsables_text !== ''),
+      )
+      .map((t) => ({
+        tema: t.tema,
+        responsables: t.responsables.length
+          ? t.responsables
+              .map((id) => members.find((m) => m.id === id)?.full_name ?? '?')
+              .join(', ')
+          : t.responsables_text,
+        plazo: t.plazo,
+      }))
 
     const visibleActivities = isColaborador
       ? activities.filter((a) => a.responsible_id === senderId)
@@ -537,8 +564,10 @@ export function useChatMessages() {
           priority: a.priority,
           due_date: new Date(y, m - 1, d).toLocaleDateString('es-CL'),
           responsible: members.find((x) => x.id === a.responsible_id)?.full_name || 'Sin asignar',
+          origen: deMinuta.has(a.id) ? 'compromiso' : 'propia',
         }
       }),
+      sinAsignar: aMedioCamino,
       errors: errors
         .filter((e) => e.status !== 'cerrado')
         .map((e) => ({ title: e.title, severity: e.severity, status: e.status })),

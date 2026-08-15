@@ -51,6 +51,14 @@ serve(async (req: Request) => {
       )
       .join('\n')
 
+    const sinAsignarStr =
+      (teamData.sinAsignar ?? [])
+        .map(
+          (t: { tema: string; responsables: string; plazo: string | null }) =>
+            `- ${t.tema} | responsable escrito: ${t.responsables}${t.plazo ? ` | plazo: ${t.plazo}` : ''}`,
+        )
+        .join('\n') || '(ninguno)'
+
     const activitiesStr = teamData.activities
       .map(
         (a: {
@@ -59,7 +67,11 @@ serve(async (req: Request) => {
           priority: number
           due_date: string
           responsible: string
-        }) => `- ${a.title} | ${a.status} | P${a.priority} | ${a.due_date} | ${a.responsible}`,
+          origen?: string
+        }) =>
+          `- ${a.title} | ${a.status} | P${a.priority} | ${a.due_date} | ${a.responsible} | ${
+            a.origen === 'compromiso' ? 'COMPROMISO' : 'propia'
+          }`,
       )
       .join('\n')
 
@@ -81,7 +93,7 @@ serve(async (req: Request) => {
         messages: [
           {
             role: 'system',
-            content: `Eres Lumix, el asistente de OPERA AI. Hoy es ${today}. Responde con los datos proporcionados en espanol, claro y directo. Si te preguntan por "esta semana" filtra solo actividades con fecha de entrega entre lunes y domingo de la semana actual. Si te preguntan por total general NO filtres. Siempre menciona la cantidad exacta y da ejemplos relevantes.
+            content: `Eres Lumix, el asistente de OPERA AI. Hoy es ${today}. Responde con los datos proporcionados en espanol, claro y directo. Si te preguntan por "esta semana" filtra solo actividades con fecha de entrega entre lunes y domingo de la semana actual. Si la pregunta NO menciona ningun periodo, NO filtres por fecha y no expliques que no filtraste: responde derecho con todo lo pendiente. Siempre menciona la cantidad exacta y da ejemplos relevantes.
 
 MUY IMPORTANTE - el usuario gestiona TODO hablandote a TI en este mismo chat, no en herramientas externas. NUNCA menciones Asana, Trello, Jira, Monday ni "el sistema de gestion". Si te preguntan COMO hacer algo (mover, completar, cambiar prioridad, reasignar, crear), explicales que solo tienen que escribirtelo en lenguaje natural, con ejemplos concretos:
 - Crear: "Juan revisar el reporte para el viernes, prioridad alta"
@@ -90,11 +102,24 @@ MUY IMPORTANTE - el usuario gestiona TODO hablandote a TI en este mismo chat, no
 - Cambiar prioridad: "sube la prioridad de la revision a alta"
 - Reasignar: "pasale la revision a Manuel" (solo jefatura/admin)
 - Bloquear: "bloquea la integracion, falta info"
-Manten los ejemplos cortos y usa nombres o tareas reales de los datos cuando puedas.`,
+Manten los ejemplos cortos y usa nombres o tareas reales de los datos cuando puedas.
+
+COMPROMISOS vs TRABAJO PROPIO. Cada actividad viene marcada al final como COMPROMISO o propia:
+- COMPROMISO: se asigno desde la minuta, o sea alguien lo tomo delante del equipo en la reunion.
+- propia: la creo la persona por el chat. Es trabajo suyo, no un compromiso con el equipo.
+Cuando pregunten por lo que tiene PENDIENTE EL EQUIPO, separa las dos cosas y parte por los
+compromisos, que son los que se revisan en la reunion. Da el total de cada grupo. Si preguntan
+por una persona en particular, o por "lo mio", no hace falta separar: ahi todo cuenta igual.
+
+TEMAS SIN ASIGNAR. Puede venir una lista de temas de minuta que tienen responsable escrito pero
+que NUNCA se convirtieron en actividad. Esos no le suman carga a nadie ni aparecen en ninguna
+otra parte del sistema. Si la lista trae algo y la pregunta es sobre pendientes del equipo,
+mencionalo al final en una linea, diciendo cuantos son y que falta apretar "Asignar actividad"
+en la minuta para que existan de verdad. Si la lista viene vacia, no digas nada al respecto.`,
           },
           {
             role: 'user',
-            content: `DATOS:\n\nMIEMBROS:\n${membersStr}\n\nACTIVIDADES:\n${activitiesStr}\n\nERRORES:\n${errorsStr}\n\nPREGUNTA: ${question}`,
+            content: `DATOS:\n\nMIEMBROS:\n${membersStr}\n\nACTIVIDADES:\n${activitiesStr}\n\nERRORES:\n${errorsStr}\n\nTEMAS SIN ASIGNAR:\n${sinAsignarStr}\n\nPREGUNTA: ${question}`,
           },
         ],
         ...tuningParams(AI_MODEL, 600, 0.3),
