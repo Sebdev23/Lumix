@@ -53,7 +53,9 @@ export class ErrorBoundary extends Component<Props, State> {
             <div>
               <p className="text-sm font-medium text-slate-200">Algo salio mal</p>
               <p className="text-xs text-slate-500 mt-1">
-                {this.state.error?.message || 'Error inesperado al cargar la aplicacion'}
+                {import.meta.env.DEV
+                  ? this.state.error?.message || 'Error inesperado al cargar la aplicacion'
+                  : 'Error inesperado al cargar la aplicacion. El equipo ha sido notificado.'}
               </p>
             </div>
             <button
