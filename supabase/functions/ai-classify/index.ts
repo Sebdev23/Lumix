@@ -19,6 +19,7 @@ Tu tarea es analizar el mensaje y devolver un JSON con esta estructura exacta:
     "title": "titulo claro y descriptivo extraido del mensaje",
     "description": "resumen del contexto y detalles clave del mensaje",
     "responsible": "nombre exacto de la persona responsable (de la lista del equipo) o null",
+    "responsibles": "arreglo con TODOS los nombres exactos mencionados (de la lista del equipo), o null si no se menciona a nadie. Si solo hay una persona, igual va como arreglo de un elemento y debe coincidir con 'responsible'.",
     "priority": 1-3 o null,
     "due_date": "fecha en formato YYYY-MM-DD o null",
     "severity": "baja" | "media" | "alta" | "critica" o null (solo error)
@@ -67,9 +68,10 @@ REGLAS PARA LA PROFUNDIDAD (campo "depth"):
 - Ante la duda: SUPERFICIAL.
 
 REGLAS PARA EL RESPONSABLE:
-- Se te entrega la lista de miembros del equipo. Si el mensaje menciona a una persona, devuelve en "responsible" su NOMBRE EXACTO tal como aparece en la lista (respetando mayusculas y tildes).
-- Si el nombre mencionado no calza claramente con ningun miembro de la lista, devuelve el nombre tal como lo escribio el usuario (el sistema pedira confirmacion).
-- Si el mensaje no menciona a nadie, devuelve null.
+- Se te entrega la lista de miembros del equipo. Si el mensaje menciona a una o mas personas, devuelve sus NOMBRES EXACTOS tal como aparecen en la lista (respetando mayusculas y tildes) en el arreglo "responsibles". En "responsible" repite solo el primero (compatibilidad).
+- Ejemplo: "entregar el informe a Genaro y Javier" -> responsible: "Genaro Nuñez", responsibles: ["Genaro Nuñez", "Javier Lopez"].
+- Si algun nombre mencionado no calza claramente con ningun miembro de la lista, incluyelo IGUAL en "responsibles" tal como lo escribio el usuario (el sistema pedira confirmacion para ese nombre).
+- Si el mensaje no menciona a nadie, "responsible" y "responsibles" van en null.
 
 PRIORIDAD (escala: 1 = alta, 2 = media, 3 = baja):
 - 1 = urgente, critico, "ya", "ahora", "inmediato", "prioridad alta", "alta prioridad"
@@ -110,11 +112,20 @@ const CLASSIFY_SCHEMA = {
     entities: {
       type: 'object',
       additionalProperties: false,
-      required: ['title', 'description', 'responsible', 'priority', 'due_date', 'severity'],
+      required: [
+        'title',
+        'description',
+        'responsible',
+        'responsibles',
+        'priority',
+        'due_date',
+        'severity',
+      ],
       properties: {
         title: { type: 'string' },
         description: { type: 'string' },
         responsible: { type: ['string', 'null'] },
+        responsibles: { type: ['array', 'null'], items: { type: 'string' } },
         priority: { type: ['number', 'null'] },
         due_date: { type: ['string', 'null'] },
         severity: { type: ['string', 'null'], enum: ['baja', 'media', 'alta', 'critica', null] },

@@ -410,6 +410,8 @@ export function useChatMessages() {
   // Umbral de sobrecarga del equipo (migracion 036). Se lee una vez: cambia muy de vez en
   // cuando y consultarlo en cada creacion agregaria un viaje a algo que ya hace varios.
   const umbralRef = useRef<number>(2)
+  // Nombre del equipo activo, para avisar en confirmaciones (ej. minuta) donde quedo cada cosa.
+  const teamNameRef = useRef<string>('')
   // EL HILO. La ultima actividad de la que se hablo en esta sesion -creada o modificada-.
   // Es el sujeto implicito de "muevela al viernes" o "pasasela a Manuel".
   const ultimaActividadRef = useRef<{ id: string; title: string } | null>(null)
@@ -451,6 +453,7 @@ export function useChatMessages() {
       ])
       if (cancelled) return
       umbralRef.current = equipo?.umbral_sobrecarga ?? 2
+      teamNameRef.current = equipo?.name ?? ''
       membersRef.current = members
       // Cada usuario ve SOLO su propia conversacion (sus mensajes + las respuestas de
       // Lumix a el, que se guardan con su sender_id). El admin ve todo.
@@ -1637,15 +1640,15 @@ export function useChatMessages() {
     return created
   }
 
-  // Crea un tema de minuta desde el chat, ya con responsable resuelto (o sin el).
-  // Notifica al asignado igual que una actividad: si no, el tema queda invisible para el.
+  // Crea un tema de minuta desde el chat, ya con responsables resueltos (o sin ellos).
+  // Notifica a cada asignado igual que una actividad: si no, el tema queda invisible para el.
   const createMinutaTopic = async (
     topic: PendingMinuta,
-    responsibleId: string | null,
-    responsibleName: string | null,
+    responsables: { id: string; name: string }[],
     senderId: string,
     confirmMessageId?: string,
   ) => {
+    const responsableNames = responsables.map((r) => r.name).join(', ')
     try {
       // orden = al final de la lista (antes todos entraban con orden 0 y quedaban empatados)
       const existing = await minutesService.getByTeam(teamId)
@@ -1655,8 +1658,8 @@ export function useChatMessages() {
         orden: existing.length,
         tema: topic.tema,
         para_todos: false,
-        responsables: responsibleId ? [responsibleId] : [],
-        responsables_text: responsibleName ?? '',
+        responsables: responsables.map((r) => r.id),
+        responsables_text: responsableNames,
         estado: 'pendiente',
         plazo: topic.plazo,
         comentarios: topic.comentarios === topic.tema ? '' : topic.comentarios,
@@ -1672,18 +1675,29 @@ export function useChatMessages() {
     if (confirmMessageId) {
       await resolveInteractive(
         confirmMessageId,
-        responsibleName ? `Tema asignado a ${responsibleName}` : 'Tema agregado a la minuta',
+        responsables.length ? `Tema asignado a ${responsableNames}` : 'Tema agregado a la minuta',
       )
     }
 
     const parts = [`✅ Tema agregado a la minuta: "${topic.tema}"`]
-    if (responsibleName) parts.push(`Responsable: ${responsibleName}`)
+    if (teamNameRef.current) parts.push(`Equipo: ${teamNameRef.current}`)
+    if (responsables.length) {
+      parts.push(`Responsable${responsables.length > 1 ? 's' : ''}: ${responsableNames}`)
+    } else {
+      // Si el mensaje nombraba a alguien y no se pudo asignar, avisar es mejor que el
+      // silencio: la causa mas comun es que esa persona no es miembro del equipo activo
+      // (caso real: alguien nombro a colegas de OTRO equipo mientras dictaba con este activo).
+      parts.push(
+        `Sin responsable asignado (si nombraste a alguien, revisa que sea miembro de "${teamNameRef.current || 'este equipo'}")`,
+      )
+    }
     if (topic.plazo) parts.push(`Plazo: ${formatDateLocal(topic.plazo)}`)
     await aiSay(parts.join('. ') + '.')
 
-    if (responsibleId && responsibleId !== senderId) {
+    for (const r of responsables) {
+      if (r.id === senderId) continue
       try {
-        await notificationsService.send(responsibleId, {
+        await notificationsService.send(r.id, {
           title: 'Nuevo tema en la minuta',
           body: topic.plazo
             ? `"${topic.tema}" - Plazo: ${formatDateLocal(topic.plazo)}`
@@ -1693,7 +1707,7 @@ export function useChatMessages() {
           type: 'deadline_soon',
           metadata: { minuta: true },
         })
-        await aiSay(`📨 Notificacion enviada a ${responsibleName}`)
+        await aiSay(`📨 Notificacion enviada a ${r.name}`)
       } catch (err) {
         console.error('Minuta notify failed:', err)
       }
@@ -2139,7 +2153,7 @@ export function useChatMessages() {
       if (forcedType === 'minuta') {
         const members = await ensureMembers()
         let tema = content
-        let hint: string | null = null
+        let hints: string[] = []
         let plazo: string | null = null
         try {
           const parsed = await classifyMessage(
@@ -2147,7 +2161,11 @@ export function useChatMessages() {
             members.map((m) => m.full_name),
           )
           tema = parsed.entities.title || content
-          hint = parsed.entities.responsible
+          hints = parsed.entities.responsibles?.length
+            ? parsed.entities.responsibles
+            : parsed.entities.responsible
+              ? [parsed.entities.responsible]
+              : []
           plazo = parsed.entities.due_date
         } catch (err) {
           // Si la IA falla, el tema se crea igual con el texto tal cual.
@@ -2156,37 +2174,55 @@ export function useChatMessages() {
 
         const topic: PendingMinuta = { tema, comentarios: content, plazo }
 
-        if (hint && canAssignMinuta) {
-          const matches = matchMembers(hint, members)
-          if (matches.length === 1) {
-            await createMinutaTopic(topic, matches[0].id, matches[0].full_name, message.sender_id)
+        if (hints.length && canAssignMinuta) {
+          // Cada nombre se resuelve por separado: "Genaro y Javier" son dos personas, no
+          // una a desambiguar entre dos candidatos.
+          const resolved: { id: string; name: string }[] = []
+          let pendiente: { hint: string; matches: Member[] } | null = null
+          for (const hint of hints) {
+            const matches = matchMembers(hint, members)
+            if (matches.length === 1 && !resolved.some((r) => r.id === matches[0].id)) {
+              resolved.push({ id: matches[0].id, name: matches[0].full_name })
+            } else if (matches.length !== 1) {
+              pendiente = { hint, matches }
+              break
+            }
+          }
+
+          if (!pendiente) {
+            await createMinutaTopic(topic, resolved, message.sender_id)
           } else {
-            // No existe (o hay varios): se pregunta a quien, no se crea huerfano.
-            const candidates = (matches.length ? matches : members).map((m) => ({
-              id: m.id,
-              name: m.full_name,
-            }))
+            // El nombre que no se pudo resolver se pregunta; los que ya calzaron viajan en
+            // metadata para no perderlos cuando el usuario responda la pregunta.
+            const candidates = (pendiente.matches.length ? pendiente.matches : members).map(
+              (m) => ({ id: m.id, name: m.full_name }),
+            )
             await appendAndSave({
               id: `ai-minutaconfirm-${Date.now()}`,
               content:
-                matches.length === 0
-                  ? `No encontre a "${hint}" en el equipo. ¿A quien asigno el tema "${tema}"?`
-                  : `Hay varias personas que coinciden con "${hint}". ¿A quien asigno el tema "${tema}"?`,
+                pendiente.matches.length === 0
+                  ? `No encontre a "${pendiente.hint}" en el equipo. ¿A quien asigno el tema "${tema}"?`
+                  : `Hay varias personas que coinciden con "${pendiente.hint}". ¿A quien asigno el tema "${tema}"?`,
               sender_id: 'ai',
               category: null,
               created_at: new Date().toISOString(),
               team_id: teamId,
               sender: { full_name: 'Lumix', avatar_url: null },
-              metadata: { type: 'name_confirm', candidates, minuta: topic },
+              metadata: {
+                type: 'name_confirm',
+                candidates,
+                minuta: topic,
+                otherResponsables: resolved,
+              },
             })
           }
         } else {
-          if (hint && !canAssignMinuta) {
+          if (hints.length && !canAssignMinuta) {
             await aiSay(
               `No puedes asignar temas de minuta a otras personas, asi que "${tema}" queda sin responsable.`,
             )
           }
-          await createMinutaTopic(topic, null, null, message.sender_id)
+          await createMinutaTopic(topic, [], message.sender_id)
         }
 
         setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, category: null } : m)))

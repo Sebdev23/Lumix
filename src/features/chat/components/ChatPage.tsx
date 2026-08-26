@@ -34,6 +34,9 @@ type NameConfirm = {
   pending?: PendingActivity
   reassign?: { activityId: string; title: string }
   minuta?: PendingMinuta
+  // Responsables de minuta que ya se resolvieron solos (ej. "Genaro y Javier": Genaro
+  // calzo directo, Javier necesito preguntar). No se pierden al responder la pregunta.
+  otherResponsables?: { id: string; name: string }[]
 }
 type ActivityPick = { candidates: { id: string; title: string }[]; pending: PendingUpdate }
 
@@ -340,7 +343,11 @@ export function ChatPage() {
         {/* Chat header */}
         <div className="flex items-center gap-3 px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
           <h2 className="text-sm font-semibold text-slate-200">Chat General</h2>
-          <span className="text-xs text-slate-500">{teamName || 'Chat'}</span>
+          {teamName && (
+            <span className="text-xs font-medium text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 rounded-full px-2 py-0.5">
+              {teamName}
+            </span>
+          )}
           {!loading && (
             <span className="text-[10px] text-slate-600 ml-auto">{messages.length} mensajes</span>
           )}
@@ -846,7 +853,8 @@ export function ChatPage() {
               if (data.reassign) {
                 await reassignResolved(data.reassign.activityId, id, name, messageId)
               } else if (data.minuta) {
-                await createMinutaTopic(data.minuta, id, name, user!.id, messageId)
+                const responsables = [...(data.otherResponsables ?? []), { id, name }]
+                await createMinutaTopic(data.minuta, responsables, user!.id, messageId)
               } else if (data.pending) {
                 await createResolvedActivity(data.pending, id, name, messageId)
               }

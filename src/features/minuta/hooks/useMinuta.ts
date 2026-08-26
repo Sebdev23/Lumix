@@ -313,6 +313,24 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
       plazo_change_count: (item.plazo_change_count ?? 0) + (hadPlazo ? 1 : 0),
       plazo_history: history,
     })
+
+    // El plazo tambien es la entrega de los compromisos que nacieron de este tema (ver
+    // createActivitiesFromItem). Sin este paso, Compromisos seguia mostrando la fecha vieja
+    // aunque el equipo ya la hubiera renegociado en la Minuta -y la marcaba vencida sin
+    // estarlo-. Las actividades ya completadas no se tocan: su cierre es historia, no algo
+    // que renegociar.
+    if (newPlazo) {
+      const dueDateISO = new Date(newPlazo + 'T00:00:00').toISOString()
+      const pendientes = item.linked_activity_ids
+        .map((id) => activitiesById[id])
+        .filter((a): a is Activity => !!a && a.status !== 'completado')
+      if (pendientes.length) {
+        await Promise.all(
+          pendientes.map((a) => activitiesService.update(a.id, { due_date: dueDateISO })),
+        )
+        await load()
+      }
+    }
   }
 
   const removeItem = async (id: string) => {
@@ -372,6 +390,12 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     await minutesService.update(item.id, {
       linked_activity_ids: [...item.linked_activity_ids, ...newIds],
       responsables: mergedResp,
+      // responsables_text es el nombre libre que trae un tema cargado desde planilla, ANTES
+      // de tener un responsable real del sistema. Una vez que se asigna de verdad, se limpia:
+      // si no, responsablesLabel() lo sigue sumando y queda mostrando un nombre viejo junto
+      // al responsable real (caso real: "Felipe Quintanilla" colgado despues de reasignar a
+      // "Juan Diaz").
+      responsables_text: '',
       estado: 'en_desarrollo',
     })
     await load()

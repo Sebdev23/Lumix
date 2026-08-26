@@ -17,6 +17,9 @@ export interface ClassifyResult {
     title: string
     description: string
     responsible: string | null
+    // Todos los nombres mencionados (incluye a "responsible" como primero). Null si no
+    // se menciono a nadie. Se usa en minuta, que si soporta varios responsables por tema.
+    responsibles: string[] | null
     priority: number | null
     due_date: string | null
     severity: string | null
