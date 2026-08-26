@@ -17,9 +17,9 @@ export const minutesService = {
   async create(
     item: Omit<
       MinuteItem,
-      'id' | 'created_at' | 'updated_at' | 'plazo_change_count' | 'plazo_history'
+      'id' | 'created_at' | 'updated_at' | 'plazo_change_count' | 'plazo_history' | 'parent_item_id'
     > &
-      Partial<Pick<MinuteItem, 'plazo_change_count' | 'plazo_history'>>,
+      Partial<Pick<MinuteItem, 'plazo_change_count' | 'plazo_history' | 'parent_item_id'>>,
   ): Promise<MinuteItem> {
     const { data, error } = await supabase.from('minute_items').insert(item).select().single()
     if (error) throw error

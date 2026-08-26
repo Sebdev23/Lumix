@@ -91,6 +91,10 @@ export interface MinuteItem {
   created_by: string
   created_at: string
   updated_at: string
+  // Sub-tema de otro tema (ej. "Ver faena" bajo "Revisar capacidad"). Migracion 039. Null
+  // en un tema raiz. Sigue el mismo ciclo de vida que cualquier tema: se asigna y se
+  // transforma en actividad igual que uno de nivel superior.
+  parent_item_id: string | null
 }
 
 export interface Message {

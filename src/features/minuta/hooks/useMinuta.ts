@@ -153,8 +153,12 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     )
 
   // Filtro base: responsable + busqueda + (semana si esta activo). Aplica a los contadores.
+  // Los sub-temas (parent_item_id no nulo) no entran aca: viven anidados bajo su tema padre
+  // -ver SubtareasPanel en MinutaPage-, si no la lista principal se duplica con cada
+  // descomposicion en sub-tareas, que es justo el ruido que esta pantalla evita.
   const q = search.trim().toLowerCase()
   const base = decorated.filter((it) => {
+    if (it.parent_item_id) return false
     if (filterMember !== 'todas' && !it.responsables.includes(filterMember)) return false
     if (q && !`${it.tema} ${it.comentarios}`.toLowerCase().includes(q)) return false
     if (weekMode && !hadActivityInWeek(it)) return false
@@ -196,7 +200,10 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     todos: base.length,
   }
 
-  const addItem = async (tema: string): Promise<string | null> => {
+  const addItem = async (
+    tema: string,
+    parentItemId: string | null = null,
+  ): Promise<string | null> => {
     if (!user || !teamId) return null
     const created = await minutesService.create({
       team_id: teamId,
@@ -211,6 +218,7 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
       comentarios: '',
       linked_activity_ids: [],
       created_by: user.id,
+      parent_item_id: parentItemId,
     })
     // La fila creada ya viene completa desde la base: se agrega y listo, sin recargar.
     setItems((cur) => [...cur, created])

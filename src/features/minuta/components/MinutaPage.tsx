@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useNavigate } from 'react-router-dom'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
@@ -10,15 +11,282 @@ import { exportToCSV } from '@shared/utils/export'
 import { CargaMasivaModal } from '@features/minuta/components/CargaMasivaModal'
 import { useToast } from '@shared/components/ui/Toast'
 import { SkeletonRows } from '@shared/components/ui/Skeleton'
-import { formatDateLocal } from '@shared/utils/date'
+import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
-import type { HojaTipo, MinuteEstado } from '@shared/types'
+import type { HojaTipo, MinuteEstado, Profile } from '@shared/types'
 
 const estadoColors: Record<MinuteEstado, BadgeVariant> = {
   pendiente: 'warning',
   en_desarrollo: 'info',
   resuelto: 'success',
   definir: 'default',
+}
+
+/**
+ * Plazo de un tema, o -si no tiene uno propio- el mas lejano entre sus subtareas
+ * (recursivo: baja hasta encontrar fechas reales). No se persiste: un proyecto grande
+ * suele no tener fecha propia porque la fecha real ES la de su ultima subtarea, y
+ * guardar una copia aparte es la misma trampa de desincronizacion que ya se corrigio
+ * entre Minuta y Compromisos -aca ni siquiera hace falta, se calcula al vuelo-.
+ */
+function plazoEfectivo(it: DecoratedItem, allItems: DecoratedItem[]): string | null {
+  if (it.plazo) return it.plazo
+  const fechas = allItems
+    .filter((d) => d.parent_item_id === it.id)
+    .map((h) => plazoEfectivo(h, allItems))
+    .filter((f): f is string => !!f)
+  return fechas.length ? fechas.sort().at(-1)! : null
+}
+
+/**
+ * Sub-temas de un tema (ej. "Ver faena" bajo "Revisar capacidad").
+ *
+ * Reusa las mismas funciones que ya gobiernan un tema de nivel superior (guardar,
+ * openCreate) en vez de reimplementar la logica de asignacion: un sub-tema sigue el
+ * MISMO camino para transformarse en actividad. Se muestra achicado porque conviven varios
+ * dentro de la fila de su padre.
+ */
+function SubtareasPanel({
+  parentId,
+  allItems,
+  members,
+  canManage,
+  canAssign,
+  memberName,
+  onGuardar,
+  onGuardarPlazo,
+  onOpenCreate,
+  onAdd,
+}: {
+  parentId: string
+  allItems: DecoratedItem[]
+  members: Profile[]
+  canManage: boolean
+  canAssign: boolean
+  memberName: (id: string) => string
+  onGuardar: (id: string, patch: { responsables: string[]; para_todos: boolean }) => void
+  onGuardarPlazo: (item: DecoratedItem, v: string | null) => void
+  onOpenCreate: (it: DecoratedItem) => void
+  onAdd: (tema: string, parentItemId: string) => void
+}) {
+  const [adding, setAdding] = useState(false)
+  const [nuevo, setNuevo] = useState('')
+  // Expandido por defecto: colapsar es una accion explicita de "ya lo arme, ahora achica
+  // la pantalla", no algo que deba esconder subtareas recien creadas.
+  const [expanded, setExpanded] = useState(true)
+  const subtemas = allItems.filter((d) => d.parent_item_id === parentId)
+
+  const confirmarNuevo = () => {
+    if (nuevo.trim()) onAdd(nuevo.trim(), parentId)
+    setNuevo('')
+    setAdding(false)
+  }
+
+  return (
+    <div className="mt-2 pl-3 border-l-2 border-slate-700 space-y-1.5">
+      {subtemas.length > 0 && (
+        <button
+          onClick={() => setExpanded((e) => !e)}
+          className="text-[11px] text-slate-500 hover:text-slate-300 font-medium flex items-center gap-1"
+        >
+          <span className="inline-block w-2.5">{expanded ? '▾' : '▸'}</span>
+          Subtareas ({subtemas.length})
+        </button>
+      )}
+      {expanded &&
+        subtemas.map((s) => (
+          <div key={s.id} className="space-y-1.5">
+            <div className="flex flex-wrap items-center gap-2 text-[11px] bg-slate-900/40 rounded-lg px-2 py-1.5">
+              <span className="text-slate-300 flex-1 min-w-[100px]">{s.tema}</span>
+              {canManage ? (
+                <div className="w-36">
+                  <MemberMultiSelect
+                    members={members}
+                    selected={s.responsables}
+                    paraTodos={false}
+                    onChange={(next) => onGuardar(s.id, next)}
+                  />
+                </div>
+              ) : (
+                <span className="text-slate-500">
+                  {s.responsables.map(memberName).join(', ') || 'Sin asignar'}
+                </span>
+              )}
+              {canManage ? (
+                <div className="w-28">
+                  <DatePicker
+                    value={s.plazo}
+                    onChange={(v) => onGuardarPlazo(s, v)}
+                    placeholder="+ fecha"
+                  />
+                </div>
+              ) : (
+                <span className="text-slate-500">
+                  {s.plazo ? formatDateLocal(s.plazo) : 'Sin fecha'}
+                </span>
+              )}
+              {s.linkedActivities.length > 0 ? (
+                <Badge variant={estadoColors[s.effectiveEstado]}>
+                  {estadoLabels[s.effectiveEstado]}
+                </Badge>
+              ) : (
+                canAssign &&
+                s.responsables.length > 0 && (
+                  <button
+                    onClick={() => onOpenCreate(s)}
+                    className="px-1.5 py-0.5 rounded bg-indigo-600 hover:bg-indigo-500 text-white text-[10px] font-medium"
+                  >
+                    Asignar
+                  </button>
+                )
+              )}
+            </div>
+
+            {/* Recursivo: una subtarea puede tener las suyas (3er nivel, 4to, ...).
+              parent_item_id no tiene tope de profundidad, asi que tampoco lo tiene esto. */}
+            <SubtareasPanel
+              parentId={s.id}
+              allItems={allItems}
+              members={members}
+              canManage={canManage}
+              canAssign={canAssign}
+              memberName={memberName}
+              onGuardar={onGuardar}
+              onGuardarPlazo={onGuardarPlazo}
+              onOpenCreate={onOpenCreate}
+              onAdd={onAdd}
+            />
+          </div>
+        ))}
+      {canManage &&
+        expanded &&
+        (adding ? (
+          <div className="flex items-center gap-1.5">
+            <input
+              autoFocus
+              value={nuevo}
+              onChange={(e) => setNuevo(e.target.value)}
+              onBlur={confirmarNuevo}
+              onKeyDown={(e) => {
+                if (e.key === 'Enter') confirmarNuevo()
+                if (e.key === 'Escape') setAdding(false)
+              }}
+              placeholder="Nueva subtarea…"
+              className="flex-1 rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-200"
+            />
+          </div>
+        ) : (
+          <button
+            onClick={() => setAdding(true)}
+            className="text-[11px] text-slate-500 hover:text-indigo-400"
+          >
+            + Subtarea
+          </button>
+        ))}
+    </div>
+  )
+}
+
+/**
+ * Linea de tiempo de un tema y todo su arbol de subtareas.
+ *
+ * No es un Gantt de barras con duracion -minute_items solo guarda UNA fecha (el plazo), no
+ * un rango-, asi que se muestra honestamente como lo que es: un marcador por tarea sobre un
+ * eje de fechas comun. Estirar esto a barras inventaria una fecha de inicio que no existe.
+ */
+function GanttModal({
+  root,
+  allItems,
+  onClose,
+}: {
+  root: DecoratedItem
+  allItems: DecoratedItem[]
+  onClose: () => void
+}) {
+  const nodes: { item: DecoratedItem; depth: number }[] = []
+  const walk = (id: string, depth: number) => {
+    const item = allItems.find((d) => d.id === id)
+    if (!item) return
+    nodes.push({ item, depth })
+    allItems.filter((d) => d.parent_item_id === id).forEach((c) => walk(c.id, depth + 1))
+  }
+  walk(root.id, 0)
+
+  const toTime = (f: string) => parseDateLocal(f).getTime()
+  const fechas = nodes
+    .map((n) => plazoEfectivo(n.item, allItems))
+    .filter((f): f is string => !!f)
+    .map(toTime)
+  const hoy = new Date()
+  hoy.setHours(0, 0, 0, 0)
+  const min = fechas.length ? Math.min(...fechas, hoy.getTime()) : hoy.getTime()
+  const maxRaw = fechas.length ? Math.max(...fechas, hoy.getTime()) : hoy.getTime() + 7 * 86_400_000
+  // Al menos 1 dia de rango: si todo vence el mismo dia, evita dividir por cero.
+  const span = Math.max(maxRaw - min, 86_400_000)
+  const pctDeHoy = ((hoy.getTime() - min) / span) * 100
+
+  const pct = (f: string) => Math.min(100, Math.max(0, ((toTime(f) - min) / span) * 100))
+
+  return (
+    <Modal open onClose={onClose} title={`Linea de tiempo: ${root.tema}`} size="lg">
+      <div className="space-y-3">
+        <p className="text-[11px] text-slate-500">
+          Cada punto es el plazo de esa tarea (o el mas lejano entre sus subtareas, si no tiene uno
+          propio). La linea vertical marca hoy.
+        </p>
+        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
+          {nodes.map(({ item, depth }) => {
+            const fecha = plazoEfectivo(item, allItems)
+            const vencida =
+              !!fecha && item.effectiveEstado !== 'resuelto' && toTime(fecha) < hoy.getTime()
+            return (
+              <div key={item.id} className="flex items-center gap-2 text-[11px]">
+                <span
+                  className="text-slate-300 truncate flex-shrink-0"
+                  style={{ width: 140, paddingLeft: depth * 12 }}
+                  title={item.tema}
+                >
+                  {depth > 0 && '↳ '}
+                  {item.tema}
+                </span>
+                <div className="flex-1 relative h-3 bg-slate-800/60 rounded">
+                  {fecha && (
+                    <div
+                      className={`absolute top-0 h-3 w-3 -mt-0 rounded-full ${
+                        item.effectiveEstado === 'resuelto'
+                          ? 'bg-emerald-500'
+                          : depth === 0
+                            ? 'bg-indigo-500'
+                            : 'bg-amber-500'
+                      }`}
+                      style={{ left: `calc(${pct(fecha)}% - 6px)` }}
+                      title={formatDateLocal(fecha)}
+                    />
+                  )}
+                </div>
+                <span
+                  className={`w-16 text-right flex-shrink-0 ${vencida ? 'text-red-400' : 'text-slate-500'}`}
+                >
+                  {fecha ? formatDateLocal(fecha) : 'sin fecha'}
+                </span>
+              </div>
+            )
+          })}
+          {/* Eje: hoy */}
+          <div className="flex items-center gap-2 text-[11px] pt-1 border-t border-slate-700/60">
+            <span className="w-[140px] flex-shrink-0" />
+            <div className="flex-1 relative h-0">
+              <div
+                className="absolute -top-2 bottom-0 w-px bg-red-500/60"
+                style={{ left: `${pctDeHoy}%` }}
+              />
+            </div>
+            <span className="w-16 text-right flex-shrink-0 text-red-400">hoy</span>
+          </div>
+        </div>
+      </div>
+    </Modal>
+  )
 }
 
 /**
@@ -60,12 +328,14 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
 
   const [cargaMasiva, setCargaMasiva] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
+  const [ganttForId, setGanttForId] = useState<string | null>(null)
   const [createForId, setCreateForId] = useState<string | null>(null)
   const [createResp, setCreateResp] = useState<string[]>([])
   const [createPriority, setCreatePriority] = useState(2)
   const [createDue, setCreateDue] = useState('')
   const [busy, setBusy] = useState(false)
   const toast = useToast()
+  const navigate = useNavigate()
 
   // El cambio se pinta al instante y se guarda despues (ver updateItem). Si el guardado
   // falla, el hook revierte: sin este aviso, el valor volveria solo y sin explicacion.
@@ -131,8 +401,14 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
     return names.length ? names.join(', ') : 'Sin asignar'
   }
 
-  const createItem = createForId ? (items.find((i) => i.id === createForId) ?? null) : null
-  const deleteItem = confirmDeleteId ? (items.find((i) => i.id === confirmDeleteId) ?? null) : null
+  // OJO: se busca en allItems, no en items -este ultimo son solo los temas raiz visibles en
+  // la lista principal (ver useMinuta). Un sub-tema nunca aparece ahi, asi que buscarlo en
+  // items dejaba el modal de "Asignar" sin nada que mostrar y parecia que el boton no hacia nada.
+  const createItem = createForId ? (allItems.find((i) => i.id === createForId) ?? null) : null
+  const deleteItem = confirmDeleteId
+    ? (allItems.find((i) => i.id === confirmDeleteId) ?? null)
+    : null
+  const ganttItem = ganttForId ? (allItems.find((i) => i.id === ganttForId) ?? null) : null
 
   const openCreate = (it: DecoratedItem, soloEstos?: string[]) => {
     // soloEstos: al completar los que faltan, se preselecciona SOLO a esa gente para no
@@ -400,6 +676,20 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           {it.plazo ? formatDateLocal(it.plazo) : '-'}
                         </span>
                       )}
+                      {!it.plazo &&
+                        (() => {
+                          const derivado = plazoEfectivo(it, allItems)
+                          return (
+                            derivado && (
+                              <span
+                                className="block text-[10px] text-slate-500 mt-0.5"
+                                title="La subtarea con el plazo mas lejano"
+                              >
+                                ≈ {formatDateLocal(derivado)} (por subtareas)
+                              </span>
+                            )
+                          )
+                        })()}
                       {it.plazo_change_count > 0 && (
                         <span className="block text-[10px] text-amber-400 mt-0.5">
                           cambiada {it.plazo_change_count}{' '}
@@ -431,9 +721,31 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                     )}
                   </div>
 
+                  {/* Subtareas: descompone este tema en un proyecto de varios pasos. */}
+                  <SubtareasPanel
+                    parentId={it.id}
+                    allItems={allItems}
+                    members={members}
+                    canManage={canManage}
+                    canAssign={canAssign}
+                    memberName={memberName}
+                    onGuardar={guardar}
+                    onGuardarPlazo={guardarPlazo}
+                    onOpenCreate={openCreate}
+                    onAdd={addItem}
+                  />
+
                   {/* Acciones */}
-                  {(canAssign || canDelete) && (
+                  {(canAssign || canDelete || allItems.some((d) => d.parent_item_id === it.id)) && (
                     <div className="flex items-center gap-3 pt-1 border-t border-slate-700/60">
+                      {allItems.some((d) => d.parent_item_id === it.id) && (
+                        <button
+                          onClick={() => setGanttForId(it.id)}
+                          className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600"
+                        >
+                          Ver Gantt
+                        </button>
+                      )}
                       {canAssign &&
                         !it.para_todos &&
                         it.responsables.length > 0 &&
@@ -535,6 +847,18 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           {it.linkedActivities.length} actividades
                         </span>
                       )}
+                      <SubtareasPanel
+                        parentId={it.id}
+                        allItems={allItems}
+                        members={members}
+                        canManage={canManage}
+                        canAssign={canAssign}
+                        memberName={memberName}
+                        onGuardar={guardar}
+                        onGuardarPlazo={guardarPlazo}
+                        onOpenCreate={openCreate}
+                        onAdd={addItem}
+                      />
                     </td>
 
                     {/* Responsable(s): selector multiple */}
@@ -593,6 +917,20 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                           {it.plazo ? formatDateLocal(it.plazo) : '-'}
                         </span>
                       )}
+                      {!it.plazo &&
+                        (() => {
+                          const derivado = plazoEfectivo(it, allItems)
+                          return (
+                            derivado && (
+                              <span
+                                className="block text-[10px] text-slate-500 mt-0.5"
+                                title="La subtarea con el plazo mas lejano"
+                              >
+                                ≈ {formatDateLocal(derivado)} (por subtareas)
+                              </span>
+                            )
+                          )
+                        })()}
                       {it.plazo_change_count > 0 && (
                         <span
                           className="block text-[10px] text-amber-400 mt-0.5"
@@ -627,8 +965,18 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
 
                     {/* Acciones */}
                     <td className="py-2 px-2 text-right whitespace-nowrap">
-                      {(canAssign || canDelete) && (
+                      {(canAssign ||
+                        canDelete ||
+                        allItems.some((d) => d.parent_item_id === it.id)) && (
                         <div className="flex flex-col items-end gap-1.5">
+                          {allItems.some((d) => d.parent_item_id === it.id) && (
+                            <button
+                              onClick={() => setGanttForId(it.id)}
+                              className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600 transition-colors"
+                            >
+                              Ver Gantt
+                            </button>
+                          )}
                           {canAssign &&
                             !it.para_todos &&
                             it.responsables.length > 0 &&
@@ -752,15 +1100,19 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
             {createItem.linkedActivities.length > 0 && (
               <div className="flex flex-wrap gap-1.5">
                 {createItem.linkedActivities.map((a) => (
-                  <span
+                  // Abre el detalle en Actividades: es donde vive "Subtareas" para
+                  // descomponer este compromiso en un proyecto de varios niveles.
+                  <button
                     key={a.id}
-                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-800/80 text-[11px]"
+                    onClick={() => navigate('/activities', { state: { activityId: a.id } })}
+                    title="Abrir actividad (agregar subtareas)"
+                    className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-[11px]"
                   >
                     <span className="text-slate-300">{memberName(a.responsible_id)}</span>
                     <Badge variant={a.status === 'completado' ? 'success' : 'info'}>
                       {statusLabels[a.status]}
                     </Badge>
-                  </span>
+                  </button>
                 ))}
               </div>
             )}
@@ -857,6 +1209,10 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
         temasExistentes={allItems.map((i) => i.tema)}
         onConfirm={bulkAdd}
       />
+
+      {ganttItem && (
+        <GanttModal root={ganttItem} allItems={allItems} onClose={() => setGanttForId(null)} />
+      )}
     </div>
   )
 }

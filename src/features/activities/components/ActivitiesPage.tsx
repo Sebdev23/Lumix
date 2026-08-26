@@ -99,6 +99,23 @@ export function ActivitiesPage() {
   const [children, setChildren] = useState<Activity[]>([])
   const [childNames, setChildNames] = useState<Record<string, string>>({})
 
+  // Subtareas dentro del MISMO equipo (a diferencia de delegar, no exige liderar otro
+  // equipo: solo poder editar la actividad). Comparten la tabla y el mecanismo con
+  // delegar -misma parent_activity_id, mismo createWithMinuta- asi que un tema de minuta
+  // en cualquier nivel sigue alimentando Compromisos igual que hoy.
+  const [showSubtask, setShowSubtask] = useState(false)
+  const [subMembers, setSubMembers] = useState<Profile[]>([])
+  const [subTitle, setSubTitle] = useState('')
+  const [subMember, setSubMember] = useState('')
+  const [subPriority, setSubPriority] = useState(2)
+  const [subDue, setSubDue] = useState('')
+  const [subToMinuta, setSubToMinuta] = useState(false)
+  const [subBusy, setSubBusy] = useState(false)
+
+  // Pila de "desde donde entre": permite bajar N niveles (proyecto -> subtarea ->
+  // sub-subtarea) y volver, reusando el mismo modal de detalle en cada nivel.
+  const [parentStack, setParentStack] = useState<Activity[]>([])
+
   // Asignacion normal (crear una actividad nueva en el equipo activo, opcionalmente a la minuta)
   const [showAssign, setShowAssign] = useState(false)
   const [asgTitle, setAsgTitle] = useState('')
@@ -135,11 +152,14 @@ export function ActivitiesPage() {
       .then(async (kids) => {
         if (cancelled) return
         setChildren(kids)
-        const teamIds = [...new Set(kids.map((k) => k.team_id))]
+        // Miembros del propio equipo (para agregar subtareas) + de los equipos de cada
+        // hija ya existente (para mostrar su nombre), en un solo set de nombres.
+        const teamIds = [...new Set([selectedActivity.team_id, ...kids.map((k) => k.team_id)])]
         const names: Record<string, string> = {}
         for (const tid of teamIds) {
           const ms = await profilesService.getByTeam(tid)
           ms.forEach((m) => (names[m.id] = m.full_name))
+          if (tid === selectedActivity.team_id && !cancelled) setSubMembers(ms)
         }
         if (!cancelled) setChildNames(names)
       })
@@ -149,15 +169,33 @@ export function ActivitiesPage() {
     }
   }, [selectedActivity])
 
-  // Abrir el detalle de una actividad (resetea el estado del panel de delegar).
-  const openActivity = (a: Activity) => {
+  // Abrir el detalle de una actividad (resetea el estado de los paneles de delegar/subtarea).
+  // keepStack=true cuando se navega DESDE otro nivel (bajar a una hija o volver a la
+  // anterior): ahi la pila no se reinicia, solo cuando se abre una actividad de cero.
+  const openActivity = (a: Activity, opts?: { keepStack?: boolean }) => {
+    if (!opts?.keepStack) setParentStack([])
     setSelectedActivity(a)
     setObservation(a.observations || '')
     setShowDelegate(false)
     setDelTeam('')
     setDelMembers([])
     setDelMember('')
+    setShowSubtask(false)
+    setSubTitle('')
+    setSubMember('')
     setChildren([])
+  }
+
+  const openChild = (c: Activity) => {
+    if (selectedActivity) setParentStack((s) => [...s, selectedActivity])
+    openActivity(c, { keepStack: true })
+  }
+
+  const goBackToParent = () => {
+    const prev = parentStack[parentStack.length - 1]
+    if (!prev) return
+    setParentStack((s) => s.slice(0, -1))
+    openActivity(prev, { keepStack: true })
   }
 
   // Llegada desde una notificacion: abre esa actividad concreta.
@@ -204,6 +242,7 @@ export function ActivitiesPage() {
     dueISO: string
     addToMinuta: boolean
     parentId?: string
+    observations?: string
   }): Promise<Activity> => {
     const act = await activitiesService.create({
       title: o.title,
@@ -213,7 +252,7 @@ export function ActivitiesPage() {
       status: 'pendiente',
       due_date: o.dueISO,
       dependencies: [],
-      observations: o.parentId ? 'Delegada desde otro equipo' : '',
+      observations: o.observations ?? '',
       team_id: o.teamId,
       created_by: user!.id,
       parent_activity_id: o.parentId ?? null,
@@ -265,6 +304,7 @@ export function ActivitiesPage() {
         dueISO: due,
         addToMinuta: delToMinuta,
         parentId: selectedActivity.id,
+        observations: 'Delegada desde otro equipo',
       })
       setChildren((prev) => [...prev, child])
       const nm = delMembers.find((m) => m.id === delMember)?.full_name
@@ -275,6 +315,39 @@ export function ActivitiesPage() {
       toast.error('No se pudo delegar')
     } finally {
       setDelBusy(false)
+    }
+  }
+
+  // Subtarea del mismo proyecto/actividad, dentro del MISMO equipo: a diferencia de
+  // delegar, cualquiera que pueda editar la actividad la puede usar (no exige liderar
+  // otro equipo), y el titulo es propio -no el de la actividad padre-.
+  const createSubtask = async () => {
+    if (!user || !selectedActivity || !subMember || !subTitle.trim()) return
+    setSubBusy(true)
+    try {
+      const due = subDue ? new Date(subDue).toISOString() : selectedActivity.due_date
+      const child = await createWithMinuta({
+        teamId: selectedActivity.team_id,
+        memberId: subMember,
+        title: subTitle.trim(),
+        description: '',
+        priority: subPriority,
+        dueISO: due,
+        addToMinuta: subToMinuta,
+        parentId: selectedActivity.id,
+        observations: `Subtarea de: ${selectedActivity.title}`,
+      })
+      setChildren((prev) => [...prev, child])
+      const nm = subMembers.find((m) => m.id === subMember)?.full_name
+      if (nm) setChildNames((prev) => ({ ...prev, [subMember]: nm }))
+      setShowSubtask(false)
+      setSubTitle('')
+      setSubMember('')
+      toast.success(subToMinuta ? 'Subtarea creada y agregada a la minuta' : 'Subtarea creada')
+    } catch {
+      toast.error('No se pudo crear la subtarea')
+    } finally {
+      setSubBusy(false)
     }
   }
 
@@ -717,12 +790,21 @@ export function ActivitiesPage() {
         onClose={() => {
           setSelectedActivity(null)
           setEditingPriority(false)
+          setParentStack([])
         }}
         title={selectedActivity?.title}
         size="md"
       >
         {selectedActivity && (
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
+            {parentStack.length > 0 && (
+              <button
+                onClick={goBackToParent}
+                className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium flex items-center gap-1"
+              >
+                ← Volver a "{parentStack[parentStack.length - 1].title}"
+              </button>
+            )}
             <div>
               <p className="text-xs text-slate-500 mb-1">Descripcion</p>
               {canEdit ? (
@@ -879,7 +961,136 @@ export function ActivitiesPage() {
               </button>
             )}
 
-            {/* Delegar a mi equipo */}
+            {/* Subtareas: proyectos con varios niveles (ej. "Revisar capacidad" -> "ver
+                faena" -> "ajustar capacidad de faena"). Mismo equipo, cualquiera que pueda
+                editar la actividad. Cada hija se abre con su propio detalle -y sus propias
+                hijas-, asi que la profundidad no tiene limite fijo en la UI. */}
+            {canEdit && (
+              <div className="pt-2 border-t border-slate-700">
+                <div className="flex items-center justify-between">
+                  <p className="text-xs text-slate-500">Subtareas</p>
+                  {!showSubtask && (
+                    <button
+                      onClick={() => {
+                        setShowSubtask(true)
+                        setSubPriority(selectedActivity.priority)
+                        setSubDue(selectedActivity.due_date.split('T')[0])
+                      }}
+                      className="text-[11px] text-indigo-400 hover:text-indigo-300 font-medium"
+                    >
+                      + Agregar subtarea
+                    </button>
+                  )}
+                </div>
+
+                {children.length > 0 && (
+                  <div className="mt-2 space-y-1">
+                    {children.map((c) => (
+                      <button
+                        key={c.id}
+                        onClick={() => openChild(c)}
+                        className="w-full flex items-center justify-between text-left text-[11px] px-2 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800"
+                      >
+                        <span className="text-slate-300 truncate pr-2">
+                          {c.title}
+                          <span className="text-slate-500">
+                            {' · '}
+                            {childNames[c.responsible_id] || 'Miembro'}
+                            {c.team_id !== selectedActivity.team_id &&
+                              ` · ${managedTeams.find((t) => t.id === c.team_id)?.name || 'otro equipo'}`}
+                          </span>
+                        </span>
+                        <Badge variant={c.status === 'completado' ? 'success' : 'info'}>
+                          {statusLabels[c.status]}
+                        </Badge>
+                      </button>
+                    ))}
+                  </div>
+                )}
+
+                {showSubtask && (
+                  <div className="mt-2 space-y-2 rounded-lg bg-slate-900/60 border border-indigo-500/20 p-3">
+                    <div>
+                      <p className="text-[11px] text-slate-500 mb-1">Titulo de la subtarea</p>
+                      <input
+                        type="text"
+                        value={subTitle}
+                        onChange={(e) => setSubTitle(e.target.value)}
+                        placeholder="Ej: Ver faena"
+                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                      />
+                    </div>
+                    <div>
+                      <p className="text-[11px] text-slate-500 mb-1">Asignar a</p>
+                      <select
+                        value={subMember}
+                        onChange={(e) => setSubMember(e.target.value)}
+                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                      >
+                        <option value="">Elegir persona…</option>
+                        {subMembers.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.full_name}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                    <div className="flex gap-3">
+                      <div>
+                        <p className="text-[11px] text-slate-500 mb-1">Prioridad</p>
+                        <div className="flex gap-1">
+                          {[1, 2, 3].map((p) => (
+                            <button
+                              key={p}
+                              onClick={() => setSubPriority(p)}
+                              className={`w-7 h-7 rounded text-xs font-bold text-white ${
+                                subPriority === p
+                                  ? p === 1
+                                    ? 'bg-red-600'
+                                    : p === 2
+                                      ? 'bg-amber-600'
+                                      : 'bg-emerald-600'
+                                  : 'bg-slate-700'
+                              }`}
+                            >
+                              {p}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex-1">
+                        <p className="text-[11px] text-slate-500 mb-1">Fecha entrega</p>
+                        <DatePicker value={subDue || null} onChange={(v) => setSubDue(v ?? '')} />
+                      </div>
+                    </div>
+                    <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                      <input
+                        type="checkbox"
+                        checked={subToMinuta}
+                        onChange={(e) => setSubToMinuta(e.target.checked)}
+                        className="accent-indigo-500"
+                      />
+                      Tambien llevar a la minuta del equipo
+                    </label>
+                    <div className="flex gap-2">
+                      <Button
+                        size="sm"
+                        disabled={subBusy || !subMember || !subTitle.trim()}
+                        onClick={createSubtask}
+                      >
+                        {subBusy ? 'Creando...' : 'Crear subtarea'}
+                      </Button>
+                      <Button size="sm" variant="ghost" onClick={() => setShowSubtask(false)}>
+                        Cancelar
+                      </Button>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Delegar a mi equipo: la misma tarea, pero para que la haga OTRO equipo que
+                lidero (no una subtarea nueva, sino el mismo trabajo bajado de nivel). */}
             {managedTeams.length > 0 && (
               <div className="pt-2 border-t border-slate-700">
                 <div className="flex items-center justify-between">
@@ -897,29 +1108,6 @@ export function ActivitiesPage() {
                     </button>
                   )}
                 </div>
-
-                {/* Delegaciones existentes */}
-                {children.length > 0 && (
-                  <div className="mt-2 space-y-1">
-                    {children.map((c) => (
-                      <div
-                        key={c.id}
-                        className="flex items-center justify-between text-[11px] px-2 py-1.5 rounded-lg bg-slate-800/60"
-                      >
-                        <span className="text-slate-300">
-                          {childNames[c.responsible_id] || 'Miembro'}
-                          <span className="text-slate-500">
-                            {' · '}
-                            {managedTeams.find((t) => t.id === c.team_id)?.name || 'equipo'}
-                          </span>
-                        </span>
-                        <Badge variant={c.status === 'completado' ? 'success' : 'info'}>
-                          {statusLabels[c.status]}
-                        </Badge>
-                      </div>
-                    ))}
-                  </div>
-                )}
 
                 {showDelegate && (
                   <div className="mt-2 space-y-2 rounded-lg bg-slate-900/60 border border-indigo-500/20 p-3">
