@@ -849,8 +849,8 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                     Tema
                   </th>
                   <th className="text-left py-2 px-2 font-medium min-w-[150px]">Responsable(s)</th>
-                  <th className="text-left py-2 px-2 font-medium">Estado</th>
-                  <th className="text-left py-2 px-2 font-medium">Plazo</th>
+                  <th className="text-left py-2 px-2 font-medium min-w-[130px]">Estado</th>
+                  <th className="text-left py-2 px-2 font-medium min-w-[110px]">Plazo</th>
                   <th className="text-left py-2 px-2 font-medium min-w-[140px] sm:min-w-[180px]">
                     Comentarios
                   </th>

@@ -181,7 +181,7 @@ export function CompromisosPage() {
                   aria-expanded={estaAbierto(g.id)}
                   disabled={soloUno}
                   className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left rounded-xl transition-colors ${
-                    soloUno ? '' : 'hover:bg-slate-800/50'
+                    soloUno ? '' : 'hover:bg-surface-2/50'
                   } ${estaAbierto(g.id) ? 'border-b border-border rounded-b-none' : ''}`}
                 >
                   {!soloUno && (

@@ -400,7 +400,7 @@ export function ChatPage() {
               </div>
             ) : messages.length === 0 ? (
               <div className="flex flex-col items-center justify-center h-full text-center">
-                <div className="w-16 h-16 rounded-full bg-slate-800 flex items-center justify-center mb-4">
+                <div className="w-16 h-16 rounded-full bg-surface flex items-center justify-center mb-4">
                   <svg
                     className="w-8 h-8 text-slate-600"
                     fill="none"
@@ -625,7 +625,7 @@ export function ChatPage() {
 
         {/* Respondiendo a: se ve arriba del input hasta que se envia o se cancela */}
         {replyTo && (
-          <div className="px-4 py-2 bg-slate-800 border-t border-slate-700">
+          <div className="px-4 py-2 bg-surface border-t border-border">
             <div className="max-w-3xl mx-auto">
               <QuotedMessage reply={replyTo} onCancel={() => setReplyTo(null)} />
             </div>
@@ -752,7 +752,7 @@ export function ChatPage() {
                     setLote(null)
                     if (cuando) toast.success(`Movidas al ${cuando}`)
                   }}
-                  className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-indigo-300 transition-colors"
+                  className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-indigo-400 light:text-indigo-600 transition-colors"
                 >
                   Mover {lote.pending.items.length === 1 ? 'la actividad' : 'las actividades'} +{d}{' '}
                   días hábiles
@@ -766,7 +766,7 @@ export function ChatPage() {
                   setLoteBusy(false)
                   setLote(null)
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-300 transition-colors"
+                className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-fg-muted transition-colors"
               >
                 Dejarlas en esa fecha
               </button>
@@ -821,7 +821,7 @@ export function ChatPage() {
                     <p className="text-sm text-emerald-400 font-medium">{overloadFeedback}</p>
                     <button
                       onClick={closeOverload}
-                      className="text-xs text-slate-500 mt-3 hover:text-slate-400"
+                      className="text-xs text-slate-500 mt-3 hover:text-fg-muted"
                     >
                       Cerrar
                     </button>
@@ -848,9 +848,9 @@ export function ChatPage() {
                             onChange={(e) => setCustomDays(e.target.value)}
                             placeholder="dias"
                             autoFocus
-                            className="w-20 rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-center"
+                            className="w-20 rounded-lg border border-border-strong bg-field px-3 py-2 text-sm text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-center"
                           />
-                          <span className="text-sm text-slate-400">dias habiles</span>
+                          <span className="text-sm text-fg-faint">dias habiles</span>
                         </div>
                         <div className="flex gap-2">
                           <button
@@ -871,7 +871,7 @@ export function ChatPage() {
                               setShowCustomDays(false)
                               setCustomDays('')
                             }}
-                            className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-300 transition-colors"
+                            className="px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-fg-muted transition-colors"
                           >
                             Volver
                           </button>
@@ -888,7 +888,7 @@ export function ChatPage() {
                             key={opt.days}
                             disabled={creatingOverload}
                             onClick={() => resolveOverload(opt.days)}
-                            className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-200 transition-colors"
+                            className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-fg-body transition-colors"
                           >
                             {opt.label}
                           </button>
@@ -896,14 +896,14 @@ export function ChatPage() {
                         <button
                           disabled={creatingOverload}
                           onClick={() => setShowCustomDays(true)}
-                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-indigo-300 transition-colors"
+                          className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-indigo-400 light:text-indigo-600 transition-colors"
                         >
                           Otros dias...
                         </button>
                         <button
                           disabled={creatingOverload}
                           onClick={cancelarOverload}
-                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
+                          className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-red-400 light:text-red-600 transition-colors"
                         >
                           Cancelar (no crear)
                         </button>
@@ -962,7 +962,7 @@ export function ChatPage() {
                         setNameConfirm(null)
                         setAssignFeedback('')
                       }}
-                      className="text-xs text-slate-500 mt-3 hover:text-slate-400"
+                      className="text-xs text-slate-500 mt-3 hover:text-fg-muted"
                     >
                       Cerrar
                     </button>
@@ -977,7 +977,7 @@ export function ChatPage() {
                           key={c.id}
                           disabled={savingAssign}
                           onClick={() => pick(c.id, c.name)}
-                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-200 transition-colors"
+                          className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-fg-body transition-colors"
                         >
                           {c.name}
                         </button>
@@ -986,7 +986,7 @@ export function ChatPage() {
                         <button
                           disabled={savingAssign}
                           onClick={() => pick(user.id, profile.full_name ?? 'Yo')}
-                          className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-indigo-300 transition-colors"
+                          className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-indigo-400 light:text-indigo-600 transition-colors"
                         >
                           Asignarme a mi
                         </button>
@@ -998,7 +998,7 @@ export function ChatPage() {
                           setNameConfirm(null)
                           setAssignFeedback('')
                         }}
-                        className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
+                        className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-red-400 light:text-red-600 transition-colors"
                       >
                         Cancelar
                       </button>
@@ -1038,7 +1038,7 @@ export function ChatPage() {
                       setSavingPick(false)
                     }
                   }}
-                  className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-slate-200 transition-colors"
+                  className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-fg-body transition-colors"
                 >
                   {c.title}
                 </button>
@@ -1049,7 +1049,7 @@ export function ChatPage() {
                   await descartarActividadElegida(activityPick.messageId)
                   setActivityPick(null)
                 }}
-                className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
+                className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 disabled:opacity-50 text-sm text-red-400 light:text-red-600 transition-colors"
               >
                 Cancelar
               </button>
@@ -1104,20 +1104,20 @@ export function ChatPage() {
                   }}
                   className={`w-full text-left px-3 py-2 rounded-lg transition-colors disabled:opacity-50 ${
                     opt.value === 'actividad'
-                      ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/40 hover:bg-indigo-600/30'
+                      ? 'bg-indigo-600/20 text-indigo-200 light:text-indigo-700 border border-indigo-500/40 hover:bg-indigo-600/30'
                       : opt.value === 'proyecto'
-                        ? 'bg-sky-600/20 text-sky-200 border border-sky-500/40 hover:bg-sky-600/30'
-                        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                        ? 'bg-sky-600/20 text-sky-200 light:text-sky-700 border border-sky-500/40 hover:bg-sky-600/30'
+                        : 'bg-surface text-fg-body hover:bg-surface-2'
                   }`}
                 >
                   <span className="text-sm font-medium">{opt.label}</span>
-                  <span className="block text-[11px] text-slate-400">{opt.hint}</span>
+                  <span className="block text-[11px] text-fg-faint">{opt.hint}</span>
                 </button>
               ))}
               <button
                 disabled={savingCategory}
                 onClick={() => setCategoryConfirm(null)}
-                className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-red-400 transition-colors disabled:opacity-50"
+                className="w-full text-left px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 text-sm text-red-400 light:text-red-600 transition-colors disabled:opacity-50"
               >
                 Cancelar
               </button>
@@ -1246,26 +1246,26 @@ export function ChatPage() {
                     setEditTarget(null)
                     setFeedback('')
                   }}
-                  className="text-xs text-slate-500 mt-3 hover:text-slate-400"
+                  className="text-xs text-slate-500 mt-3 hover:text-fg-muted"
                 >
                   Cerrar
                 </button>
               </div>
             ) : (
               <>
-                <p className="text-sm font-semibold text-slate-100 mb-3 leading-snug">
+                <p className="text-sm font-semibold text-fg mb-3 leading-snug">
                   {editTarget.title.replace(/^\[Ingesta\]\s*/, '')}
                 </p>
 
-                <label className="block text-[11px] text-slate-400 mb-1">Descripcion</label>
+                <label className="block text-[11px] text-fg-faint mb-1">Descripcion</label>
                 <textarea
                   value={editForm.description}
                   onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                   rows={3}
-                  className="w-full resize-none rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-3"
+                  className="w-full resize-none rounded-lg border border-border-strong bg-field px-3 py-2 text-sm text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-3"
                 />
 
-                <label className="block text-[11px] text-slate-400 mb-1">Prioridad</label>
+                <label className="block text-[11px] text-fg-faint mb-1">Prioridad</label>
                 <div className="flex gap-1.5 mb-3">
                   {[
                     { v: 1, label: 'Alta', c: 'red' },
@@ -1277,8 +1277,8 @@ export function ChatPage() {
                       onClick={() => setEditForm((f) => ({ ...f, priority: p.v }))}
                       className={`flex-1 px-2 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
                         editForm.priority === p.v
-                          ? 'bg-indigo-600/20 text-indigo-300 border border-indigo-500/40'
-                          : 'bg-slate-800 text-slate-400 hover:bg-slate-700'
+                          ? 'bg-indigo-600/20 text-indigo-300 light:text-indigo-700 border border-indigo-500/40'
+                          : 'bg-surface text-fg-faint hover:bg-surface-2'
                       }`}
                     >
                       P{p.v} · {p.label}
@@ -1286,21 +1286,21 @@ export function ChatPage() {
                   ))}
                 </div>
 
-                <label className="block text-[11px] text-slate-400 mb-1">Fecha de entrega</label>
+                <label className="block text-[11px] text-fg-faint mb-1">Fecha de entrega</label>
                 <input
                   type="date"
                   value={editForm.due_date}
                   onChange={(e) => setEditForm((f) => ({ ...f, due_date: e.target.value }))}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-3"
+                  className="w-full rounded-lg border border-border-strong bg-field px-3 py-2 text-sm text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-3"
                 />
 
-                <label className="block text-[11px] text-slate-400 mb-1">Estado</label>
+                <label className="block text-[11px] text-fg-faint mb-1">Estado</label>
                 <select
                   value={editForm.status}
                   onChange={(e) =>
                     setEditForm((f) => ({ ...f, status: e.target.value as ActivityStatus }))
                   }
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-4"
+                  className="w-full rounded-lg border border-border-strong bg-field px-3 py-2 text-sm text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-4"
                 >
                   {STATUS_OPTIONS.map((s) => (
                     <option key={s.value} value={s.value}>
@@ -1311,13 +1311,13 @@ export function ChatPage() {
 
                 {canAssignOthers && (
                   <>
-                    <label className="block text-[11px] text-slate-400 mb-1">Responsable</label>
+                    <label className="block text-[11px] text-fg-faint mb-1">Responsable</label>
                     <select
                       value={editForm.responsibleId}
                       onChange={(e) =>
                         setEditForm((f) => ({ ...f, responsibleId: e.target.value }))
                       }
-                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-4"
+                      className="w-full rounded-lg border border-border-strong bg-field px-3 py-2 text-sm text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-4"
                     >
                       {editMembers.length === 0 && (
                         <option value={editForm.responsibleId}>{editTarget.responsibleName}</option>
@@ -1356,7 +1356,7 @@ export function ChatPage() {
                   <button
                     disabled={savingEdit}
                     onClick={() => setEditTarget(null)}
-                    className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-slate-300 transition-colors"
+                    className="px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 text-sm text-fg-muted transition-colors"
                   >
                     Cancelar
                   </button>
@@ -1388,17 +1388,17 @@ export function ChatPage() {
                     setBulkItems(null)
                     setFeedback('')
                   }}
-                  className="text-xs text-slate-500 mt-3 hover:text-slate-400"
+                  className="text-xs text-slate-500 mt-3 hover:text-fg-muted"
                 >
                   Cerrar
                 </button>
               </div>
             ) : bulkItems.length === 0 ? (
               <div className="text-center py-4">
-                <p className="text-sm text-slate-300">No detecte actividades en el texto.</p>
+                <p className="text-sm text-fg-muted">No detecte actividades en el texto.</p>
                 <button
                   onClick={() => setBulkItems(null)}
-                  className="text-xs text-slate-500 mt-3 hover:text-slate-400"
+                  className="text-xs text-slate-500 mt-3 hover:text-fg-muted"
                 >
                   Cerrar
                 </button>
@@ -1408,13 +1408,11 @@ export function ChatPage() {
                 <p className="text-sm font-medium text-emerald-400 mb-1">
                   {bulkItems.length} actividades detectadas
                 </p>
-                <p className="text-xs text-slate-400 mb-3">
-                  Revisa y confirma para crearlas todas.
-                </p>
+                <p className="text-xs text-fg-faint mb-3">Revisa y confirma para crearlas todas.</p>
                 <div className="space-y-1.5 max-h-56 overflow-y-auto mb-3">
                   {bulkItems.map((it, i) => (
-                    <div key={i} className="px-3 py-2 rounded-lg bg-slate-800 text-xs">
-                      <p className="text-slate-200">{it.title}</p>
+                    <div key={i} className="px-3 py-2 rounded-lg bg-surface text-xs">
+                      <p className="text-fg-body">{it.title}</p>
                       <p className="text-slate-500 mt-0.5">
                         {it.responsible ? `→ ${it.responsible}` : '→ sin asignar'}
                         {it.due_date ? ` · ${it.due_date}` : ''}
@@ -1442,7 +1440,7 @@ export function ChatPage() {
                   <button
                     disabled={bulkCreating}
                     onClick={() => setBulkItems(null)}
-                    className="px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 text-sm text-red-400 transition-colors"
+                    className="px-3 py-2 rounded-lg bg-surface hover:bg-surface-2 text-sm text-red-400 light:text-red-600 transition-colors"
                   >
                     Cancelar
                   </button>

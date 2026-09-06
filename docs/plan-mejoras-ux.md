@@ -985,6 +985,127 @@ claro) aparecieron más casos, ninguno tocado todavía:
 
 Queda para una próxima pasada, archivo por archivo como siempre (sin scripts automáticos).
 
+**Actualización: ejecutado.** Sebastián pidió revisar `ChatPage.tsx` y `CompromisosPage.tsx`
+también. Se tokenizaron los ~24 lugares encontrados en `ChatPage.tsx` (el popout de "Día
+cargado"/sobrecarga y sus botones de mover fecha, el modo masivo completo — textarea de
+descripción, prioridad, fecha, estado, responsable —, el formulario de edición de actividad, el
+recordatorio de "respondiendo a", el ícono del estado vacío, y los botones Cancelar/Volver de
+varios popouts) con los tokens ya existentes (`bg-surface`/`bg-surface-2`/`bg-field`/
+`border-border-strong`/`text-fg-*`). De paso aparecieron 3 casos más del bug de texto-claro-
+sobre-fondo-de-acento (Ronda 6/Fase 10): `text-indigo-200`/`text-sky-200`/`text-indigo-300`
+sobre fondos `bg-indigo-600/20`/`bg-sky-600/20` en el popout de categoría y en el selector de
+prioridad del formulario de edición — corregidos con `light:text-indigo-700`/`light:text-sky-700`
+igual que en el Gantt. En `CompromisosPage.tsx` se tokenizó el único caso encontrado
+(`hover:bg-slate-800/50` → `hover:bg-surface-2/50` en la cabecera plegable por persona).
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios (0 errores, mismos warnings preexistentes de
+siempre).
+
+---
+
+## Fase 11 — Idea a definir: "focos" de equipo (agrupar personas) + orden configurable (sin ejecutar)
+
+Sebastián transmitió feedback de usuarios: un equipo puede tener distintos **focos** internos
+(sus ejemplos: "excelencia", "productividad", "entrenamiento"), y a la jefatura le gustaría ver
+a las personas agrupadas por foco, expandible, en Minuta o Compromisos — asignar el foco de cada
+persona sería una acción exclusiva de jefatura. Por separado (relacionado pero no lo mismo):
+en Actividades (y "lo que sea") le gustaría poder **ordenar** por fecha, nombre, tema, o grupo de
+trabajo. Sebastián no tenía claro cómo aterrizar la idea y pidió una recomendación concreta, no
+solo dejarla anotada.
+
+### Qué existe hoy (investigado antes de proponer nada)
+
+- **No existe ningún concepto de "foco" o subgrupo** en el modelo de datos: `Profile`
+  (`shared/types/index.ts:17-25`) solo tiene `role`/`team_id`, y `MinuteItem` no tiene ningún
+  campo de agrupación más allá de `responsables`. Habría que crear el campo.
+- El sistema de **capabilities** (`core/auth/capabilities.ts`) es el mecanismo ya probado para
+  que jefatura controle cosas por persona (Fase 2/3), pero son flags booleanos puros — no sirve
+  para guardar un valor categórico como "foco". Hace falta un campo nuevo, no una capability más.
+- `TeamsPage.tsx` ya tiene, por fila de miembro, un patrón editable exclusivo de jefatura: select
+  de rol (línea ~192) + checkboxes de capabilities (línea ~222) sobre `m.permissions`. Es el
+  lugar natural para sumar un campo "Foco" nuevo, con el mismo control de permisos que ya protege
+  rol/capabilities ahí mismo.
+- El campo de rol/permisos ya vive en la **membresía** (`team_members`), no en `Profile` global
+  — es decir, ya se acepta que una persona tenga rol distinto por equipo. El foco debería vivir
+  en el mismo lugar (`team_members.foco`), no en `Profile`, por la misma razón: alguien podría
+  tener un foco distinto en otro equipo si perteneciera a más de uno.
+- **Compromisos** (`useCompromisos.ts:177-190` + `CompromisosPage.tsx:44-54,175-229`) ya agrupa
+  por persona, plegable (`porPersona`, `alternar`/`estaAbierto`) — un solo nivel hoy (persona →
+  sus compromisos). Es el candidato natural para la idea: envolver ese agrupamiento en un nivel
+  más arriba (foco → personas de ese foco → sus compromisos, con "Sin foco" para quien no tenga
+  uno asignado) es **aditivo**, no una reescritura.
+- **Minuta** (`MinutaPage.tsx`) es una lista plana por diseño — no agrupa por persona hoy. Esto
+  no es un descuido: la Fase 4 de este mismo plan ya estableció que Minuta es la agenda puntual
+  semanal, distinta a una estructura organizacional persistente (por eso existe Proyectos aparte).
+  Injertarle un agrupamiento persistente por foco choca con esa idea de fondo más de lo que ayuda.
+- **Actividades** (`ActivitiesPage.tsx` + `useActivities.ts:181-186`) hoy NO tiene un selector de
+  orden — el único `<select>` de fecha (línea ~490) elige qué fecha usar para _filtrar_, no para
+  ordenar. El orden real es un `.sort()` fijo en el hook (por `due_date` y luego `priority`),
+  sobre un arreglo ya cargado en memoria — no es una consulta al servidor. Agregar un selector de
+  orden (fecha/nombre/tema/grupo) es barato: un estado nuevo + cambiar el comparador, sin tocar
+  la base ni el backend.
+
+### Recomendación concreta
+
+1. **Foco como campo de la membresía, no de la persona global.** Migración chica: columna
+   `foco text null` en `team_members` (o una tabla `equipo_focos` si jefatura quiere definir sus
+   propios nombres de foco por equipo en vez de escribir texto libre cada vez — más prolijo,
+   evita typos como "Productividad" vs "productividad"; recomiendo la tabla si el catálogo de
+   focos se va a reusar seguido, texto libre si es más informal/cambia mucho).
+2. **Asignar el foco: en `TeamsPage.tsx`**, junto al select de rol de cada miembro (mismo
+   permiso que ya protege esa fila — jefatura/admin). Un `<select>` con los focos ya usados en
+   ese equipo + opción "Crear nuevo" si se hizo con catálogo, o un input de texto simple si se
+   optó por texto libre.
+3. **Mostrar agrupado, primero en Compromisos** (no en Minuta): extender `porPersona` a
+   `porFoco → porPersona`, reusando el mismo componente colapsable que ya existe, solo con un
+   nivel más envolviéndolo. Bajo riesgo porque no toca la lógica de compromisos en sí, solo cómo
+   se organizan visualmente.
+4. **Minuta: filtro, no agrupamiento.** En vez de reestructurar la lista plana, agregar un
+   `<select>` "Foco" arriba (como los filtros que ya existen en Errores/Actividades) que
+   simplemente oculta temas cuyo responsable no pertenezca al foco elegido — misma agenda
+   semanal, sin romper el modelo mental de Fase 4. Si más adelante Sebastián de verdad quiere
+   agrupamiento visual (no solo filtro) dentro de Minuta, evaluarlo aparte con datos reales de
+   uso primero.
+5. **Orden configurable en Actividades**: agregar un `<select>` "Ordenar por" (fecha, nombre,
+   tema, foco/grupo) al lado del filtro de fecha existente, con un comparador nuevo en
+   `useActivities.ts` que reemplace al `.sort()` fijo actual segun la opcion elegida. Extender a
+   Ingestas/Compromisos despues si a Sebastián le sirve ahi tambien (mismo patron, archivo por
+   archivo).
+
+**Antes de ejecutar, decidir con Sebastián:**
+
+- ¿Catálogo de focos por equipo (jefatura los crea, evita typos) o texto libre? Cambia si hace
+  falta una tabla nueva o solo una columna.
+- ¿El filtro de foco en Minuta alcanza, o de verdad quiere ver el agrupamiento visual (como en
+  Compromisos) ahí también?
+- ¿"Grupo de trabajo" para el orden en Actividades es lo mismo que "foco", o es un concepto
+  distinto (ej. el equipo/`team_id`, no un sub-grupo dentro del equipo)? Aclarar antes de
+  construir el comparador de orden.
+
+**Estado: solo anotado, sin ejecutar** — falta que Sebastián resuelva las 3 preguntas de arriba
+antes de empezar.
+
+**Actualización — Sebastián simplificó el alcance:** confirmó que alcanza con un **filtro** de
+foco (no agrupamiento visual) tanto en Minuta como en Actividades, visible solo para jefatura —
+descarta la parte más compleja de agrupar Compromisos por foco (punto 3 de la recomendación de
+arriba, que queda descartado) y confirma el punto 4 (filtro en Minuta) extendido también a
+Actividades. Sigue sin ejecutar: falta resolver igual las preguntas de catálogo vs. texto libre,
+y si "grupo de trabajo" (mencionado para el orden de Actividades) es lo mismo que "foco".
+
+---
+
+## Bug encontrado de paso: columna "Plazo" se contrae en la tabla de Minuta ✅ HECHO
+
+Sebastián notó que la columna "Plazo" (tabla de escritorio, `MinutaPage.tsx:853`) se veía
+angosta/contraída, a diferencia de "Estado" o "Responsable(s)". Causa: "Tema", "Responsable(s)"
+y "Comentarios" tenían un `min-w-[...]` explícito en su `<th>`, pero "Estado" y "Plazo" no
+tenían ninguno — en una tabla `border-collapse` sin ancho fijo por columna, el navegador
+comprime las columnas sin mínimo cuando el resto reclama espacio, apretando el `DatePicker` (que
+por defecto no tiene ancho propio) y el texto de trazabilidad debajo ("cambiada N veces", "≈
+fecha por subtareas"). Corregido agregando `min-w-[130px]` a Estado (para que quepa "Definir en
+reunion", la etiqueta más larga) y `min-w-[110px]` a Plazo (para el `DatePicker` + su texto de
+abajo). `npm run build`/`tsc --noEmit` limpios.
+
 ---
 
 ## Notas de ejecución
