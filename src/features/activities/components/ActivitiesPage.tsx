@@ -387,8 +387,8 @@ export function ActivitiesPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200">Actividades</h2>
+      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+        <h2 className="text-sm font-semibold text-fg-body">Actividades</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() =>
@@ -413,7 +413,7 @@ export function ActivitiesPage() {
                 'actividades',
               )
             }
-            className="px-2 py-1 rounded text-[10px] text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+            className="px-2 py-1 rounded text-[10px] text-fg-faint hover:text-emerald-400 hover:bg-surface transition-colors"
             title="Exportar a Excel"
           >
             <svg
@@ -441,7 +441,7 @@ export function ActivitiesPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0 flex-nowrap">
+      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-border bg-surface-soft/50 overflow-x-auto flex-shrink-0 flex-nowrap">
         {statusFilters.map((f) => (
           <button
             key={f.value}
@@ -449,7 +449,7 @@ export function ActivitiesPage() {
             className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
               filterStatus === f.value
                 ? 'bg-indigo-600/20 text-indigo-400'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-fg-faint hover:text-fg-body hover:bg-surface'
             }`}
           >
             {f.label}
@@ -462,7 +462,7 @@ export function ActivitiesPage() {
           <select
             value={filterTeam}
             onChange={(e) => setFilterTeam(e.target.value)}
-            className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           >
             <option value="todas">Todos los equipos</option>
             {Object.entries(teamNames).map(([id, name]) => (
@@ -476,7 +476,7 @@ export function ActivitiesPage() {
           <select
             value={filterMember}
             onChange={(e) => setFilterMember(e.target.value)}
-            className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           >
             <option value="todas">Cualquier responsable</option>
             {members.map((m) => (
@@ -486,11 +486,11 @@ export function ActivitiesPage() {
             ))}
           </select>
         )}
-        <div className="w-px bg-slate-700 mx-1" />
+        <div className="w-px bg-surface-2 mx-1" />
         <select
           value={dateType}
           onChange={(e) => setDateType(e.target.value as typeof dateType)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
         >
           <option value="entrega">Entrega</option>
           <option value="creadas">Creadas</option>
@@ -500,13 +500,13 @@ export function ActivitiesPage() {
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
         />
         <input
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
         />
         {(dateFrom || dateTo) && (
           <button
@@ -514,7 +514,7 @@ export function ActivitiesPage() {
               setDateFrom('')
               setDateTo('')
             }}
-            className="px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+            className="px-2 py-1.5 rounded-lg text-xs text-fg-faint hover:text-fg-body hover:bg-surface"
           >
             Limpiar
           </button>
@@ -538,13 +538,13 @@ export function ActivitiesPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar actividad..."
-            className="w-full rounded-lg bg-slate-800 border border-slate-700 pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="w-full rounded-lg bg-surface border border-border-strong pl-8 pr-7 py-1.5 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           />
           {search && (
             <button
               onClick={() => setSearch('')}
               aria-label="Limpiar busqueda"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-sm"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-fg-muted text-sm"
             >
               ×
             </button>
@@ -578,7 +578,7 @@ export function ActivitiesPage() {
                 chat para crear una" mandaria a crear algo que ya existe al lado. */}
             {allActivities.length > 0 && filterTeam !== 'todas' ? (
               <>
-                <p className="text-sm text-slate-400">
+                <p className="text-sm text-fg-faint">
                   No hay actividades en {teamNames[filterTeam] ?? 'este equipo'}
                 </p>
                 <button
@@ -590,7 +590,7 @@ export function ActivitiesPage() {
               </>
             ) : (
               <>
-                <p className="text-sm text-slate-400">No hay actividades</p>
+                <p className="text-sm text-fg-faint">No hay actividades</p>
                 <p className="text-xs text-slate-600 mt-1">Escribe en el chat para crear una</p>
               </>
             )}
@@ -599,7 +599,7 @@ export function ActivitiesPage() {
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-500">
+                <tr className="border-b border-border-strong text-slate-500">
                   <th className="text-left py-2 px-3 font-medium">Actividad</th>
                   <th className="text-left py-2 px-3 font-medium hidden md:table-cell">
                     Responsable
@@ -611,7 +611,9 @@ export function ActivitiesPage() {
                   <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">Creado</th>
                   <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">Cerrado</th>
                   <th className="text-left py-2 px-3 font-medium">Estado</th>
-                  <th className="text-right py-2 px-3 font-medium">Accion</th>
+                  <th className="text-right py-2 px-2 sm:px-3 font-medium whitespace-nowrap">
+                    Accion
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -621,7 +623,7 @@ export function ActivitiesPage() {
                     <tr
                       key={activity.id}
                       onClick={() => openActivity(activity)}
-                      className="border-b border-slate-800 hover:bg-slate-800/30 cursor-pointer transition-colors"
+                      className="border-b border-border hover:bg-surface/30 cursor-pointer transition-colors"
                     >
                       <td className="py-2.5 px-3">
                         <div className="flex items-center gap-1.5">
@@ -640,7 +642,7 @@ export function ActivitiesPage() {
                             </span>
                           )}
                           <div className="min-w-0">
-                            <span className="text-slate-200 truncate max-w-[200px] block">
+                            <span className="text-fg-body whitespace-normal break-words block">
                               {activity.title}
                             </span>
                             {teamNames[activity.team_id] && (
@@ -652,7 +654,7 @@ export function ActivitiesPage() {
                         </div>
                       </td>
                       <td className="py-2.5 px-3 hidden md:table-cell">
-                        <span className="text-xs text-slate-400 truncate max-w-[100px] block">
+                        <span className="text-xs text-fg-faint truncate max-w-[100px] block">
                           {members.find((m) => m.id === activity.responsible_id)?.full_name ||
                             'Sin asignar'}
                         </span>
@@ -662,7 +664,7 @@ export function ActivitiesPage() {
                           {[1, 2, 3].map((p) => (
                             <div
                               key={p}
-                              className={`w-1.5 h-3 rounded-sm ${p >= activity.priority ? priorityColors[p] : 'bg-slate-700'}`}
+                              className={`w-1.5 h-3 rounded-sm ${p >= activity.priority ? priorityColors[p] : 'bg-surface-2'}`}
                             />
                           ))}
                         </div>
@@ -671,6 +673,14 @@ export function ActivitiesPage() {
                         <span className={getDaysColor(days)}>
                           {formatDateLocal(activity.due_date, 'short')}
                         </span>
+                        {(activity.plazo_change_count ?? 0) > 0 && (
+                          <span
+                            className="block text-[10px] text-amber-400"
+                            title="Veces que se movio la fecha de entrega desde que se creo"
+                          >
+                            movida {activity.plazo_change_count}x
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
                         {formatDateLocal(activity.created_at, 'short')}
@@ -756,9 +766,9 @@ export function ActivitiesPage() {
       >
         {confirmDelete && (
           <div className="space-y-4">
-            <p className="text-sm text-slate-300">
+            <p className="text-sm text-fg-muted">
               ¿Seguro que quieres eliminar{' '}
-              <span className="text-slate-100">"{confirmDelete.title}"</span>?
+              <span className="text-fg font-medium">"{confirmDelete.title}"</span>?
             </p>
             <p className="text-xs text-slate-500 leading-snug">
               No se puede deshacer. Si estaba vinculada a un tema de la minuta, el tema queda sin
@@ -820,11 +830,11 @@ export function ActivitiesPage() {
                     }
                   }}
                   rows={2}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                  className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
                   placeholder="Sin descripcion"
                 />
               ) : (
-                <p className="text-sm text-slate-300">
+                <p className="text-sm text-fg-muted">
                   {selectedActivity.description || 'Sin descripcion'}
                 </p>
               )}
@@ -870,10 +880,10 @@ export function ActivitiesPage() {
                     {[1, 2, 3].map((p) => (
                       <div
                         key={p}
-                        className={`w-2 h-4 rounded-sm ${p >= selectedActivity.priority ? priorityColors[p] : 'bg-slate-700'} ${canEdit ? 'cursor-pointer' : ''}`}
+                        className={`w-2 h-4 rounded-sm ${p >= selectedActivity.priority ? priorityColors[p] : 'bg-surface-2'} ${canEdit ? 'cursor-pointer' : ''}`}
                       />
                     ))}
-                    <span className="text-xs text-slate-400 ml-1">
+                    <span className="text-xs text-fg-faint ml-1">
                       {selectedActivity.priority}/3
                     </span>
                   </div>
@@ -881,7 +891,7 @@ export function ActivitiesPage() {
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">Fecha creacion</p>
-                <p className="text-sm text-slate-300">
+                <p className="text-sm text-fg-muted">
                   {formatDateLocal(selectedActivity.created_at)}
                 </p>
               </div>
@@ -905,6 +915,12 @@ export function ActivitiesPage() {
                     {formatDateLocal(selectedActivity.due_date)}
                   </p>
                 )}
+                {(selectedActivity.plazo_change_count ?? 0) > 0 && (
+                  <span className="block text-[10px] text-amber-400 mt-0.5">
+                    cambiada {selectedActivity.plazo_change_count}{' '}
+                    {selectedActivity.plazo_change_count === 1 ? 'vez' : 'veces'}
+                  </span>
+                )}
               </div>
             </div>
 
@@ -923,7 +939,7 @@ export function ActivitiesPage() {
                       className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
                         (selectedActivity.estimated_hours ?? 3) === h
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                          : 'bg-surface-2 text-fg-muted hover:bg-slate-600'
                       }`}
                     >
                       {h}
@@ -949,13 +965,13 @@ export function ActivitiesPage() {
                   }}
                   placeholder="Agregar observacion..."
                   rows={2}
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                  className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
                 />
               </div>
             ) : (
               <button
                 onClick={() => setObservation(' ')}
-                className="text-xs text-slate-500 hover:text-slate-400"
+                className="text-xs text-slate-500 hover:text-fg-faint"
               >
                 + Agregar observacion
               </button>
@@ -966,7 +982,7 @@ export function ActivitiesPage() {
                 editar la actividad. Cada hija se abre con su propio detalle -y sus propias
                 hijas-, asi que la profundidad no tiene limite fijo en la UI. */}
             {canEdit && (
-              <div className="pt-2 border-t border-slate-700">
+              <div className="pt-2 border-t border-border-strong">
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-slate-500">Subtareas</p>
                   {!showSubtask && (
@@ -989,9 +1005,9 @@ export function ActivitiesPage() {
                       <button
                         key={c.id}
                         onClick={() => openChild(c)}
-                        className="w-full flex items-center justify-between text-left text-[11px] px-2 py-1.5 rounded-lg bg-slate-800/60 hover:bg-slate-800"
+                        className="w-full flex items-start justify-between gap-2 text-left text-[11px] px-2 py-1.5 rounded-lg bg-surface/60 hover:bg-surface"
                       >
-                        <span className="text-slate-300 truncate pr-2">
+                        <span className="text-fg-muted whitespace-normal break-words">
                           {c.title}
                           <span className="text-slate-500">
                             {' · '}
@@ -1009,7 +1025,7 @@ export function ActivitiesPage() {
                 )}
 
                 {showSubtask && (
-                  <div className="mt-2 space-y-2 rounded-lg bg-slate-900/60 border border-indigo-500/20 p-3">
+                  <div className="mt-2 space-y-2 rounded-lg bg-surface-soft/60 border border-indigo-500/20 p-3">
                     <div>
                       <p className="text-[11px] text-slate-500 mb-1">Titulo de la subtarea</p>
                       <input
@@ -1017,7 +1033,7 @@ export function ActivitiesPage() {
                         value={subTitle}
                         onChange={(e) => setSubTitle(e.target.value)}
                         placeholder="Ej: Ver faena"
-                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        className="w-full rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg-body"
                       />
                     </div>
                     <div>
@@ -1025,7 +1041,7 @@ export function ActivitiesPage() {
                       <select
                         value={subMember}
                         onChange={(e) => setSubMember(e.target.value)}
-                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        className="w-full rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg-body"
                       >
                         <option value="">Elegir persona…</option>
                         {subMembers.map((m) => (
@@ -1050,7 +1066,7 @@ export function ActivitiesPage() {
                                     : p === 2
                                       ? 'bg-amber-600'
                                       : 'bg-emerald-600'
-                                  : 'bg-slate-700'
+                                  : 'bg-surface-2'
                               }`}
                             >
                               {p}
@@ -1063,7 +1079,7 @@ export function ActivitiesPage() {
                         <DatePicker value={subDue || null} onChange={(v) => setSubDue(v ?? '')} />
                       </div>
                     </div>
-                    <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                    <label className="flex items-center gap-2 text-[11px] text-fg-muted cursor-pointer">
                       <input
                         type="checkbox"
                         checked={subToMinuta}
@@ -1092,7 +1108,7 @@ export function ActivitiesPage() {
             {/* Delegar a mi equipo: la misma tarea, pero para que la haga OTRO equipo que
                 lidero (no una subtarea nueva, sino el mismo trabajo bajado de nivel). */}
             {managedTeams.length > 0 && (
-              <div className="pt-2 border-t border-slate-700">
+              <div className="pt-2 border-t border-border-strong">
                 <div className="flex items-center justify-between">
                   <p className="text-xs text-slate-500">Delegar a mi equipo</p>
                   {!showDelegate && (
@@ -1110,13 +1126,13 @@ export function ActivitiesPage() {
                 </div>
 
                 {showDelegate && (
-                  <div className="mt-2 space-y-2 rounded-lg bg-slate-900/60 border border-indigo-500/20 p-3">
+                  <div className="mt-2 space-y-2 rounded-lg bg-surface-soft/60 border border-indigo-500/20 p-3">
                     <div>
                       <p className="text-[11px] text-slate-500 mb-1">Equipo</p>
                       <select
                         value={delTeam}
                         onChange={(e) => loadDelMembers(e.target.value)}
-                        className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                        className="w-full rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg-body"
                       >
                         <option value="">Elegir equipo…</option>
                         {managedTeams.map((t) => (
@@ -1132,7 +1148,7 @@ export function ActivitiesPage() {
                         <select
                           value={delMember}
                           onChange={(e) => setDelMember(e.target.value)}
-                          className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                          className="w-full rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg-body"
                         >
                           <option value="">Elegir persona…</option>
                           {delMembers.map((m) => (
@@ -1158,7 +1174,7 @@ export function ActivitiesPage() {
                                     : p === 2
                                       ? 'bg-amber-600'
                                       : 'bg-emerald-600'
-                                  : 'bg-slate-700'
+                                  : 'bg-surface-2'
                               }`}
                             >
                               {p}
@@ -1171,7 +1187,7 @@ export function ActivitiesPage() {
                         <DatePicker value={delDue || null} onChange={(v) => setDelDue(v ?? '')} />
                       </div>
                     </div>
-                    <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+                    <label className="flex items-center gap-2 text-[11px] text-fg-muted cursor-pointer">
                       <input
                         type="checkbox"
                         checked={delToMinuta}
@@ -1194,7 +1210,7 @@ export function ActivitiesPage() {
             )}
 
             {/* Status actions in modal */}
-            <div className="flex gap-2 pt-2 border-t border-slate-700">
+            <div className="flex gap-2 pt-2 border-t border-border-strong">
               {selectedActivity.status === 'pendiente' && (
                 <Button
                   size="sm"
@@ -1232,16 +1248,14 @@ export function ActivitiesPage() {
               )}
               {showBlockModal && selectedActivity && (
                 <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-                  <div className="bg-slate-900 rounded-xl border border-slate-700 p-6 max-w-sm w-full mx-4">
-                    <h3 className="text-sm font-semibold text-slate-200 mb-2">
-                      Motivo del bloqueo
-                    </h3>
+                  <div className="bg-panel rounded-xl border border-border-strong p-6 max-w-sm w-full mx-4">
+                    <h3 className="text-sm font-semibold text-fg-body mb-2">Motivo del bloqueo</h3>
                     <textarea
                       value={observation}
                       onChange={(e) => setObservation(e.target.value)}
                       placeholder="Ej: Falta informacion del cliente..."
                       rows={3}
-                      className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none mb-3"
+                      className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none mb-3"
                     />
                     <div className="flex gap-2">
                       <Button
@@ -1312,7 +1326,7 @@ export function ActivitiesPage() {
               value={asgTitle}
               onChange={(e) => setAsgTitle(e.target.value)}
               placeholder="Que hay que hacer..."
-              className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
           </div>
           <div>
@@ -1321,7 +1335,7 @@ export function ActivitiesPage() {
               value={asgDesc}
               onChange={(e) => setAsgDesc(e.target.value)}
               rows={2}
-              className="w-full resize-none rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              className="w-full resize-none rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
           </div>
           <div>
@@ -1329,7 +1343,7 @@ export function ActivitiesPage() {
             <select
               value={asgMember}
               onChange={(e) => setAsgMember(e.target.value)}
-              className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1.5 text-xs text-slate-200"
+              className="w-full rounded border border-border-strong bg-surface px-2 py-1.5 text-xs text-fg-body"
             >
               <option value="">Elegir persona…</option>
               {members.map((m) => (
@@ -1354,7 +1368,7 @@ export function ActivitiesPage() {
                           : p === 2
                             ? 'bg-amber-600'
                             : 'bg-emerald-600'
-                        : 'bg-slate-700'
+                        : 'bg-surface-2'
                     }`}
                   >
                     {p}
@@ -1367,7 +1381,7 @@ export function ActivitiesPage() {
               <DatePicker value={asgDue || null} onChange={(v) => setAsgDue(v ?? '')} />
             </div>
           </div>
-          <label className="flex items-center gap-2 text-[11px] text-slate-300 cursor-pointer">
+          <label className="flex items-center gap-2 text-[11px] text-fg-muted cursor-pointer">
             <input
               type="checkbox"
               checked={asgToMinuta}

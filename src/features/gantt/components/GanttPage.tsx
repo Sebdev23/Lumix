@@ -100,15 +100,15 @@ export function GanttPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200 hidden sm:block">
+      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+        <h2 className="text-sm font-semibold text-fg-body hidden sm:block">
           Planificacion Semanal
         </h2>
-        <h2 className="text-xs font-semibold text-slate-200 sm:hidden">Planificacion</h2>
+        <h2 className="text-xs font-semibold text-fg-body sm:hidden">Planificacion</h2>
         <div className="flex items-center gap-1 sm:gap-2">
           <button
             onClick={prevWeek}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            className="p-1 rounded hover:bg-surface text-fg-faint hover:text-fg-body transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
@@ -121,19 +121,19 @@ export function GanttPage() {
           </button>
           <button
             onClick={currentWeek}
-            className={`text-xs px-2 py-1 rounded ${weekOffset === 0 ? 'bg-indigo-600/20 text-indigo-400' : 'text-slate-400 hover:text-slate-200'}`}
+            className={`text-xs px-2 py-1 rounded ${weekOffset === 0 ? 'bg-indigo-600/20 text-indigo-400' : 'text-fg-faint hover:text-slate-200'}`}
           >
             Hoy
           </button>
           <button
             onClick={nextWeek}
-            className="p-1 rounded hover:bg-slate-800 text-slate-400 hover:text-slate-200 transition-colors"
+            className="p-1 rounded hover:bg-surface text-fg-faint hover:text-fg-body transition-colors"
           >
             <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 5l7 7-7 7" />
             </svg>
           </button>
-          <span className="text-[10px] sm:text-xs text-slate-400 ml-1 sm:ml-2 truncate max-w-[80px] sm:max-w-none">
+          <span className="text-[10px] sm:text-xs text-fg-faint ml-1 sm:ml-2 truncate max-w-[80px] sm:max-w-none">
             {weekLabel}
           </span>
         </div>
@@ -148,7 +148,7 @@ export function GanttPage() {
         ) : (
           <div className="min-w-[600px] p-4">
             {/* Day headers */}
-            <div className="flex mb-2 sticky top-0 bg-slate-950 z-10 pb-2 border-b border-slate-800">
+            <div className="flex mb-2 sticky top-0 bg-shell z-10 pb-2 border-b border-border">
               <div className="w-32 flex-shrink-0" />
               {days.map((day, i) => {
                 const isToday = day.date === new Date().toISOString().split('T')[0]
@@ -161,8 +161,8 @@ export function GanttPage() {
                         isToday
                           ? 'text-indigo-400'
                           : isWeekend
-                            ? 'text-slate-600'
-                            : 'text-slate-300'
+                            ? 'text-slate-600 light:text-slate-500'
+                            : 'text-fg-muted'
                       }`}
                     >
                       {day.label.split(' ')[0]}
@@ -175,14 +175,14 @@ export function GanttPage() {
             {/* Member rows */}
             {rows.length === 0 ? (
               <div className="flex flex-col items-center justify-center py-12 text-center">
-                <p className="text-sm text-slate-400">Sin miembros en el equipo</p>
+                <p className="text-sm text-fg-faint">Sin miembros en el equipo</p>
               </div>
             ) : (
               rows.map((row) => (
                 <div key={row.member.id} className="flex items-stretch mb-3">
                   {/* Member info */}
                   <div className="w-32 flex-shrink-0 flex flex-col justify-center pr-2 py-1">
-                    <p className="text-xs text-slate-300 truncate font-medium">
+                    <p className="text-xs text-fg-muted truncate font-medium">
                       {row.member.full_name}
                     </p>
                     <div className="mt-1 space-y-1">
@@ -201,7 +201,7 @@ export function GanttPage() {
                         </Badge>
                       </div>
                       <div className="flex items-center gap-1.5">
-                        <div className="flex-1 h-1.5 rounded-full bg-slate-700 overflow-hidden">
+                        <div className="flex-1 h-1.5 rounded-full bg-surface-2 overflow-hidden">
                           <div
                             className={`h-full rounded-full transition-all ${getLoadColor(row.loadPercentage)}`}
                             style={{ width: `${Math.min(row.loadPercentage, 100)}%` }}
@@ -233,8 +233,8 @@ export function GanttPage() {
                               : isToday
                                 ? 'border-indigo-500/30 bg-indigo-500/5'
                                 : isWeekend
-                                  ? 'border-slate-800/50 bg-slate-900/30'
-                                  : 'border-slate-800 bg-slate-900/50'
+                                  ? 'border-border/50 bg-surface-soft/30'
+                                  : 'border-border bg-surface-soft/50'
                           }`}
                         >
                           {hasActivities ? (
@@ -261,12 +261,12 @@ export function GanttPage() {
                                         : 'cursor-pointer hover:brightness-110'
                                     } ${
                                       isCompleted
-                                        ? 'bg-emerald-600/30 border-emerald-500/20 text-emerald-400'
+                                        ? 'bg-emerald-600/30 border-emerald-500/20 text-emerald-400 light:text-emerald-700'
                                         : activity.priority === 1
-                                          ? 'bg-red-500/40 border-red-400/20 text-red-300'
+                                          ? 'bg-red-500/40 border-red-400/20 text-red-300 light:text-red-700'
                                           : activity.priority === 2
-                                            ? 'bg-amber-500/40 border-amber-400/20 text-amber-300'
-                                            : 'bg-indigo-600/40 border-indigo-500/20 text-indigo-300'
+                                            ? 'bg-amber-500/40 border-amber-400/20 text-amber-300 light:text-amber-700'
+                                            : 'bg-indigo-600/40 border-indigo-500/20 text-indigo-300 light:text-indigo-700'
                                     }`}
                                     title={
                                       isCompleted
@@ -296,7 +296,7 @@ export function GanttPage() {
       </div>
 
       {/* Leyenda */}
-      <div className="flex-shrink-0 border-t border-slate-800 bg-slate-900 px-3 sm:px-4 py-2">
+      <div className="flex-shrink-0 border-t border-border bg-panel px-3 sm:px-4 py-2">
         <div className="flex items-center gap-2 sm:gap-4 text-[9px] sm:text-[10px] text-slate-500 flex-wrap">
           <span className="flex items-center gap-1 whitespace-nowrap">
             <div className="w-2.5 h-2.5 rounded-sm bg-emerald-500" /> 0-70% Normal
@@ -323,7 +323,7 @@ export function GanttPage() {
           <div className="space-y-4">
             <div>
               <p className="text-xs text-slate-500 mb-1">Descripcion</p>
-              <p className="text-sm text-slate-300">
+              <p className="text-sm text-fg-muted">
                 {selectedActivity.description || 'Sin descripcion'}
               </p>
             </div>
@@ -352,7 +352,7 @@ export function GanttPage() {
                     {[1, 2, 3].map((p) => (
                       <div
                         key={p}
-                        className={`w-2 h-4 rounded-sm ${p >= selectedActivity.priority ? priorityColors[p] : 'bg-slate-700'}`}
+                        className={`w-2 h-4 rounded-sm ${p >= selectedActivity.priority ? priorityColors[p] : 'bg-surface-2'}`}
                       />
                     ))}
                   </div>
@@ -377,6 +377,12 @@ export function GanttPage() {
                     {formatDateLocal(selectedActivity.due_date)}
                   </p>
                 )}
+                {(selectedActivity.plazo_change_count ?? 0) > 0 && (
+                  <span className="block text-[10px] text-amber-400 mt-0.5">
+                    cambiada {selectedActivity.plazo_change_count}{' '}
+                    {selectedActivity.plazo_change_count === 1 ? 'vez' : 'veces'}
+                  </span>
+                )}
               </div>
             </div>
             {canEdit && (
@@ -394,7 +400,7 @@ export function GanttPage() {
                       className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
                         (selectedActivity.estimated_hours ?? 3) === h
                           ? 'bg-indigo-600 text-white'
-                          : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                          : 'bg-surface-2 text-fg-muted hover:bg-slate-600'
                       }`}
                     >
                       {h}

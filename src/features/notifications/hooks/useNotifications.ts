@@ -15,7 +15,7 @@ export function getNotificationIcon(type: string) {
     case 'overload':
       return 'bg-orange-500'
     default:
-      return 'bg-slate-500'
+      return 'bg-slate-500 light:bg-slate-400'
   }
 }
 

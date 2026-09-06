@@ -7,6 +7,7 @@ import { Avatar } from '@shared/components/ui/Avatar'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useTeams, useTeamMembers } from '@features/teams/hooks/useTeams'
 import { adminService } from '@infrastructure/supabase/admin.service'
+import { normalizeFullName } from '@shared/utils/name'
 
 const roles = ['admin', 'jefatura', 'colaborador', 'invitado'] as const
 
@@ -27,7 +28,7 @@ export function AdminPage() {
   if (profile?.role !== 'admin') {
     return (
       <div className="flex flex-col items-center justify-center h-full">
-        <p className="text-sm text-slate-400">No tienes permisos de administrador</p>
+        <p className="text-sm text-fg-faint">No tienes permisos de administrador</p>
       </div>
     )
   }
@@ -41,7 +42,7 @@ export function AdminPage() {
       const result = await adminService.createUser(
         newEmail,
         '',
-        newName,
+        normalizeFullName(newName),
         newRole,
         selectedTeam ?? undefined,
       )
@@ -69,8 +70,8 @@ export function AdminPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200">Administracion</h2>
+      <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+        <h2 className="text-sm font-semibold text-fg-body">Administracion</h2>
         <Badge variant="danger" className="ml-2">
           Admin
         </Badge>
@@ -79,7 +80,7 @@ export function AdminPage() {
       <div className="flex-1 overflow-y-auto p-4 space-y-6">
         {/* Crear usuario */}
         <Card>
-          <h3 className="text-sm font-medium text-slate-200 mb-4">Crear usuario</h3>
+          <h3 className="text-sm font-medium text-fg-body mb-4">Crear usuario</h3>
           <div className="space-y-3">
             <Input
               label="Nombre completo"
@@ -96,7 +97,7 @@ export function AdminPage() {
             />
 
             <div>
-              <label className="text-sm font-medium text-slate-300 block mb-1.5">Rol</label>
+              <label className="text-sm font-medium text-fg-muted block mb-1.5">Rol</label>
               <div className="flex gap-1 flex-wrap">
                 {roles.map((r) => (
                   <button
@@ -105,7 +106,7 @@ export function AdminPage() {
                     className={`px-3 py-1.5 rounded-lg text-xs font-medium transition-colors ${
                       newRole === r
                         ? 'bg-indigo-600 text-white'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        : 'bg-surface-2 text-fg-muted hover:bg-slate-600'
                     }`}
                   >
                     {r}
@@ -115,13 +116,13 @@ export function AdminPage() {
             </div>
 
             <div>
-              <label className="text-sm font-medium text-slate-300 block mb-1.5">
+              <label className="text-sm font-medium text-fg-muted block mb-1.5">
                 Equipo (opcional)
               </label>
               <select
                 value={selectedTeam ?? ''}
                 onChange={(e) => setSelectedTeam(e.target.value || null)}
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-sm text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
               >
                 <option value="">Sin equipo</option>
                 {teams.map((t) => (
@@ -132,12 +133,12 @@ export function AdminPage() {
               </select>
             </div>
 
-            {error && <p className="text-xs text-red-400">{error}</p>}
+            {error && <p className="text-xs text-red-400 light:text-red-600">{error}</p>}
             {success && (
-              <div className="p-3 rounded-lg bg-emerald-900/30 border border-emerald-700/50">
-                <p className="text-xs text-emerald-400">{success}</p>
+              <div className="p-3 rounded-lg bg-emerald-900/30 border border-emerald-700/50 light:bg-emerald-50 light:border-emerald-200">
+                <p className="text-xs text-emerald-400 light:text-emerald-700">{success}</p>
                 {generatedPassword && (
-                  <p className="text-xs text-emerald-300 mt-1 font-mono">
+                  <p className="text-xs text-emerald-300 light:text-emerald-700 mt-1 font-mono">
                     Clave temporal:{' '}
                     <span className="font-bold select-all">{generatedPassword}</span>
                   </p>
@@ -156,14 +157,14 @@ export function AdminPage() {
 
         {/* Equipos y miembros */}
         <Card>
-          <h3 className="text-sm font-medium text-slate-200 mb-4">Equipos</h3>
+          <h3 className="text-sm font-medium text-fg-body mb-4">Equipos</h3>
 
           <div className="flex gap-2 mb-4">
             <input
               value={newTeamName}
               onChange={(e) => setNewTeamName(e.target.value)}
               placeholder="Nombre del nuevo equipo"
-              className="flex-1 text-xs rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              className="flex-1 text-xs rounded-lg border border-border-strong bg-surface px-3 py-2 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
             <Button size="sm" onClick={handleCreateTeam} disabled={!newTeamName.trim()}>
               + Equipo
@@ -175,19 +176,19 @@ export function AdminPage() {
           ) : (
             <div className="space-y-2">
               {teams.map((team) => (
-                <div key={team.id} className="border border-slate-700 rounded-lg">
+                <div key={team.id} className="border border-border-strong rounded-lg">
                   <button
                     onClick={() => setSelectedTeam(selectedTeam === team.id ? null : team.id)}
-                    className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-slate-800/50 transition-colors rounded-lg"
+                    className="w-full flex items-center justify-between px-3 py-2.5 hover:bg-surface/50 transition-colors rounded-lg"
                   >
-                    <span className="text-sm text-slate-200">{team.name}</span>
+                    <span className="text-sm text-fg-body">{team.name}</span>
                     <span className="text-[10px] text-slate-500">
                       {selectedTeam === team.id ? 'Ocultar' : 'Gestionar'}
                     </span>
                   </button>
 
                   {selectedTeam === team.id && (
-                    <div className="px-3 pb-3 border-t border-slate-700 pt-2">
+                    <div className="px-3 pb-3 border-t border-border-strong pt-2">
                       {membersLoading ? (
                         <div className="w-4 h-4 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin mx-auto my-2" />
                       ) : (
@@ -197,14 +198,14 @@ export function AdminPage() {
                               <div className="flex items-center gap-2">
                                 <Avatar name={m.profile.full_name} size="sm" />
                                 <div>
-                                  <p className="text-xs text-slate-300">{m.profile.full_name}</p>
+                                  <p className="text-xs text-fg-muted">{m.profile.full_name}</p>
                                   <p className="text-[10px] text-slate-500">{m.profile.email}</p>
                                 </div>
                               </div>
                               <select
                                 value={m.role}
                                 onChange={(e) => handleChangeRole(m.user_id, e.target.value)}
-                                className="text-xs rounded border border-slate-700 bg-slate-800 px-2 py-1 text-slate-200 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+                                className="text-xs rounded border border-border-strong bg-surface px-2 py-1 text-fg-body focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
                               >
                                 {roles.map((r) => (
                                   <option key={r} value={r}>

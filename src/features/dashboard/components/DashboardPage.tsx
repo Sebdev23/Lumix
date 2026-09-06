@@ -53,8 +53,8 @@ export function DashboardPage() {
   if (loading) {
     return (
       <div className="flex flex-col h-full">
-        <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900">
-          <h2 className="text-sm font-semibold text-slate-200">Dashboard</h2>
+        <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel">
+          <h2 className="text-sm font-semibold text-fg-body">Dashboard</h2>
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -65,8 +65,8 @@ export function DashboardPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200">Dashboard</h2>
+      <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+        <h2 className="text-sm font-semibold text-fg-body">Dashboard</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -96,7 +96,7 @@ export function DashboardPage() {
         {/* Estado (donut) + Tendencia semanal */}
         <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
           <Card>
-            <h3 className="text-sm font-medium text-slate-200 mb-3">Estado de actividades</h3>
+            <h3 className="text-sm font-medium text-fg-body mb-3">Estado de actividades</h3>
             {statusTotal === 0 ? (
               <p className="text-xs text-slate-500 py-6 text-center">Sin actividades</p>
             ) : (
@@ -109,8 +109,8 @@ export function DashboardPage() {
                         className="w-2.5 h-2.5 rounded-sm flex-shrink-0"
                         style={{ background: s.color }}
                       />
-                      <span className="text-slate-400 flex-1">{s.label}</span>
-                      <span className="text-slate-200 font-medium">{s.value}</span>
+                      <span className="text-fg-faint flex-1">{s.label}</span>
+                      <span className="text-fg-body font-medium">{s.value}</span>
                       <span className="text-slate-600 w-9 text-right">
                         {Math.round((s.value / statusTotal) * 100)}%
                       </span>
@@ -121,16 +121,14 @@ export function DashboardPage() {
             )}
           </Card>
           <Card>
-            <h3 className="text-sm font-medium text-slate-200 mb-3">
-              Completadas (ultimos 7 dias)
-            </h3>
+            <h3 className="text-sm font-medium text-fg-body mb-3">Completadas (ultimos 7 dias)</h3>
             <WeeklyTrend data={weeklyTrend} />
           </Card>
         </div>
 
         {/* Prioridad */}
         <Card>
-          <h3 className="text-sm font-medium text-slate-200 mb-3">Prioridad (activas)</h3>
+          <h3 className="text-sm font-medium text-fg-body mb-3">Prioridad (activas)</h3>
           <div className="grid grid-cols-3 gap-3">
             <PriorityRow label="Alta" count={priorityCounts.alta} color="bg-red-500" />
             <PriorityRow label="Media" count={priorityCounts.media} color="bg-amber-500" />
@@ -141,7 +139,7 @@ export function DashboardPage() {
         {/* Proximos vencimientos */}
         {upcomingDeadlines.length > 0 && (
           <Card>
-            <h3 className="text-sm font-medium text-slate-200 mb-3">Proximos vencimientos</h3>
+            <h3 className="text-sm font-medium text-fg-body mb-3">Proximos vencimientos</h3>
             <div className="space-y-2">
               {upcomingDeadlines.map((a) => {
                 const days = Math.ceil(
@@ -149,10 +147,10 @@ export function DashboardPage() {
                 )
                 return (
                   <div key={a.id} className="flex items-center justify-between text-xs">
-                    <span className="text-slate-300 truncate flex-1 mr-2">{a.title}</span>
+                    <span className="text-fg-muted truncate flex-1 mr-2">{a.title}</span>
                     <span
                       className={
-                        days <= 1 ? 'text-red-400' : days <= 2 ? 'text-amber-400' : 'text-slate-400'
+                        days <= 1 ? 'text-red-400' : days <= 2 ? 'text-amber-400' : 'text-fg-faint'
                       }
                     >
                       {days === 0
@@ -170,7 +168,7 @@ export function DashboardPage() {
 
         {/* Carga por miembro */}
         <Card>
-          <h3 className="text-sm font-medium text-slate-200 mb-4">Carga laboral del equipo</h3>
+          <h3 className="text-sm font-medium text-fg-body mb-4">Carga laboral del equipo</h3>
           {memberWorkloads.length === 0 ? (
             <p className="text-xs text-slate-500 py-4 text-center">Sin datos de carga</p>
           ) : (
@@ -179,16 +177,16 @@ export function DashboardPage() {
                 <div key={member.name} className="space-y-1.5">
                   <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-sm text-slate-300">{member.name}</span>
+                      <span className="text-sm text-fg-muted">{member.name}</span>
                       <Badge variant={getLoadBadge(member.percentage)}>
                         {getLoadLabel(member.percentage)}
                       </Badge>
                     </div>
-                    <span className="text-xs text-slate-400">
+                    <span className="text-xs text-fg-faint">
                       {member.total} activas ({member.totalHours}h) · {member.completed} completadas
                     </span>
                   </div>
-                  <div className="relative h-2 rounded-full bg-slate-700 overflow-hidden">
+                  <div className="relative h-2 rounded-full bg-surface-2 overflow-hidden">
                     <div
                       className={`absolute inset-y-0 left-0 rounded-full transition-all ${getLoadColor(member.percentage)}`}
                       style={{ width: `${Math.min(member.percentage, 100)}%` }}
@@ -229,7 +227,7 @@ function KpiCard({
 }) {
   return (
     <Card>
-      <p className="text-xs text-slate-400">{label}</p>
+      <p className="text-xs text-fg-faint">{label}</p>
       <p className={`text-2xl font-bold mt-1 ${color}`}>{value}</p>
       <p className="text-[10px] text-slate-500 mt-0.5">{sub}</p>
     </Card>
@@ -244,7 +242,7 @@ function TotalHoursCard({
   const total = workloads.reduce((s, w) => s + w.totalHours, 0)
   return (
     <Card>
-      <p className="text-xs text-slate-400">Horas equipo</p>
+      <p className="text-xs text-fg-faint">Horas equipo</p>
       <p className={`text-2xl font-bold mt-1 ${total > 42 ? 'text-red-400' : 'text-indigo-400'}`}>
         {total}h
       </p>
@@ -301,7 +299,7 @@ function Donut({
         })}
       </svg>
       <div className="absolute inset-0 flex flex-col items-center justify-center">
-        <span className="text-2xl font-bold text-slate-100">{total}</span>
+        <span className="text-2xl font-bold text-fg">{total}</span>
         <span className="text-[10px] text-slate-500">total</span>
       </div>
     </div>
@@ -319,7 +317,7 @@ function WeeklyTrend({ data }: { data: { label: string; date: string; count: num
     <div className="flex items-end justify-between gap-1.5 h-28 pt-4">
       {data.map((d) => (
         <div key={d.date} className="flex-1 flex flex-col items-center justify-end gap-1 h-full">
-          {d.count > 0 && <span className="text-[10px] text-slate-400">{d.count}</span>}
+          {d.count > 0 && <span className="text-[10px] text-fg-faint">{d.count}</span>}
           <div
             className="w-full max-w-[26px] rounded-t bg-emerald-600 hover:bg-emerald-500 transition-colors"
             style={{
@@ -338,12 +336,12 @@ function WeeklyTrend({ data }: { data: { label: string; date: string; count: num
 
 function PriorityRow({ label, count, color }: { label: string; count: number; color: string }) {
   return (
-    <div className="rounded-lg bg-slate-800/60 p-3 flex flex-col items-center gap-1">
+    <div className="rounded-lg bg-surface/60 p-3 flex flex-col items-center gap-1">
       <div className="flex items-center gap-1.5">
         <div className={`w-2.5 h-2.5 rounded-full ${color}`} />
-        <span className="text-xs text-slate-400">{label}</span>
+        <span className="text-xs text-fg-faint">{label}</span>
       </div>
-      <span className="text-xl font-bold text-slate-100">{count}</span>
+      <span className="text-xl font-bold text-fg">{count}</span>
     </div>
   )
 }

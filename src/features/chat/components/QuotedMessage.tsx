@@ -23,14 +23,14 @@ export function QuotedMessage({ reply, onJump, onCancel }: Props) {
         type="button"
         onClick={onJump}
         disabled={!onJump}
-        className={`flex-1 flex items-stretch gap-2 rounded-lg bg-slate-800/70 text-left overflow-hidden ${
+        className={`flex-1 flex items-stretch gap-2 rounded-lg bg-surface/70 text-left overflow-hidden ${
           onJump ? 'cursor-pointer hover:bg-slate-800' : 'cursor-default'
         }`}
       >
         <span className="w-1 bg-indigo-500 flex-shrink-0" aria-hidden="true" />
         <span className="py-1.5 pr-2 min-w-0">
           <span className="block text-xs font-medium text-indigo-400 truncate">{reply.author}</span>
-          <span className="block text-xs text-slate-400 truncate">{text}</span>
+          <span className="block text-xs text-fg-faint truncate">{text}</span>
         </span>
       </button>
       {onCancel && (
@@ -38,7 +38,7 @@ export function QuotedMessage({ reply, onJump, onCancel }: Props) {
           type="button"
           onClick={onCancel}
           aria-label="Cancelar respuesta"
-          className="px-2 text-slate-500 hover:text-slate-300 transition-colors"
+          className="px-2 text-slate-500 hover:text-fg-muted transition-colors"
         >
           ✕
         </button>

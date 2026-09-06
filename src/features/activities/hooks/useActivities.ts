@@ -249,7 +249,7 @@ export function getDaysColor(days: number): string {
   if (days < 0) return 'text-red-400'
   if (days === 0) return 'text-amber-400'
   if (days <= 2) return 'text-amber-300'
-  return 'text-slate-400'
+  return 'text-fg-faint'
 }
 
 export const statusLabels: Record<ActivityStatus, string> = {

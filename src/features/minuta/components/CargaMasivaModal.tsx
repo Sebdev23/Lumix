@@ -96,8 +96,8 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
     <Modal open={open} onClose={cerrar} title="Carga masiva de minuta" size="lg">
       <div className="space-y-4">
         {/* Paso 1: plantilla */}
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
-          <p className="text-xs text-slate-300 font-medium mb-1">1. Descarga la plantilla</p>
+        <div className="rounded-lg border border-border-strong bg-surface/50 p-3">
+          <p className="text-xs text-fg-muted font-medium mb-1">1. Descarga la plantilla</p>
           <p className="text-[11px] text-slate-500 mb-2 leading-snug">
             Tiene las columnas exactas y filas de ejemplo. Tambien sirve un archivo exportado desde
             el boton Excel de la minuta: son las mismas columnas.
@@ -111,8 +111,8 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
         </div>
 
         {/* Paso 2: archivo */}
-        <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
-          <p className="text-xs text-slate-300 font-medium mb-2">2. Sube la planilla completada</p>
+        <div className="rounded-lg border border-border-strong bg-surface/50 p-3">
+          <p className="text-xs text-fg-muted font-medium mb-2">2. Sube la planilla completada</p>
           <input
             type="file"
             accept=".csv,text/csv"
@@ -121,15 +121,15 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
               if (f) leerArchivo(f)
               e.target.value = '' // permite volver a subir el mismo archivo corregido
             }}
-            className="block w-full text-xs text-slate-400 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-slate-700 file:text-slate-200 hover:file:bg-slate-600 file:cursor-pointer"
+            className="block w-full text-xs text-fg-faint file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-xs file:bg-surface-2 file:text-fg-body hover:file:bg-slate-600 file:cursor-pointer"
           />
           {nombreArchivo && <p className="text-[11px] text-slate-500 mt-1.5">{nombreArchivo}</p>}
         </div>
 
         {/* Paso 3: revision */}
         {filas && (
-          <div className="rounded-lg border border-slate-700 bg-slate-800/50 p-3">
-            <p className="text-xs text-slate-300 font-medium mb-2">3. Revisa antes de importar</p>
+          <div className="rounded-lg border border-border-strong bg-surface/50 p-3">
+            <p className="text-xs text-fg-muted font-medium mb-2">3. Revisa antes de importar</p>
 
             <div className="flex flex-wrap items-center gap-3 text-[11px] mb-3">
               <span className="text-emerald-400">{validas.length} marcadas para importar</span>
@@ -155,10 +155,10 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
               )}
             </div>
 
-            <div className="max-h-64 overflow-y-auto overflow-x-auto rounded border border-slate-700">
+            <div className="max-h-64 overflow-y-auto overflow-x-auto rounded border border-border-strong">
               <table className="w-full text-[11px]">
-                <thead className="bg-slate-800 sticky top-0">
-                  <tr className="text-slate-400">
+                <thead className="bg-surface sticky top-0">
+                  <tr className="text-fg-faint">
                     <th className="px-2 py-1.5 text-left font-medium w-6"></th>
                     <th className="px-2 py-1.5 text-left font-medium">#</th>
                     <th className="px-2 py-1.5 text-left font-medium">Tema</th>
@@ -173,7 +173,7 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
                     return (
                       <tr
                         key={f.linea}
-                        className={`border-t border-slate-700/60 ${
+                        className={`border-t border-border-strong/60 ${
                           malo ? 'bg-red-500/5' : f.duplicado ? 'bg-amber-500/5' : ''
                         }`}
                       >
@@ -190,7 +190,13 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
                         </td>
                         <td className="px-2 py-1.5 text-slate-500 align-top">{f.linea}</td>
                         <td className="px-2 py-1.5 align-top">
-                          <span className={malo ? 'text-slate-500 line-through' : 'text-slate-200'}>
+                          <span
+                            className={
+                              malo
+                                ? 'text-slate-500 light:text-slate-400 line-through'
+                                : 'text-fg-body'
+                            }
+                          >
                             {f.tema || '(vacio)'}
                           </span>
                           {f.errores.map((e, i) => (
@@ -204,7 +210,7 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
                             </p>
                           ))}
                         </td>
-                        <td className="px-2 py-1.5 text-slate-400 align-top">
+                        <td className="px-2 py-1.5 text-fg-faint align-top">
                           {f.paraTodos
                             ? 'Todos'
                             : f.responsables.length
@@ -213,10 +219,10 @@ export function CargaMasivaModal({ open, onClose, members, temasExistentes, onCo
                                   .join(', ')
                               : (f.responsablesText ?? '') || '-'}
                         </td>
-                        <td className="px-2 py-1.5 text-slate-400 align-top">
+                        <td className="px-2 py-1.5 text-fg-faint align-top">
                           {estadoLabels[f.estado]}
                         </td>
-                        <td className="px-2 py-1.5 text-slate-400 align-top whitespace-nowrap">
+                        <td className="px-2 py-1.5 text-fg-faint align-top whitespace-nowrap">
                           {f.plazo ? formatDateLocal(f.plazo) : '-'}
                         </td>
                       </tr>

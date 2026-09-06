@@ -58,7 +58,7 @@ export function CompromisosPage() {
   // tiene que significar lo mismo en los dos lugares.
   const colorDe = (pct: number | null) =>
     pct === null
-      ? 'text-slate-400'
+      ? 'text-fg-faint'
       : pct >= resumen.meta
         ? 'text-emerald-400'
         : pct >= 60
@@ -67,7 +67,7 @@ export function CompromisosPage() {
 
   const barraDe = (pct: number | null) =>
     pct === null
-      ? 'bg-slate-700'
+      ? 'bg-surface-2'
       : pct >= resumen.meta
         ? 'bg-emerald-500'
         : pct >= 60
@@ -90,22 +90,22 @@ export function CompromisosPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Cabecera: semana + cumplimiento */}
-      <div className="flex-shrink-0 border-b border-slate-800 bg-slate-900 px-3 sm:px-4 py-3">
+      <div className="flex-shrink-0 border-b border-border bg-panel px-3 sm:px-4 py-3">
         <div className="flex items-center justify-between gap-3 flex-wrap">
           <div className="flex items-center gap-2">
-            <h2 className="text-sm font-semibold text-slate-200">Compromisos</h2>
-            <div className="inline-flex items-center rounded-lg bg-slate-800 p-0.5">
+            <h2 className="text-sm font-semibold text-fg-body">Compromisos</h2>
+            <div className="inline-flex items-center rounded-lg bg-surface p-0.5">
               <button
                 onClick={() => setOffset(offset - 1)}
-                className="px-2 py-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+                className="px-2 py-1 rounded-md text-fg-faint hover:text-fg-body hover:bg-surface-2 transition-colors"
                 aria-label="Semana anterior"
               >
                 ‹
               </button>
-              <span className="px-2 text-xs text-slate-300 whitespace-nowrap">{etiqueta}</span>
+              <span className="px-2 text-xs text-fg-muted whitespace-nowrap">{etiqueta}</span>
               <button
                 onClick={() => setOffset(offset + 1)}
-                className="px-2 py-1 rounded-md text-slate-400 hover:text-slate-200 hover:bg-slate-700 transition-colors"
+                className="px-2 py-1 rounded-md text-fg-faint hover:text-fg-body hover:bg-surface-2 transition-colors"
                 aria-label="Semana siguiente"
               >
                 ›
@@ -128,7 +128,7 @@ export function CompromisosPage() {
               >
                 {resumen.porcentaje}%
               </span>
-              <span className="text-xs text-slate-400">
+              <span className="text-xs text-fg-faint">
                 {resumen.cumplidos} de {resumen.total} cumplidos
               </span>
               <span className="text-[10px] text-slate-600">meta {resumen.meta}%</span>
@@ -137,7 +137,7 @@ export function CompromisosPage() {
         </div>
 
         {resumen.total > 0 && (
-          <div className="mt-2 h-1 w-full rounded-full bg-slate-800 overflow-hidden">
+          <div className="mt-2 h-1 w-full rounded-full bg-surface overflow-hidden">
             <div
               className={`h-full rounded-full transition-all ${barraDe(resumen.porcentaje)}`}
               style={{ width: `${resumen.porcentaje}%` }}
@@ -150,7 +150,7 @@ export function CompromisosPage() {
             onClick={() =>
               setAbiertos(todoAbierto ? new Set() : new Set(porPersona.map((g) => g.id)))
             }
-            className="mt-2 text-[11px] text-slate-500 hover:text-slate-300"
+            className="mt-2 text-[11px] text-slate-500 hover:text-fg-muted"
           >
             {todoAbierto ? 'Contraer todo' : 'Expandir todo'}
           </button>
@@ -162,7 +162,7 @@ export function CompromisosPage() {
           <SkeletonRows />
         ) : porPersona.length === 0 ? (
           <div className="flex flex-col items-center justify-center py-16 text-center">
-            <p className="text-sm text-slate-400">No hay compromisos para esta semana</p>
+            <p className="text-sm text-fg-faint">No hay compromisos para esta semana</p>
             {/* Importante ser preciso: puede haber actividades del equipo esa semana y aun
                 asi no haber compromisos. Solo cuenta lo que se asigno desde la minuta. */}
             <p className="text-xs text-slate-600 mt-1 max-w-sm leading-snug">
@@ -173,7 +173,7 @@ export function CompromisosPage() {
         ) : (
           <div className="space-y-4">
             {porPersona.map((g) => (
-              <div key={g.id} className="rounded-xl border border-slate-800 bg-slate-900/60">
+              <div key={g.id} className="rounded-xl border border-border bg-surface-soft/60">
                 {/* Cabecera plegable: el resumen de la persona, con la misma lectura que el
                     general de arriba. De un vistazo se ve quien va bien sin abrir nada. */}
                 <button
@@ -182,7 +182,7 @@ export function CompromisosPage() {
                   disabled={soloUno}
                   className={`w-full flex items-center gap-2.5 px-3 py-2.5 text-left rounded-xl transition-colors ${
                     soloUno ? '' : 'hover:bg-slate-800/50'
-                  } ${estaAbierto(g.id) ? 'border-b border-slate-800 rounded-b-none' : ''}`}
+                  } ${estaAbierto(g.id) ? 'border-b border-border rounded-b-none' : ''}`}
                 >
                   {!soloUno && (
                     <svg
@@ -199,16 +199,14 @@ export function CompromisosPage() {
 
                   <div className="min-w-0 flex-1">
                     <div className="flex items-center gap-2">
-                      <span className="text-xs font-medium text-slate-200 truncate">
-                        {g.nombre}
-                      </span>
+                      <span className="text-xs font-medium text-fg-body truncate">{g.nombre}</span>
                       {g.vencidos > 0 && (
                         <span className="text-[10px] text-red-400 whitespace-nowrap">
                           {g.vencidos} vencida{g.vencidos === 1 ? '' : 's'}
                         </span>
                       )}
                     </div>
-                    <div className="mt-1 h-1 w-full max-w-[180px] rounded-full bg-slate-800 overflow-hidden">
+                    <div className="mt-1 h-1 w-full max-w-[180px] rounded-full bg-surface overflow-hidden">
                       <div
                         className={`h-full rounded-full transition-all ${barraDe(g.porcentaje)}`}
                         style={{ width: `${g.porcentaje ?? 0}%` }}
@@ -257,13 +255,25 @@ export function CompromisosPage() {
                         <div className="min-w-0 flex-1">
                           <p
                             className={`text-xs leading-snug ${
-                              hecha ? 'text-slate-500 line-through' : 'text-slate-200'
+                              hecha
+                                ? 'text-slate-500 light:text-slate-400 line-through'
+                                : 'text-fg-body'
                             }`}
                           >
                             {c.title}
                           </p>
                           <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px]">
                             <span className="text-slate-500">{formatDateLocal(c.due_date)}</span>
+                            {/* Solo se marca cuando viene de un PROYECTO (subtarea): el caso
+                                comun es un tema suelto de minuta y no hace falta etiquetarlo. */}
+                            {c.origen === 'proyecto' && (
+                              <span
+                                className="text-amber-400"
+                                title="Compromiso de una subtarea de proyecto"
+                              >
+                                📁 {c.origenProyecto}
+                              </span>
+                            )}
                             {/* Cuantas veces se movio la fecha (migracion 035, trigger en la
                                 base). Un compromiso movido varias veces no es un atraso mas:
                                 es señal de que hay otra conversacion pendiente. */}
@@ -292,7 +302,7 @@ export function CompromisosPage() {
                               <>
                                 <button
                                   onClick={() => alMover(c)}
-                                  className="text-slate-500 hover:text-slate-300 underline"
+                                  className="text-slate-500 hover:text-fg-muted underline"
                                 >
                                   mover 1 semana
                                 </button>
@@ -327,7 +337,7 @@ export function CompromisosPage() {
 
             <button
               onClick={reload}
-              className="w-full text-[11px] text-slate-600 hover:text-slate-400 py-2"
+              className="w-full text-[11px] text-slate-600 hover:text-fg-faint py-2"
             >
               Actualizar
             </button>

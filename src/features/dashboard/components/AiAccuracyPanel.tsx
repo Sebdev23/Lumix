@@ -75,7 +75,7 @@ export function AiAccuracyPanel() {
       <div className="overflow-x-auto">
         <table className="w-full text-xs">
           <thead>
-            <tr className="text-slate-500 text-left border-b border-slate-700/50">
+            <tr className="text-slate-500 text-left border-b border-border-strong/50">
               <th className="pb-1.5 pr-3 font-medium">Categoria</th>
               <th className="pb-1.5 pr-3 font-medium">Modelo</th>
               <th className="pb-1.5 pr-3 font-medium text-right">Total</th>
@@ -87,7 +87,7 @@ export function AiAccuracyPanel() {
             {rows.map((r) => {
               const pct = r.total ? Math.round((r.corrected / r.total) * 100) : 0
               return (
-                <tr key={`${r.category}-${r.model}`} className="border-b border-slate-800/60">
+                <tr key={`${r.category}-${r.model}`} className="border-b border-border/60">
                   <td className="py-1.5 pr-3 text-slate-200">
                     {CATEGORY_LABELS[r.category] ?? r.category}
                   </td>

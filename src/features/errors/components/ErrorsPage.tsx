@@ -87,8 +87,8 @@ export function ErrorsPage() {
   return (
     <div className="flex flex-col h-full">
       {/* Header */}
-      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200">Bitacora de Errores</h2>
+      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+        <h2 className="text-sm font-semibold text-fg-body">Bitacora de Errores</h2>
         {isInvitado && (
           <Badge variant="info" className="text-[10px]">
             Invitado
@@ -117,7 +117,7 @@ export function ErrorsPage() {
                 'errores',
               )
             }
-            className="px-2 py-1 rounded text-[10px] text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+            className="px-2 py-1 rounded text-[10px] text-fg-faint hover:text-emerald-400 hover:bg-surface transition-colors"
             title="Exportar a Excel"
           >
             <svg
@@ -139,8 +139,10 @@ export function ErrorsPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0 flex-nowrap">
+      {/* Filters: los tabs de estado van en su propia fila con scroll horizontal (pueden ser
+          muchos y no siempre caben en una pantalla angosta); el resto de filtros/busqueda va en
+          una fila aparte que puede pasar a 2 lineas en vez de desbordar. */}
+      <div className="flex gap-1 px-2 sm:px-4 pt-2 border-b-0 bg-surface-soft/50 overflow-x-auto flex-shrink-0 flex-nowrap">
         {statusFilters.map((f) => (
           <button
             key={f.value}
@@ -148,17 +150,19 @@ export function ErrorsPage() {
             className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
               filterStatus === f.value
                 ? 'bg-indigo-600/20 text-indigo-400'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-fg-faint hover:text-fg-body hover:bg-surface'
             }`}
           >
             {f.label}
             <span className="ml-1.5 text-slate-600">{counts[f.value]}</span>
           </button>
         ))}
+      </div>
+      <div className="flex flex-wrap items-center gap-1 px-2 sm:px-4 pb-2 border-b border-border bg-surface-soft/50 flex-shrink-0">
         <select
           value={filterSeverity}
           onChange={(e) => setFilterSeverity(e.target.value as ErrorSeverity | 'todas')}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
         >
           {severityOptions.map((s) => (
             <option key={s} value={s}>
@@ -169,7 +173,7 @@ export function ErrorsPage() {
         <select
           value={filterMember}
           onChange={(e) => setFilterMember(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
         >
           <option value="todas">Todo el equipo</option>
           {members.map((m) => (
@@ -178,11 +182,11 @@ export function ErrorsPage() {
             </option>
           ))}
         </select>
-        <div className="w-px bg-slate-700 mx-1" />
+        <div className="w-px bg-surface-2 mx-1" />
         <select
           value={dateType}
           onChange={(e) => setDateType(e.target.value as typeof dateType)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
         >
           <option value="reportadas">Reportadas</option>
           <option value="cerradas">Cerradas</option>
@@ -191,13 +195,13 @@ export function ErrorsPage() {
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
         />
         <input
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
         />
         {(dateFrom || dateTo) && (
           <button
@@ -205,7 +209,7 @@ export function ErrorsPage() {
               setDateFrom('')
               setDateTo('')
             }}
-            className="px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+            className="px-2 py-1.5 rounded-lg text-xs text-fg-faint hover:text-fg-body hover:bg-surface"
           >
             Limpiar
           </button>
@@ -229,13 +233,13 @@ export function ErrorsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar error..."
-            className="w-full rounded-lg bg-slate-800 border border-slate-700 pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="w-full rounded-lg bg-surface border border-border-strong pl-8 pr-7 py-1.5 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           />
           {search && (
             <button
               onClick={() => setSearch('')}
               aria-label="Limpiar busqueda"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-sm"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-fg-muted text-sm"
             >
               ×
             </button>
@@ -264,14 +268,14 @@ export function ErrorsPage() {
                 d="M9 12l2 2 4-4m6 2a9 9 0 11-18 0 9 9 0 0118 0z"
               />
             </svg>
-            <p className="text-sm text-slate-400">No hay errores registrados</p>
+            <p className="text-sm text-fg-faint">No hay errores registrados</p>
             <p className="text-xs text-slate-600 mt-1">Reporta un error en el chat</p>
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
-                <tr className="border-b border-slate-700 text-slate-500">
+                <tr className="border-b border-border-strong text-slate-500">
                   <th className="text-left py-2 px-3 font-medium">Error</th>
                   <th className="text-left py-2 px-3 font-medium hidden md:table-cell">
                     Responsable
@@ -282,7 +286,9 @@ export function ErrorsPage() {
                   <th className="text-left py-2 px-3 font-medium">Estado</th>
                   <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">Fecha</th>
                   <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">Cerrado</th>
-                  <th className="text-right py-2 px-3 font-medium">Accion</th>
+                  <th className="text-right py-2 px-2 sm:px-3 font-medium whitespace-nowrap">
+                    Accion
+                  </th>
                 </tr>
               </thead>
               <tbody>
@@ -290,16 +296,16 @@ export function ErrorsPage() {
                   <tr
                     key={error.id}
                     onClick={() => setSelectedError(error)}
-                    className="border-b border-slate-800 hover:bg-slate-800/30 cursor-pointer transition-colors"
+                    className="border-b border-border hover:bg-surface/30 cursor-pointer transition-colors"
                   >
                     <td className="py-2.5 px-3">
                       <div className="flex items-center gap-2">
                         <SeverityIcon severity={error.severity} />
-                        <span className="text-slate-200 truncate max-w-[220px]">{error.title}</span>
+                        <span className="text-fg-body truncate max-w-[220px]">{error.title}</span>
                       </div>
                     </td>
                     <td className="py-2.5 px-3 hidden md:table-cell">
-                      <span className="text-xs text-slate-400 truncate max-w-[100px] block">
+                      <span className="text-xs text-fg-faint truncate max-w-[100px] block">
                         {members.find((m) => m.id === error.responsible_id)?.full_name ||
                           'Sin asignar'}
                       </span>
@@ -389,14 +395,14 @@ export function ErrorsPage() {
 
             <div>
               <p className="text-xs text-slate-500 mb-1">Descripcion</p>
-              <p className="text-sm text-slate-300">
+              <p className="text-sm text-fg-muted">
                 {selectedError.description || 'Sin descripcion'}
               </p>
             </div>
 
-            <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/50">
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-surface/50">
               <p className="text-xs text-slate-500">Reportado por:</p>
-              <p className="text-xs text-slate-300 font-medium">
+              <p className="text-xs text-fg-muted font-medium">
                 {members.find((m) => m.id === selectedError.created_by)?.full_name || 'Desconocido'}
               </p>
               {members.find((m) => m.id === selectedError.created_by)?.email && (
@@ -419,7 +425,7 @@ export function ErrorsPage() {
                     setSelectedError({ ...selectedError, error_type: e.target.value })
                     reload()
                   }}
-                  className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                  className="w-full rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg-body"
                 >
                   <option value="funcional">Funcional</option>
                   <option value="tecnico">Tecnico</option>
@@ -430,7 +436,7 @@ export function ErrorsPage() {
                   <option value="otro">Otro</option>
                 </select>
               ) : (
-                <p className="text-sm text-slate-300 capitalize">
+                <p className="text-sm text-fg-muted capitalize">
                   {selectedError.error_type || 'funcional'}
                 </p>
               )}
@@ -449,10 +455,10 @@ export function ErrorsPage() {
                   }}
                   rows={2}
                   placeholder="Agregar comentario..."
-                  className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                  className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
                 />
               ) : (
-                <p className="text-sm text-slate-300 whitespace-pre-wrap">
+                <p className="text-sm text-fg-muted whitespace-pre-wrap">
                   {selectedError.observations || 'Sin comentarios'}
                 </p>
               )}
@@ -461,11 +467,11 @@ export function ErrorsPage() {
             <div className="grid grid-cols-2 gap-4">
               <div>
                 <p className="text-xs text-slate-500 mb-1">Fecha</p>
-                <p className="text-sm text-slate-300">{selectedError.date}</p>
+                <p className="text-sm text-fg-muted">{selectedError.date}</p>
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">Hora</p>
-                <p className="text-sm text-slate-300">{selectedError.time.slice(0, 5)}</p>
+                <p className="text-sm text-fg-muted">{selectedError.time.slice(0, 5)}</p>
               </div>
             </div>
 
@@ -509,17 +515,17 @@ export function ErrorsPage() {
                         className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
                           step.active
                             ? 'bg-indigo-500 border-indigo-500'
-                            : 'bg-slate-800 border-slate-600'
+                            : 'bg-surface border-slate-600'
                         }`}
                       />
                       {i < 3 && (
                         <div
-                          className={`w-0.5 h-6 ${step.active ? 'bg-indigo-500' : 'bg-slate-700'}`}
+                          className={`w-0.5 h-6 ${step.active ? 'bg-indigo-500' : 'bg-surface-2'}`}
                         />
                       )}
                     </div>
                     <div className="pb-4">
-                      <p className={`text-sm ${step.active ? 'text-slate-200' : 'text-slate-500'}`}>
+                      <p className={`text-sm ${step.active ? 'text-fg-body' : 'text-slate-500'}`}>
                         {step.label}
                       </p>
                       {step.date && <p className="text-[10px] text-slate-600">{step.date}</p>}
@@ -531,7 +537,7 @@ export function ErrorsPage() {
 
             {/* Status actions */}
             {canManageErrors && (
-              <div className="flex gap-2 pt-2 border-t border-slate-700">
+              <div className="flex gap-2 pt-2 border-t border-border-strong">
                 {selectedError.status === 'abierto' && (
                   <Button
                     size="sm"

@@ -62,7 +62,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
                 ? 'bg-emerald-600 border-emerald-500 text-white'
                 : t.type === 'error'
                   ? 'bg-red-600 border-red-500 text-white'
-                  : 'bg-slate-800 border-slate-700 text-slate-100'
+                  : 'bg-panel border-border-strong text-fg light:shadow-md'
             }`}
           >
             {t.message}

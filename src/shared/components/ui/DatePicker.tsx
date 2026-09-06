@@ -62,7 +62,7 @@ export function DatePicker({ value, onChange, placeholder = 'Seleccionar', class
         onClick={openPicker}
         className={
           className ??
-          'rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-200 hover:border-indigo-500/50'
+          'rounded border border-border-strong bg-surface px-2 py-1 text-[11px] text-fg-body hover:border-indigo-500/50'
         }
       >
         {label}
@@ -73,23 +73,17 @@ export function DatePicker({ value, onChange, placeholder = 'Seleccionar', class
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-72 rounded-xl border border-slate-700 bg-slate-900 p-3 shadow-xl"
+            className="w-72 rounded-xl border border-border-strong bg-panel p-3 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <div className="flex items-center justify-between mb-2">
-              <button
-                onClick={prev}
-                className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-800"
-              >
+              <button onClick={prev} className="w-7 h-7 rounded-lg text-slate-400 hover:bg-surface">
                 ‹
               </button>
-              <span className="text-sm text-slate-200 capitalize">
+              <span className="text-sm text-fg-body capitalize">
                 {MESES[view.m]} {view.y}
               </span>
-              <button
-                onClick={next}
-                className="w-7 h-7 rounded-lg text-slate-400 hover:bg-slate-800"
-              >
+              <button onClick={next} className="w-7 h-7 rounded-lg text-slate-400 hover:bg-surface">
                 ›
               </button>
             </div>
@@ -115,8 +109,8 @@ export function DatePicker({ value, onChange, placeholder = 'Seleccionar', class
                         : today.getFullYear() === view.y &&
                             today.getMonth() === view.m &&
                             today.getDate() === d
-                          ? 'bg-slate-800 text-indigo-300'
-                          : 'text-slate-300 hover:bg-slate-800'
+                          ? 'bg-slate-800 text-indigo-300 light:bg-indigo-50 light:text-indigo-600'
+                          : 'text-slate-300 hover:bg-surface'
                     }`}
                   >
                     {d}
@@ -124,7 +118,7 @@ export function DatePicker({ value, onChange, placeholder = 'Seleccionar', class
                 ),
               )}
             </div>
-            <div className="flex justify-between mt-3 pt-2 border-t border-slate-800">
+            <div className="flex justify-between mt-3 pt-2 border-t border-border">
               <button
                 onClick={() => {
                   onChange(null)

@@ -49,7 +49,7 @@ export function ChatBubble({
         />
       )}
       <div className={`flex flex-col ${isOwn ? 'items-end' : ''} max-w-[80%]`}>
-        {!isOwn && <span className="text-xs text-slate-400 mb-1 ml-1">{sender.name}</span>}
+        {!isOwn && <span className="text-xs text-fg-faint mb-1 ml-1">{sender.name}</span>}
 
         {/* Text content. El boton de responder aparece al lado, al pasar el mouse; en tactil
             queda siempre visible, porque ahi no hay hover que valga. */}
@@ -60,7 +60,7 @@ export function ChatBubble({
               className={`rounded-2xl px-4 py-2.5 text-sm leading-relaxed ${
                 isOwn
                   ? 'bg-indigo-600 text-white rounded-br-md'
-                  : 'bg-slate-700 text-slate-200 rounded-bl-md'
+                  : 'bg-slate-700 text-fg-body rounded-bl-md light:bg-white light:shadow-sm light:border light:border-slate-200'
               } ${isOptimistic ? 'opacity-70' : ''} ${onClick ? 'cursor-pointer hover:brightness-110' : ''}`}
             >
               {quoted && <div className="mb-1.5">{quoted}</div>}
@@ -72,7 +72,7 @@ export function ChatBubble({
                 onClick={onReply}
                 aria-label="Responder"
                 title="Responder"
-                className="flex-shrink-0 p-1.5 rounded-full text-slate-500 hover:text-slate-200 hover:bg-slate-700/60 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
+                className="flex-shrink-0 p-1.5 rounded-full text-slate-500 hover:text-slate-200 hover:bg-surface-2/60 transition-all opacity-100 md:opacity-0 md:group-hover:opacity-100 md:focus-visible:opacity-100"
               >
                 <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                   <path
@@ -90,7 +90,7 @@ export function ChatBubble({
         <div className={`flex items-center gap-2 mt-1 ${isOwn ? 'flex-row-reverse' : ''}`}>
           <span className="text-[10px] text-slate-500">{formatTime(timestamp)}</span>
           {category && (
-            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-slate-700 text-slate-400">
+            <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-surface-2 text-fg-faint">
               {categoryLabels[category] ?? category}
             </span>
           )}

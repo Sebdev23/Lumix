@@ -19,7 +19,7 @@ export function IngestasTabs() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center gap-1 px-3 sm:px-4 pt-2 border-b border-slate-800 bg-slate-900 flex-shrink-0">
+      <div className="flex items-center gap-1 px-3 sm:px-4 pt-2 border-b border-border bg-panel flex-shrink-0">
         {(
           [
             { v: 'hoja', label: 'Hoja' },

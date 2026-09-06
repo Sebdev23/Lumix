@@ -1,6 +1,6 @@
 // Placeholder de carga (evita el "salto" y el spinner vacio).
 export function Skeleton({ className = '' }: { className?: string }) {
-  return <div className={`animate-pulse rounded-md bg-slate-800 ${className}`} />
+  return <div className={`animate-pulse rounded-md bg-surface ${className}`} />
 }
 
 // Lista de filas skeleton para tablas/listas.

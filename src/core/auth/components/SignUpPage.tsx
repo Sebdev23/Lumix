@@ -4,6 +4,7 @@ import { Button } from '@shared/components/ui/Button'
 import { Input } from '@shared/components/ui/Input'
 import { LumixIcon } from '@shared/components/ui/LumixIcon'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { normalizeFullName } from '@shared/utils/name'
 
 export function SignUpPage() {
   const [fullName, setFullName] = useState('')
@@ -21,7 +22,7 @@ export function SignUpPage() {
     setSuccess('')
     setLoading(true)
 
-    const { error: err } = await signUp(email, password, fullName)
+    const { error: err } = await signUp(email, password, normalizeFullName(fullName))
     setLoading(false)
 
     if (err) {

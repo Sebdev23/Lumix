@@ -1,13 +1,19 @@
 import { useState } from 'react'
-import { Outlet } from 'react-router-dom'
+import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { BottomNav } from './BottomNav'
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
+  const location = useLocation()
+  // El chat ya tiene todo lo demas al alcance via el hamburguesa: una segunda barra fija
+  // abajo le resta ~50-60px permanentes justo donde vive su propio input+boton enviar, y en
+  // el celular (con el teclado abierto) eso terminaba empujando el boton fuera del area
+  // visible. Las demas rutas mantienen el BottomNav como siempre.
+  const ocultarBottomNav = location.pathname.startsWith('/chat')
 
   return (
-    <div className="flex h-dvh bg-slate-950 text-slate-200">
+    <div className="flex h-dvh bg-shell text-fg">
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div
@@ -33,7 +39,7 @@ export function AppLayout() {
       <div className="flex-1 flex flex-col min-w-0">
         {/* Mobile header */}
         <header
-          className="flex items-center gap-3 px-3 border-b border-slate-800 bg-slate-900 md:hidden flex-shrink-0"
+          className="flex items-center gap-3 px-3 border-b border-border bg-panel md:hidden flex-shrink-0"
           style={{
             height: 'calc(3rem + env(safe-area-inset-top))',
             paddingTop: 'env(safe-area-inset-top)',
@@ -42,7 +48,7 @@ export function AppLayout() {
           <button
             onClick={() => setSidebarOpen(true)}
             aria-label="Abrir menu"
-            className="p-1.5 -ml-1 rounded-lg hover:bg-slate-800 text-slate-400"
+            className="p-1.5 -ml-1 rounded-lg hover:bg-surface text-fg-faint"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path
@@ -53,7 +59,7 @@ export function AppLayout() {
               />
             </svg>
           </button>
-          <span className="text-slate-200 font-semibold text-sm">Lumix</span>
+          <span className="text-fg-body font-semibold text-sm">Lumix</span>
         </header>
 
         {/* Page content */}
@@ -62,7 +68,7 @@ export function AppLayout() {
         </main>
 
         {/* Navegacion inferior (solo movil) */}
-        <BottomNav />
+        {!ocultarBottomNav && <BottomNav />}
       </div>
     </div>
   )

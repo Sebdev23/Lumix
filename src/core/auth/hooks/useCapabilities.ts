@@ -10,8 +10,19 @@ export function useCapabilities() {
   const role = teamRole ?? profile?.role ?? 'colaborador'
   const defaults = ROLE_DEFAULTS[role] ?? []
 
-  const can = (cap: Capability): boolean =>
-    isGlobalAdmin || defaults.includes(cap) || teamPermissions?.[cap] === true
+  // El admin global nunca se bloquea. Para el resto: un flag explicito (true o false) en
+  // team_members.permissions manda por sobre el default del rol -asi jefatura puede
+  // ocultarle un modulo puntual a alguien sin tocar su rol-; sin flag explicito, gana el
+  // default. Antes solo se podia SUMAR capacidades (nunca quitar una que traia el rol); los
+  // flags de "modulos.*" necesitan poder revocarse, asi que el chequeo de `false` aplica
+  // parejo a todo el catalogo (nadie fijaba `false` antes, asi que no cambia nada existente).
+  const can = (cap: Capability): boolean => {
+    if (isGlobalAdmin) return true
+    const override = teamPermissions?.[cap]
+    if (override === true) return true
+    if (override === false) return false
+    return defaults.includes(cap)
+  }
 
   return {
     role,

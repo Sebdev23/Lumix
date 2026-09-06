@@ -148,5 +148,5 @@ export function getLoadTextColor(percentage: number): string {
   if (percentage > 100) return 'text-red-400'
   if (percentage >= 90) return 'text-red-400'
   if (percentage >= 70) return 'text-amber-400'
-  return 'text-slate-400'
+  return 'text-fg-faint'
 }

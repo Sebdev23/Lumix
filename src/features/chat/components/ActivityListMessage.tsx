@@ -14,7 +14,7 @@ export interface ActivityListItem {
 }
 
 const STATUS_STYLES: Record<string, string> = {
-  pendiente: 'bg-slate-700 text-slate-300',
+  pendiente: 'bg-surface-2 text-slate-300',
   en_proceso: 'bg-blue-600/20 text-blue-400',
   bloqueado: 'bg-red-600/20 text-red-400',
   falta_informacion: 'bg-amber-600/20 text-amber-400',
@@ -25,7 +25,7 @@ const STATUS_STYLES: Record<string, string> = {
 const PRIORITY_STYLES: Record<number, string> = {
   1: 'text-red-400',
   2: 'text-amber-400',
-  3: 'text-slate-400',
+  3: 'text-fg-faint',
 }
 
 export interface BulkChanges {
@@ -52,6 +52,9 @@ interface Props {
   // Accion rapida sobre UNA fila, igual que los botones de ActivityCard (crear/editar desde
   // el chat). Sin esto la fila solo abre el modal completo al tocarla.
   onQuickUpdate?: (id: string, changes: BulkChanges) => Promise<void>
+  // Eliminar UNA fila. Solo se ofrece para 'pendiente': una vez iniciada, borrarla se
+  // siente como perder trabajo en curso -desde ahi se cierra o edita, no se borra-.
+  onDelete?: (id: string, title: string) => Promise<void>
 }
 
 // Modo seleccion: solo tiene sentido ofrecerlo si hay a donde aplicar el resultado
@@ -64,6 +67,7 @@ export function ActivityListMessage({
   members = [],
   onBulkUpdate,
   onQuickUpdate,
+  onDelete,
 }: Props) {
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [picker, setPicker] = useState<'date' | 'reassign' | null>(null)
@@ -72,8 +76,12 @@ export function ActivityListMessage({
   const [busy, setBusy] = useState(false)
   const [done, setDone] = useState('')
 
-  // Panel rapido abierto en UNA fila (mover o reasignar), independiente del modo seleccion.
-  const [rowPanel, setRowPanel] = useState<{ id: string; type: 'move' | 'assign' } | null>(null)
+  // Panel rapido abierto en UNA fila (mover, reasignar o confirmar eliminar), independiente
+  // del modo seleccion.
+  const [rowPanel, setRowPanel] = useState<{
+    id: string
+    type: 'move' | 'assign' | 'delete'
+  } | null>(null)
   const [rowBusyId, setRowBusyId] = useState<string | null>(null)
 
   const supportsBulk = !!onBulkUpdate
@@ -121,6 +129,17 @@ export function ActivityListMessage({
     }
   }
 
+  const runDelete = async (id: string, title: string) => {
+    if (!onDelete) return
+    setRowBusyId(id)
+    try {
+      await onDelete(id, title)
+      setRowPanel(null)
+    } finally {
+      setRowBusyId(null)
+    }
+  }
+
   const today = new Date()
   const tomorrow = new Date()
   tomorrow.setDate(today.getDate() + 1)
@@ -133,7 +152,7 @@ export function ActivityListMessage({
         <span className="text-[11px] font-semibold text-indigo-400">L</span>
       </div>
       <div className="flex-1">
-        <p className="text-sm text-slate-300 mb-2">{header}</p>
+        <p className="text-sm text-fg-muted mb-2">{header}</p>
         <div className="space-y-1.5">
           {items.map((it) => {
             const isSelected = selected.has(it.id)
@@ -148,7 +167,7 @@ export function ActivityListMessage({
                 className={`w-full text-left rounded-xl border p-2.5 transition-colors cursor-pointer flex items-start gap-2 ${
                   isSelected
                     ? 'border-indigo-500/60 bg-indigo-600/10'
-                    : 'border-slate-700 bg-slate-800/80 hover:bg-slate-800 hover:border-indigo-500/40'
+                    : 'border-border-strong bg-surface/80 hover:bg-surface hover:border-indigo-500/40'
                 }`}
               >
                 {supportsBulk && (
@@ -162,18 +181,16 @@ export function ActivityListMessage({
                 )}
                 <div className="flex-1 min-w-0">
                   <div className="flex items-start justify-between gap-2">
-                    <p className="text-[13px] text-slate-100 font-medium leading-snug">
-                      {it.title}
-                    </p>
+                    <p className="text-[13px] text-fg font-medium leading-snug">{it.title}</p>
                     <span
                       className={`text-[9px] px-1.5 py-0.5 rounded-full whitespace-nowrap ${
-                        STATUS_STYLES[it.status] ?? 'bg-slate-700 text-slate-300'
+                        STATUS_STYLES[it.status] ?? 'bg-surface-2 text-slate-300'
                       }`}
                     >
                       {it.status}
                     </span>
                   </div>
-                  <div className="flex items-center gap-3 mt-1 text-[11px] text-slate-400">
+                  <div className="flex items-center gap-3 mt-1 text-[11px] text-fg-faint">
                     <span>👤 {it.responsibleName}</span>
                     <span>
                       📅{' '}
@@ -182,7 +199,7 @@ export function ActivityListMessage({
                         month: '2-digit',
                       })}
                     </span>
-                    <span className={PRIORITY_STYLES[it.priority] ?? 'text-slate-400'}>
+                    <span className={PRIORITY_STYLES[it.priority] ?? 'text-fg-faint'}>
                       P{it.priority}
                     </span>
                   </div>
@@ -206,7 +223,7 @@ export function ActivityListMessage({
                         onClick={() =>
                           setRowPanel(panelOpen === 'move' ? null : { id: it.id, type: 'move' })
                         }
-                        className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600 disabled:opacity-50 transition-colors"
+                        className="px-2 py-1 rounded-lg bg-surface-2 text-fg-muted text-[11px] font-medium hover:bg-slate-600 disabled:opacity-50 transition-colors"
                       >
                         📅 Mover
                       </button>
@@ -218,11 +235,49 @@ export function ActivityListMessage({
                               panelOpen === 'assign' ? null : { id: it.id, type: 'assign' },
                             )
                           }
-                          className="px-2 py-1 rounded-lg bg-slate-700 text-slate-300 text-[11px] font-medium hover:bg-slate-600 disabled:opacity-50 transition-colors"
+                          className="px-2 py-1 rounded-lg bg-surface-2 text-fg-muted text-[11px] font-medium hover:bg-slate-600 disabled:opacity-50 transition-colors"
                         >
                           👤 Reasignar
                         </button>
                       )}
+                      {onDelete && it.status === 'pendiente' && (
+                        <button
+                          disabled={rowBusy}
+                          onClick={() =>
+                            setRowPanel(
+                              panelOpen === 'delete' ? null : { id: it.id, type: 'delete' },
+                            )
+                          }
+                          className="px-2 py-1 rounded-lg bg-red-600/15 text-red-400 text-[11px] font-medium hover:bg-red-600/25 disabled:opacity-50 transition-colors"
+                        >
+                          🗑 Eliminar
+                        </button>
+                      )}
+                    </div>
+                  )}
+
+                  {panelOpen === 'delete' && (
+                    <div
+                      className="flex items-center gap-2 mt-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <span className="text-[11px] text-fg-faint">
+                        ¿Eliminar? No se puede deshacer.
+                      </span>
+                      <button
+                        disabled={rowBusy}
+                        onClick={() => runDelete(it.id, it.title)}
+                        className="px-2 py-1 rounded-lg bg-red-600 hover:bg-red-500 text-white text-[11px] font-medium disabled:opacity-50"
+                      >
+                        {rowBusy ? '...' : 'Si, eliminar'}
+                      </button>
+                      <button
+                        disabled={rowBusy}
+                        onClick={() => setRowPanel(null)}
+                        className="px-2 py-1 rounded-lg bg-surface-2 text-fg-muted text-[11px] hover:bg-slate-600 disabled:opacity-50"
+                      >
+                        Cancelar
+                      </button>
                     </div>
                   )}
 
@@ -234,21 +289,21 @@ export function ActivityListMessage({
                       <button
                         disabled={rowBusy}
                         onClick={() => runQuick(it.id, { due_date: toYMD(today) })}
-                        className="px-2 py-1 rounded-lg bg-slate-700 text-slate-200 text-[11px] hover:bg-slate-600 disabled:opacity-50"
+                        className="px-2 py-1 rounded-lg bg-surface-2 text-fg-body text-[11px] hover:bg-slate-600 disabled:opacity-50"
                       >
                         Hoy
                       </button>
                       <button
                         disabled={rowBusy}
                         onClick={() => runQuick(it.id, { due_date: toYMD(tomorrow) })}
-                        className="px-2 py-1 rounded-lg bg-slate-700 text-slate-200 text-[11px] hover:bg-slate-600 disabled:opacity-50"
+                        className="px-2 py-1 rounded-lg bg-surface-2 text-fg-body text-[11px] hover:bg-slate-600 disabled:opacity-50"
                       >
                         Manana
                       </button>
                       <button
                         disabled={rowBusy}
                         onClick={() => runQuick(it.id, { due_date: toYMD(nextWeek) })}
-                        className="px-2 py-1 rounded-lg bg-slate-700 text-slate-200 text-[11px] hover:bg-slate-600 disabled:opacity-50"
+                        className="px-2 py-1 rounded-lg bg-surface-2 text-fg-body text-[11px] hover:bg-slate-600 disabled:opacity-50"
                       >
                         +1 semana
                       </button>
@@ -258,7 +313,7 @@ export function ActivityListMessage({
                         onChange={(e) =>
                           e.target.value && runQuick(it.id, { due_date: e.target.value })
                         }
-                        className="px-2 py-1 rounded-lg bg-slate-700 text-slate-200 text-[11px] border-0 focus:outline-none"
+                        className="px-2 py-1 rounded-lg bg-surface-2 text-fg-body text-[11px] border-0 focus:outline-none"
                       />
                     </div>
                   )}
@@ -278,7 +333,7 @@ export function ActivityListMessage({
                             onClick={() =>
                               runQuick(it.id, { responsibleId: m.id, responsibleName: m.full_name })
                             }
-                            className="text-left px-2 py-1 rounded-lg bg-slate-700 text-slate-200 text-[11px] hover:bg-slate-600 disabled:opacity-50"
+                            className="text-left px-2 py-1 rounded-lg bg-surface-2 text-fg-body text-[11px] hover:bg-slate-600 disabled:opacity-50"
                           >
                             {m.full_name}
                           </button>
@@ -294,7 +349,7 @@ export function ActivityListMessage({
 
         {/* Barra de accion masiva: solo aparece con algo seleccionado. */}
         {supportsBulk && hasSelection && (
-          <div className="mt-2 rounded-xl border border-indigo-500/30 bg-slate-800/80 p-2.5">
+          <div className="mt-2 rounded-xl border border-indigo-500/30 bg-surface/80 p-2.5">
             {done ? (
               <p className="text-xs text-emerald-400 text-center py-1">{done}</p>
             ) : picker === 'date' ? (
@@ -304,7 +359,7 @@ export function ActivityListMessage({
                   value={dateValue}
                   onChange={(e) => setDateValue(e.target.value)}
                   autoFocus
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="flex-1 rounded-lg border border-border-strong bg-panel px-2 py-1.5 text-xs text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                 />
                 <button
                   disabled={busy || !dateValue}
@@ -316,7 +371,7 @@ export function ActivityListMessage({
                 <button
                   disabled={busy}
                   onClick={() => setPicker(null)}
-                  className="px-2 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-slate-300"
+                  className="px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-slate-600 text-xs text-fg-muted"
                 >
                   Volver
                 </button>
@@ -327,7 +382,7 @@ export function ActivityListMessage({
                   value={reassignId}
                   onChange={(e) => setReassignId(e.target.value)}
                   autoFocus
-                  className="flex-1 rounded-lg border border-slate-700 bg-slate-900 px-2 py-1.5 text-xs text-slate-200 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                  className="flex-1 rounded-lg border border-border-strong bg-panel px-2 py-1.5 text-xs text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                 >
                   <option value="">Elegir persona...</option>
                   {members.map((m) => (
@@ -349,14 +404,14 @@ export function ActivityListMessage({
                 <button
                   disabled={busy}
                   onClick={() => setPicker(null)}
-                  className="px-2 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-xs text-slate-300"
+                  className="px-2 py-1.5 rounded-lg bg-surface-2 hover:bg-slate-600 text-xs text-fg-muted"
                 >
                   Volver
                 </button>
               </div>
             ) : (
               <div className="flex items-center gap-1.5 flex-wrap">
-                <span className="text-[11px] text-slate-400 mr-auto">
+                <span className="text-[11px] text-fg-faint mr-auto">
                   {selected.size} seleccionada{selected.size === 1 ? '' : 's'}
                 </span>
                 <button
@@ -369,7 +424,7 @@ export function ActivityListMessage({
                 <button
                   disabled={busy}
                   onClick={() => setPicker('date')}
-                  className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium disabled:opacity-50"
+                  className="px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-slate-600 text-fg-body text-xs font-medium disabled:opacity-50"
                 >
                   Mover fecha
                 </button>
@@ -377,7 +432,7 @@ export function ActivityListMessage({
                   <button
                     disabled={busy}
                     onClick={() => setPicker('reassign')}
-                    className="px-2.5 py-1.5 rounded-lg bg-slate-700 hover:bg-slate-600 text-slate-200 text-xs font-medium disabled:opacity-50"
+                    className="px-2.5 py-1.5 rounded-lg bg-surface-2 hover:bg-slate-600 text-fg-body text-xs font-medium disabled:opacity-50"
                   >
                     Reasignar
                   </button>
@@ -385,7 +440,7 @@ export function ActivityListMessage({
                 <button
                   disabled={busy}
                   onClick={clearSelection}
-                  className="px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-slate-300 text-xs disabled:opacity-50"
+                  className="px-2.5 py-1.5 rounded-lg text-slate-500 hover:text-fg-muted text-xs disabled:opacity-50"
                 >
                   Cancelar
                 </button>

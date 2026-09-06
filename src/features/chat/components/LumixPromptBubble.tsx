@@ -9,7 +9,7 @@
 type Props = {
   content: string
   timestamp: string
-  accent: 'amber' | 'indigo'
+  accent: 'amber' | 'indigo' | 'sky'
   /** Texto de lo que se decidio. Si viene, la burbuja queda inerte. */
   resolution?: string | null
   /**
@@ -26,6 +26,7 @@ type Props = {
 const ACCENT_BORDER = {
   amber: 'border-amber-500/20',
   indigo: 'border-indigo-500/20',
+  sky: 'border-sky-500/20',
 }
 
 export function LumixPromptBubble({
@@ -44,21 +45,21 @@ export function LumixPromptBubble({
         <span className="text-[11px] font-semibold text-indigo-400">L</span>
       </div>
       <div className="flex flex-col">
-        <span className="text-xs text-slate-400 mb-1 ml-1">Lumix</span>
+        <span className="text-xs text-fg-faint mb-1 ml-1">Lumix</span>
         {resolution ? (
-          <div className={`${bubble} bg-slate-800 text-slate-400 border-slate-700`}>
+          <div className={`${bubble} bg-surface text-fg-faint border-border-strong`}>
             <p className="whitespace-pre-wrap break-words">{content}</p>
             <p className="mt-1.5 text-xs text-emerald-500/80">✓ {resolution}</p>
           </div>
         ) : ajena ? (
-          <div className={`${bubble} bg-slate-800 text-slate-400 border-slate-700`}>
+          <div className={`${bubble} bg-surface text-fg-faint border-border-strong`}>
             <p className="whitespace-pre-wrap break-words">{content}</p>
             <p className="mt-1.5 text-xs text-slate-500">Pendiente de su responsable</p>
           </div>
         ) : (
           <button
             onClick={onOpen}
-            className={`${bubble} bg-slate-700 text-slate-200 cursor-pointer hover:brightness-110 transition-all ${ACCENT_BORDER[accent]}`}
+            className={`${bubble} bg-surface-2 text-fg-body cursor-pointer hover:brightness-110 transition-all light:shadow-sm ${ACCENT_BORDER[accent]}`}
           >
             <p className="whitespace-pre-wrap break-words">{content}</p>
           </button>

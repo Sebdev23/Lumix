@@ -1,6 +1,7 @@
 import { BrowserRouter, Routes, Route, Navigate } from 'react-router-dom'
 import { lazy, Suspense } from 'react'
 import { AuthProvider } from '@core/auth/context/AuthContext'
+import { ThemeProvider } from '@core/theme/ThemeContext'
 import { NotificationProvider } from '@core/notifications/NotificationContext'
 import { AppLayout } from '@shared/components/layout/AppLayout'
 import { ErrorBoundary } from '@shared/components/ErrorBoundary'
@@ -19,6 +20,16 @@ const ErrorsPage = lazy(() =>
 )
 const MinutaPage = lazy(() =>
   import('@features/minuta/components/MinutaPage').then((m) => ({ default: m.MinutaPage })),
+)
+const ProyectosPage = lazy(() =>
+  import('@features/proyectos/components/ProyectosPage').then((m) => ({
+    default: m.ProyectosPage,
+  })),
+)
+const ProyectoDetailPage = lazy(() =>
+  import('@features/proyectos/components/ProyectoDetailPage').then((m) => ({
+    default: m.ProyectoDetailPage,
+  })),
 )
 const CompromisosPage = lazy(() =>
   import('@features/compromisos/components/CompromisosPage').then((m) => ({
@@ -75,46 +86,50 @@ function PageLoader() {
 
 export function App() {
   return (
-    <ErrorBoundary>
-      <AuthProvider>
-        {/* Orden: ToastProvider afuera porque NotificationProvider avisa con un toast.
+    <ThemeProvider>
+      <ErrorBoundary>
+        <AuthProvider>
+          {/* Orden: ToastProvider afuera porque NotificationProvider avisa con un toast.
             NotificationProvider DENTRO del router porque relee las notificaciones en cada
             cambio de ruta (necesita useLocation). */}
-        <ToastProvider>
-          <BrowserRouter>
-            <NotificationProvider>
-              <Suspense fallback={<PageLoader />}>
-                <Routes>
-                  <Route path="/login" element={<LoginPage />} />
-                  <Route path="/signup" element={<SignUpPage />} />
-                  <Route path="/change-password" element={<ChangePasswordPage />} />
-                  <Route
-                    element={
-                      <AuthGuard>
-                        <AppLayout />
-                      </AuthGuard>
-                    }
-                  >
-                    <Route path="/chat" element={<ChatPage />} />
-                    <Route path="/activities" element={<ActivitiesPage />} />
-                    <Route path="/minuta" element={<MinutaPage />} />
-                    <Route path="/compromisos" element={<CompromisosPage />} />
-                    <Route path="/errors" element={<ErrorsPage />} />
-                    <Route path="/dashboard" element={<DashboardPage />} />
-                    <Route path="/gantt" element={<GanttPage />} />
-                    <Route path="/notifications" element={<NotificationsPage />} />
-                    <Route path="/teams" element={<TeamsPage />} />
-                    <Route path="/admin" element={<AdminPage />} />
-                    <Route path="/ingestas" element={<IngestasTabs />} />
-                    <Route path="/profile" element={<ProfilePage />} />
-                    <Route path="*" element={<Navigate to="/chat" replace />} />
-                  </Route>
-                </Routes>
-              </Suspense>
-            </NotificationProvider>
-          </BrowserRouter>
-        </ToastProvider>
-      </AuthProvider>
-    </ErrorBoundary>
+          <ToastProvider>
+            <BrowserRouter>
+              <NotificationProvider>
+                <Suspense fallback={<PageLoader />}>
+                  <Routes>
+                    <Route path="/login" element={<LoginPage />} />
+                    <Route path="/signup" element={<SignUpPage />} />
+                    <Route path="/change-password" element={<ChangePasswordPage />} />
+                    <Route
+                      element={
+                        <AuthGuard>
+                          <AppLayout />
+                        </AuthGuard>
+                      }
+                    >
+                      <Route path="/chat" element={<ChatPage />} />
+                      <Route path="/activities" element={<ActivitiesPage />} />
+                      <Route path="/minuta" element={<MinutaPage />} />
+                      <Route path="/proyectos" element={<ProyectosPage />} />
+                      <Route path="/proyectos/:id" element={<ProyectoDetailPage />} />
+                      <Route path="/compromisos" element={<CompromisosPage />} />
+                      <Route path="/errors" element={<ErrorsPage />} />
+                      <Route path="/dashboard" element={<DashboardPage />} />
+                      <Route path="/gantt" element={<GanttPage />} />
+                      <Route path="/notifications" element={<NotificationsPage />} />
+                      <Route path="/teams" element={<TeamsPage />} />
+                      <Route path="/admin" element={<AdminPage />} />
+                      <Route path="/ingestas" element={<IngestasTabs />} />
+                      <Route path="/profile" element={<ProfilePage />} />
+                      <Route path="*" element={<Navigate to="/chat" replace />} />
+                    </Route>
+                  </Routes>
+                </Suspense>
+              </NotificationProvider>
+            </BrowserRouter>
+          </ToastProvider>
+        </AuthProvider>
+      </ErrorBoundary>
+    </ThemeProvider>
   )
 }

@@ -11,10 +11,20 @@ interface Props {
   paraTodos: boolean
   onChange: (next: { responsables: string[]; para_todos: boolean }) => void
   className?: string
+  // Minuta es un tema puntual: un solo responsable, no un reparto de tareas (eso es
+  // Proyectos). Elegir a otra persona reemplaza, no suma.
+  single?: boolean
 }
 
-// Selector multiple de responsables: cajita que abre un panel con checkboxes.
-export function MemberMultiSelect({ members, selected, paraTodos, onChange, className }: Props) {
+// Selector de responsables: cajita que abre un panel con checkboxes (o unico, si single).
+export function MemberMultiSelect({
+  members,
+  selected,
+  paraTodos,
+  onChange,
+  className,
+  single,
+}: Props) {
   const [open, setOpen] = useState(false)
 
   const label = paraTodos
@@ -26,6 +36,11 @@ export function MemberMultiSelect({ members, selected, paraTodos, onChange, clas
         : `${selected.length} personas`
 
   const toggleMember = (id: string) => {
+    if (single) {
+      onChange({ responsables: selected.includes(id) ? [] : [id], para_todos: false })
+      setOpen(false)
+      return
+    }
     const next = selected.includes(id) ? selected.filter((r) => r !== id) : [...selected, id]
     onChange({ responsables: next, para_todos: false })
   }
@@ -37,7 +52,7 @@ export function MemberMultiSelect({ members, selected, paraTodos, onChange, clas
         onClick={() => setOpen(true)}
         className={
           className ??
-          'w-full text-left rounded border border-slate-700 bg-slate-800 px-2 py-1 text-[11px] text-slate-200 hover:border-indigo-500/50 truncate'
+          'w-full text-left rounded border border-border-strong bg-field px-2 py-1 text-[11px] text-fg-body hover:border-indigo-500/50 truncate'
         }
       >
         {label}
@@ -48,26 +63,30 @@ export function MemberMultiSelect({ members, selected, paraTodos, onChange, clas
           onClick={() => setOpen(false)}
         >
           <div
-            className="w-64 max-h-[70vh] overflow-y-auto rounded-xl border border-slate-700 bg-slate-900 p-2 shadow-xl"
+            className="w-64 max-h-[70vh] overflow-y-auto rounded-xl border border-border-strong bg-panel p-2 shadow-xl"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-[11px] text-slate-500 px-2 py-1">Responsable(s)</p>
 
             <button
               onClick={() => onChange({ responsables: [], para_todos: !paraTodos })}
-              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-800 text-left"
+              className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface text-left"
             >
               <span
                 className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
-                  paraTodos ? 'bg-emerald-600 border-emerald-600 text-white' : 'border-slate-600'
+                  paraTodos
+                    ? 'bg-emerald-600 border-emerald-600 text-white'
+                    : 'border-slate-600 light:border-slate-300'
                 }`}
               >
                 {paraTodos ? '✓' : ''}
               </span>
-              <span className="text-xs text-emerald-300 font-medium">Todos</span>
+              <span className="text-xs text-emerald-300 light:text-emerald-600 font-medium">
+                Todos
+              </span>
             </button>
 
-            <div className="h-px bg-slate-800 my-1" />
+            <div className="h-px bg-surface my-1" />
 
             {/* Si esta "Todos", se oculta la lista individual (es colectivo). */}
             {paraTodos ? (
@@ -81,22 +100,24 @@ export function MemberMultiSelect({ members, selected, paraTodos, onChange, clas
                   <button
                     key={m.id}
                     onClick={() => toggleMember(m.id)}
-                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-slate-800 text-left"
+                    className="w-full flex items-center gap-2 px-2 py-1.5 rounded-lg hover:bg-surface text-left"
                   >
                     <span
                       className={`w-4 h-4 rounded border flex items-center justify-center text-[10px] ${
-                        on ? 'bg-indigo-600 border-indigo-600 text-white' : 'border-slate-600'
+                        on
+                          ? 'bg-indigo-600 border-indigo-600 text-white'
+                          : 'border-slate-600 light:border-slate-300'
                       }`}
                     >
                       {on ? '✓' : ''}
                     </span>
-                    <span className="text-xs text-slate-200">{m.full_name}</span>
+                    <span className="text-xs text-fg-body">{m.full_name}</span>
                   </button>
                 )
               })
             )}
 
-            <div className="h-px bg-slate-800 my-1" />
+            <div className="h-px bg-surface my-1" />
             <div className="flex justify-between px-2 py-1">
               <button
                 onClick={() => onChange({ responsables: [], para_todos: false })}

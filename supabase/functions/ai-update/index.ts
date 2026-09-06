@@ -38,8 +38,20 @@ ${JSON_SHAPE}
 
 REGLAS:
 - isUpdate=false si el mensaje describe una tarea NUEVA, un error nuevo, o no hace referencia a ninguna actividad existente. En ese caso targetIndex=-1, action="unknown", todos los changes en null.
+- ANTE LA DUDA, isUpdate=false. Crear de mas es reversible (se borra); pisar el estado de una
+  actividad ajena que no tiene nada que ver es peor y pasa desapercibido hasta que alguien
+  la revisa. Solo marca isUpdate=true si el mensaje deja CLARO que habla de algo que YA
+  existe en la lista (nombra la tarea, o es un comentario corto de seguimiento tipo "ya
+  quedo", "muevela", "prioridad alta" sin nombrar nada nuevo).
 - "listo", "ya termine", "completado", "hecho", "finalizado" => action="complete", changes.status="completado".
-- "bloquea", "esta bloqueada", "no puedo avanzar" => action="status", changes.status="bloqueado".
+- "bloquea", "esta bloqueada", "no puedo avanzar", "quedo bloqueada" (la tarea EXISTENTE, en
+  presente, sin describir una accion nueva) => action="status", changes.status="bloqueado".
+- OJO: "bloqueo" tambien aparece como SUSTANTIVO explicando el MOTIVO de una tarea nueva
+  ("responder a Nippon por el bloqueo de pimentada exudada", "avisar del bloqueo de
+  produccion"). Ahi la persona esta describiendo un trabajo por hacer A RAIZ de un bloqueo,
+  no diciendo que una tarea de la lista esta bloqueada. Eso es isUpdate=false, tarea nueva.
+  Señal para distinguir: si el mensaje tiene un verbo de accion (responder, avisar, gestionar,
+  resolver, coordinar...) y "bloqueo" es el complemento ("por el bloqueo de X"), es NUEVA.
 - "falta info", "falta informacion" => changes.status="falta_informacion".
 - "en proceso", "empece", "trabajando en" => changes.status="en_proceso".
 - "esperando aprobacion", "para aprobar" => changes.status="esperando_aprobacion".

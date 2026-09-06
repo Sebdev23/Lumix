@@ -17,7 +17,7 @@ import { QuotedMessage } from '@features/chat/components/QuotedMessage'
 import { useToast } from '@shared/components/ui/Toast'
 import { formatDateLocal } from '@shared/utils/date'
 import type { ReplyTarget } from '@features/chat/types'
-import type { ActivityStatus } from '@shared/types'
+import type { ActivityStatus, HojaTipo } from '@shared/types'
 import type {
   PendingActivity,
   PendingUpdate,
@@ -37,6 +37,12 @@ type NameConfirm = {
   // Responsables de minuta que ya se resolvieron solos (ej. "Genaro y Javier": Genaro
   // calzo directo, Javier necesito preguntar). No se pierden al responder la pregunta.
   otherResponsables?: { id: string; name: string }[]
+  // 'minuta' o 'proyecto': se pierde si no viaja aca, y la pregunta de desambiguacion
+  // siempre terminaba creando un tema de minuta aunque el original fuera un proyecto.
+  tipoMinuta?: HojaTipo
+  // Primer punto del proyecto (si vino en el mismo mensaje), para no perderlo al responder
+  // la pregunta de a quien asignar.
+  primerPunto?: string | null
 }
 type ActivityPick = { candidates: { id: string; title: string }[]; pending: PendingUpdate }
 
@@ -45,7 +51,14 @@ type ActivityPick = { candidates: { id: string; title: string }[]; pending: Pend
 // 'overload_lote' NO se abre solo: las actividades ya quedaron creadas, asi que es una
 // sugerencia, no una pregunta pendiente. Interrumpir por algo ya resuelto es justo lo que
 // se estaba tratando de evitar.
-const AUTO_OPEN_TYPES = ['category_confirm', 'overload', 'name_confirm', 'activity_pick']
+const AUTO_OPEN_TYPES = [
+  'category_confirm',
+  'overload',
+  'name_confirm',
+  'activity_pick',
+  'delete_confirm',
+  'reclass_proyecto_confirm',
+]
 
 const STATUS_OPTIONS: { value: ActivityStatus; label: string }[] = [
   { value: 'pendiente', label: 'Pendiente' },
@@ -79,6 +92,23 @@ export function ChatPage() {
     pending: PendingCategory
     messageId: string
   } | null>(null)
+  const [deleteConfirm, setDeleteConfirm] = useState<{
+    activityId: string
+    title: string
+    messageId: string
+  } | null>(null)
+  const [deletingActivity, setDeletingActivity] = useState(false)
+  const [reclassConfirm, setReclassConfirm] = useState<{
+    activityId: string
+    title: string
+    tema: string
+    comentarios: string
+    primerPunto: string | null
+    plazo: string | null
+    senderId: string
+    messageId: string
+  } | null>(null)
+  const [reclassifying, setReclassifying] = useState(false)
   const [savingCategory, setSavingCategory] = useState(false)
   const [savingAssign, setSavingAssign] = useState(false)
   const [savingPick, setSavingPick] = useState(false)
@@ -103,7 +133,7 @@ export function ChatPage() {
   const [customDays, setCustomDays] = useState('')
   const [showCustomDays, setShowCustomDays] = useState(false)
   const [messageType, setMessageType] = useState<
-    'auto' | 'actividad' | 'error' | 'ingesta' | 'masivo' | 'minuta'
+    'auto' | 'actividad' | 'error' | 'ingesta' | 'masivo' | 'minuta' | 'proyecto'
   >('auto')
   const [teamName, setTeamName] = useState('')
   const toast = useToast()
@@ -138,6 +168,12 @@ export function ChatPage() {
     applyPendingUpdate,
     editActivityFields,
     listMembers,
+    confirmarEliminarActividad,
+    descartarEliminar,
+    confirmarReclasificarProyecto,
+    descartarReclasificar,
+    descartarNombre,
+    descartarActividadElegida,
   } = useChatMessages()
 
   const { canAssignOthers, canManageMinuta } = useCapabilities()
@@ -341,10 +377,10 @@ export function ChatPage() {
     <>
       <div className="flex flex-col h-full">
         {/* Chat header */}
-        <div className="flex items-center gap-3 px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-          <h2 className="text-sm font-semibold text-slate-200">Chat General</h2>
+        <div className="flex items-center gap-3 px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+          <h2 className="text-sm font-semibold text-fg-body">Chat General</h2>
           {teamName && (
-            <span className="text-xs font-medium text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 rounded-full px-2 py-0.5">
+            <span className="text-xs font-medium text-indigo-300 bg-indigo-950/60 border border-indigo-800/60 light:bg-indigo-50 light:text-indigo-600 light:border-indigo-200 rounded-full px-2 py-0.5">
               {teamName}
             </span>
           )}
@@ -426,6 +462,9 @@ export function ChatPage() {
                     onQuickUpdate={async (id, changes) => {
                       await quickUpdate(id, changes)
                     }}
+                    onDelete={async (id, title) => {
+                      await confirmarEliminarActividad(id, title)
+                    }}
                   />
                 ) : msg.metadata?.type === 'overload' ? (
                   <LumixPromptBubble
@@ -503,6 +542,43 @@ export function ChatPage() {
                       })
                     }
                   />
+                ) : msg.metadata?.type === 'delete_confirm' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="amber"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() =>
+                      setDeleteConfirm({
+                        activityId: (msg.metadata as unknown as { activityId: string }).activityId,
+                        title: (msg.metadata as unknown as { title: string }).title,
+                        messageId: msg.id,
+                      })
+                    }
+                  />
+                ) : msg.metadata?.type === 'reclass_proyecto_confirm' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="sky"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() => {
+                      const m = msg.metadata as unknown as {
+                        activityId: string
+                        title: string
+                        tema: string
+                        comentarios: string
+                        primerPunto: string | null
+                        plazo: string | null
+                        senderId: string
+                      }
+                      setReclassConfirm({ ...m, messageId: msg.id })
+                    }}
+                  />
                 ) : (
                   <div key={msg.id} ref={registerBubble(msg.id)}>
                     <ChatBubble
@@ -558,19 +634,21 @@ export function ChatPage() {
 
         {/* Input */}
         <div
-          className="flex-shrink-0 border-t border-slate-800 bg-slate-900 p-2 sm:p-3"
+          className="flex-shrink-0 border-t border-border bg-panel p-2 sm:p-3"
           style={{ paddingBottom: 'calc(0.5rem + env(safe-area-inset-bottom, 0px))' }}
         >
           <div className="max-w-3xl mx-auto">
-            {/* Type selector */}
-            <div className="flex gap-1 mb-2">
-              {(['auto', 'actividad', 'error', 'ingesta', 'masivo', 'minuta'] as const)
-                .filter((t) => t !== 'minuta' || canManageMinuta)
+            {/* Type selector: puede haber hasta 7 chips (con Minuta/Proyecto visibles) que no
+                siempre caben en una pantalla angosta; con overflow-x-auto se desplazan en vez de
+                cortarse sin aviso. */}
+            <div className="flex gap-1 mb-2 overflow-x-auto flex-nowrap">
+              {(['auto', 'actividad', 'error', 'ingesta', 'masivo', 'minuta', 'proyecto'] as const)
+                .filter((t) => (t !== 'minuta' && t !== 'proyecto') || canManageMinuta)
                 .map((t) => (
                   <button
                     key={t}
                     onClick={() => setMessageType(t)}
-                    className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors ${
+                    className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors flex-shrink-0 ${
                       messageType === t
                         ? t === 'ingesta'
                           ? 'bg-purple-600/20 text-purple-400 border border-purple-500/30'
@@ -582,8 +660,10 @@ export function ChatPage() {
                                 ? 'bg-emerald-600/20 text-emerald-400 border border-emerald-500/30'
                                 : t === 'minuta'
                                   ? 'bg-amber-600/20 text-amber-400 border border-amber-500/30'
-                                  : 'bg-slate-700 text-slate-200'
-                        : 'text-slate-500 hover:text-slate-300 hover:bg-slate-800'
+                                  : t === 'proyecto'
+                                    ? 'bg-sky-600/20 text-sky-400 border border-sky-500/30'
+                                    : 'bg-slate-700 text-slate-200'
+                        : 'text-slate-500 hover:text-slate-300 hover:bg-surface'
                     }`}
                   >
                     {t === 'auto' ? 'Auto' : t.charAt(0).toUpperCase() + t.slice(1)}
@@ -602,7 +682,7 @@ export function ChatPage() {
                     : 'Escribe un mensaje...'
                 }
                 rows={1}
-                className="flex-1 resize-none rounded-xl border border-slate-700 bg-slate-800 px-4 py-2.5 text-sm text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                className="flex-1 resize-none rounded-xl border border-border-strong bg-panel px-4 py-2.5 text-sm text-fg placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
               />
               <Button
                 size="sm"
@@ -645,7 +725,7 @@ export function ChatPage() {
           onClick={() => !loteBusy && setLote(null)}
         >
           <div
-            className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-sm w-full mx-4"
+            className="bg-panel rounded-xl border border-amber-500/30 p-5 max-w-sm w-full mx-4"
             onClick={(e) => e.stopPropagation()}
           >
             <p className="text-sm font-medium text-amber-400 mb-1">Día cargado</p>
@@ -735,7 +815,7 @@ export function ChatPage() {
 
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-              <div className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4">
+              <div className="bg-panel rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4">
                 {overloadFeedback ? (
                   <div className="text-center py-4">
                     <p className="text-sm text-emerald-400 font-medium">{overloadFeedback}</p>
@@ -854,7 +934,14 @@ export function ChatPage() {
                 await reassignResolved(data.reassign.activityId, id, name, messageId)
               } else if (data.minuta) {
                 const responsables = [...(data.otherResponsables ?? []), { id, name }]
-                await createMinutaTopic(data.minuta, responsables, user!.id, messageId)
+                await createMinutaTopic(
+                  data.minuta,
+                  responsables,
+                  user!.id,
+                  messageId,
+                  data.tipoMinuta,
+                  data.primerPunto,
+                )
               } else if (data.pending) {
                 await createResolvedActivity(data.pending, id, name, messageId)
               }
@@ -866,7 +953,7 @@ export function ChatPage() {
 
           return (
             <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-              <div className="bg-slate-900 rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4">
+              <div className="bg-panel rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4">
                 {assignFeedback ? (
                   <div className="text-center py-4">
                     <p className="text-sm text-emerald-400 font-medium">{assignFeedback}</p>
@@ -906,7 +993,8 @@ export function ChatPage() {
                       )}
                       <button
                         disabled={savingAssign}
-                        onClick={() => {
+                        onClick={async () => {
+                          await descartarNombre(messageId)
                           setNameConfirm(null)
                           setAssignFeedback('')
                         }}
@@ -927,7 +1015,7 @@ export function ChatPage() {
           (por ejemplo, la pregunta de a quien reasignar). */}
       {activityPick && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-slate-900 rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4">
+          <div className="bg-panel rounded-xl border border-indigo-500/30 p-5 max-w-xs w-full mx-4">
             <p className="text-sm font-medium text-indigo-400 mb-1">
               ¿A cual actividad te refieres?
             </p>
@@ -957,7 +1045,10 @@ export function ChatPage() {
               ))}
               <button
                 disabled={savingPick}
-                onClick={() => setActivityPick(null)}
+                onClick={async () => {
+                  await descartarActividadElegida(activityPick.messageId)
+                  setActivityPick(null)
+                }}
                 className="w-full text-left px-3 py-2 rounded-lg bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-sm text-red-400 transition-colors"
               >
                 Cancelar
@@ -971,7 +1062,7 @@ export function ChatPage() {
           No se cierra tocando afuera: obliga a elegir una opcion o Cancelar, para que nunca quede a medias. */}
       {categoryConfirm && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
-          <div className="bg-slate-900 rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4">
+          <div className="bg-panel rounded-xl border border-amber-500/30 p-5 max-w-xs w-full mx-4">
             <p className="text-sm font-medium text-amber-400 mb-1">¿Que tipo es?</p>
             <p className="text-xs text-slate-400 mb-3 leading-snug">
               "{categoryConfirm.pending.title}"
@@ -986,7 +1077,13 @@ export function ChatPage() {
                         label: 'Ingesta de datos',
                         hint: 'carga/proceso de datos',
                       }
-                    : { value: 'error' as const, label: 'Error', hint: 'reportar una falla' },
+                    : o === 'proyecto'
+                      ? {
+                          value: 'proyecto' as const,
+                          label: 'Proyecto',
+                          hint: 'con subtareas, se sigue en el tiempo',
+                        }
+                      : { value: 'error' as const, label: 'Error', hint: 'reportar una falla' },
                 ),
               ].map((opt) => (
                 <button
@@ -1008,7 +1105,9 @@ export function ChatPage() {
                   className={`w-full text-left px-3 py-2 rounded-lg transition-colors disabled:opacity-50 ${
                     opt.value === 'actividad'
                       ? 'bg-indigo-600/20 text-indigo-200 border border-indigo-500/40 hover:bg-indigo-600/30'
-                      : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
+                      : opt.value === 'proyecto'
+                        ? 'bg-sky-600/20 text-sky-200 border border-sky-500/40 hover:bg-sky-600/30'
+                        : 'bg-slate-800 text-slate-200 hover:bg-slate-700'
                   }`}
                 >
                   <span className="text-sm font-medium">{opt.label}</span>
@@ -1027,6 +1126,105 @@ export function ChatPage() {
         </div>
       )}
 
+      {/* Confirmar eliminar una actividad puntual (respondiendo su mensaje con "borrala").
+          No se cierra tocando afuera: eliminar no se puede deshacer, asi que exige un click
+          explicito en Eliminar o Cancelar. */}
+      {deleteConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-panel rounded-xl border border-red-500/30 p-5 max-w-xs w-full mx-4">
+            <p className="text-sm font-medium text-red-400 mb-1">¿Eliminar esta actividad?</p>
+            <p className="text-xs text-slate-400 mb-4 leading-snug">
+              "{deleteConfirm.title}". No se puede deshacer.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="danger"
+                disabled={deletingActivity}
+                onClick={async () => {
+                  setDeletingActivity(true)
+                  try {
+                    await confirmarEliminarActividad(
+                      deleteConfirm.activityId,
+                      deleteConfirm.title,
+                      deleteConfirm.messageId,
+                    )
+                    setDeleteConfirm(null)
+                  } finally {
+                    setDeletingActivity(false)
+                  }
+                }}
+              >
+                {deletingActivity ? 'Eliminando...' : 'Eliminar'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={deletingActivity}
+                onClick={async () => {
+                  await descartarEliminar(deleteConfirm.messageId)
+                  setDeleteConfirm(null)
+                }}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmar conversion de una actividad a proyecto (respondiendo su mensaje con
+          "es un proyecto"/"creala como proyecto"). Elimina la actividad y crea el proyecto
+          en su lugar; no se cierra tocando afuera, exige elegir. */}
+      {reclassConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-panel rounded-xl border border-sky-500/30 p-5 max-w-xs w-full mx-4">
+            <p className="text-sm font-medium text-sky-400 mb-1">¿Convertir en proyecto?</p>
+            <p className="text-xs text-slate-400 mb-4 leading-snug">
+              "{reclassConfirm.title}". Se elimina la actividad y se crea el proyecto "
+              {reclassConfirm.tema}" en su lugar.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={reclassifying}
+                onClick={async () => {
+                  setReclassifying(true)
+                  try {
+                    await confirmarReclasificarProyecto(
+                      reclassConfirm.activityId,
+                      reclassConfirm.tema,
+                      reclassConfirm.comentarios,
+                      reclassConfirm.primerPunto,
+                      reclassConfirm.plazo,
+                      reclassConfirm.senderId,
+                      reclassConfirm.messageId,
+                    )
+                    setReclassConfirm(null)
+                  } finally {
+                    setReclassifying(false)
+                  }
+                }}
+              >
+                {reclassifying ? 'Convirtiendo...' : 'Convertir'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={reclassifying}
+                onClick={async () => {
+                  await descartarReclasificar(reclassConfirm.messageId)
+                  setReclassConfirm(null)
+                }}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Editar actividad (desde el listado) */}
       {editTarget && (
         <div
@@ -1037,7 +1235,7 @@ export function ChatPage() {
           }}
         >
           <div
-            className="bg-slate-900 rounded-xl border border-indigo-500/30 p-5 max-w-sm w-full"
+            className="bg-panel rounded-xl border border-indigo-500/30 p-5 max-w-sm w-full"
             onClick={(e) => e.stopPropagation()}
           >
             {feedback ? (
@@ -1179,7 +1377,7 @@ export function ChatPage() {
           }}
         >
           <div
-            className="bg-slate-900 rounded-xl border border-emerald-500/30 p-5 max-w-sm w-full mx-4"
+            className="bg-panel rounded-xl border border-emerald-500/30 p-5 max-w-sm w-full mx-4"
             onClick={(e) => e.stopPropagation()}
           >
             {feedback ? (

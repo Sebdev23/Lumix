@@ -78,17 +78,17 @@ export function InstalarApp({ className = '' }: { className?: string }) {
           📲 Instalar Lumix
         </button>
         {verPasosIOS && (
-          <div className="mt-1.5 rounded-lg bg-slate-800 border border-slate-700 p-2 text-[11px] text-slate-400 leading-relaxed">
-            <p className="text-slate-300 mb-1">En iPhone se agrega desde Safari:</p>
+          <div className="mt-1.5 rounded-lg bg-surface border border-border-strong p-2 text-[11px] text-fg-faint leading-relaxed">
+            <p className="text-fg-muted mb-1">En iPhone se agrega desde Safari:</p>
             <p>
-              1. Toca <span className="text-slate-200">Compartir</span> (el cuadrado con la flecha,
+              1. Toca <span className="text-fg-body">Compartir</span> (el cuadrado con la flecha,
               abajo)
             </p>
             <p>
-              2. Elige <span className="text-slate-200">Agregar a inicio</span>
+              2. Elige <span className="text-fg-body">Agregar a inicio</span>
             </p>
             <p>
-              3. Toca <span className="text-slate-200">Agregar</span>
+              3. Toca <span className="text-fg-body">Agregar</span>
             </p>
             <p className="mt-1 text-slate-500">Solo funciona en Safari, no en Chrome.</p>
           </div>

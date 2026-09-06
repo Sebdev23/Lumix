@@ -130,12 +130,29 @@ export function ShieldIcon({ className }: { className?: string }) {
   )
 }
 
+export function FolderIcon({ className }: { className?: string }) {
+  return (
+    <svg className={className} fill="none" viewBox="0 0 24 24" stroke="currentColor">
+      <path
+        strokeLinecap="round"
+        strokeLinejoin="round"
+        strokeWidth={1.5}
+        d="M3 7a2 2 0 012-2h4l2 2h8a2 2 0 012 2v9a2 2 0 01-2 2H5a2 2 0 01-2-2V7z"
+      />
+    </svg>
+  )
+}
+
 import type { ReactNode } from 'react'
+import type { Capability } from '@core/auth/capabilities'
 
 export interface NavItem {
   to: string
   label: string
   icon: (props: { className?: string }) => ReactNode
+  // Si esta ausente, el item siempre es visible (Chat, Notificaciones, Equipos: identidad,
+  // no se ocultan). Si esta presente, Sidebar/BottomNav lo filtran con useCapabilities().can().
+  capability?: Capability
 }
 
 export function CheckCircleIcon({ className }: { className?: string }) {
@@ -153,13 +170,24 @@ export function CheckCircleIcon({ className }: { className?: string }) {
 
 export const navItems: NavItem[] = [
   { to: '/chat', label: 'Chat', icon: ChatIcon },
-  { to: '/activities', label: 'Actividades', icon: ListIcon },
-  { to: '/minuta', label: 'Minuta', icon: ClipboardIcon },
-  { to: '/compromisos', label: 'Compromisos', icon: CheckCircleIcon },
-  { to: '/errors', label: 'Errores', icon: BugIcon },
-  { to: '/ingestas', label: 'Ingestas', icon: DatabaseIcon },
-  { to: '/gantt', label: 'Planificacion', icon: CalendarIcon },
-  { to: '/dashboard', label: 'Dashboard', icon: ChartIcon },
+  { to: '/activities', label: 'Actividades', icon: ListIcon, capability: 'modulos.actividades' },
+  { to: '/minuta', label: 'Minuta', icon: ClipboardIcon, capability: 'modulos.minuta' },
+  { to: '/proyectos', label: 'Proyectos', icon: FolderIcon, capability: 'modulos.proyectos' },
+  {
+    to: '/compromisos',
+    label: 'Compromisos',
+    icon: CheckCircleIcon,
+    capability: 'modulos.compromisos',
+  },
+  { to: '/errors', label: 'Errores', icon: BugIcon, capability: 'modulos.errores' },
+  { to: '/ingestas', label: 'Ingestas', icon: DatabaseIcon, capability: 'modulos.ingestas' },
+  {
+    to: '/gantt',
+    label: 'Planificacion',
+    icon: CalendarIcon,
+    capability: 'modulos.planificacion',
+  },
+  { to: '/dashboard', label: 'Dashboard', icon: ChartIcon, capability: 'modulos.dashboard' },
   { to: '/notifications', label: 'Notificaciones', icon: BellIcon },
   { to: '/teams', label: 'Equipos', icon: UsersIcon },
 ]
@@ -167,7 +195,7 @@ export const navItems: NavItem[] = [
 // Accesos rapidos para la barra inferior en movil.
 export const bottomNavItems: NavItem[] = [
   { to: '/chat', label: 'Chat', icon: ChatIcon },
-  { to: '/activities', label: 'Activ.', icon: ListIcon },
-  { to: '/minuta', label: 'Minuta', icon: ClipboardIcon },
-  { to: '/dashboard', label: 'Panel', icon: ChartIcon },
+  { to: '/activities', label: 'Activ.', icon: ListIcon, capability: 'modulos.actividades' },
+  { to: '/minuta', label: 'Minuta', icon: ClipboardIcon, capability: 'modulos.minuta' },
+  { to: '/dashboard', label: 'Panel', icon: ChartIcon, capability: 'modulos.dashboard' },
 ]

@@ -11,6 +11,7 @@ import {
   type HistoryTurn,
 } from '@core/ai-engine/client'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
+import { statusLabels } from '@features/activities/hooks/useActivities'
 import { errorsService } from '@infrastructure/supabase/errors.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { teamsService } from '@infrastructure/supabase/teams.service'
@@ -22,7 +23,7 @@ import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
 import type { ChatMessage, SendMessagePayload } from '@features/chat/types'
-import type { Activity, ActivityStatus } from '@shared/types'
+import type { Activity, ActivityStatus, HojaTipo } from '@shared/types'
 
 const STATUS_LABELS: Record<string, string> = {
   pendiente: 'Pendiente',
@@ -47,8 +48,12 @@ const ACUSE_RE =
 
 // "Deshaz eso". Se exige que sea una frase corta y dedicada: "deshaz" dentro de una oracion
 // larga casi siempre es otra cosa ("hay que deshacer el nudo del proceso").
+// OJO: "eliminala"/"cancelalo" tambien existen ACENTUADOS ("elimínala", "cancélalo") -es la
+// forma correcta en espanol al pegarle el pronombre "la"/"lo" al imperativo-, y esa es
+// justo la forma que alguien escribe si no tipea rapido. Sin esta rama quedaba sin
+// reconocerse el pedido mas comun de todos.
 const DESHACER_RE =
-  /^(deshaz|deshacer|deshacelo|deshazlo|b[oó]rra(la|lo)|elimina(la|lo)?|cancela(la|lo)?|no era (eso|esa|ese)|me equivoqu[eé]|equivocado|mal)(\s+(eso|esa|ese|esto|la|lo))?[\s.!]*$/i
+  /^(deshaz|deshacer|deshacelo|deshazlo|b[oó]rra(la|lo)|elimina(la|lo)?|elim[ií]n(ala|alo)|cancela(la|lo)?|cancél(ala|alo)|no era (eso|esa|ese)|me equivoqu[eé]|equivocado|mal)(\s+(eso|esa|ese|esto|la|lo))?[\s.!]*$/i
 
 // Cuando un mensaje habla de "lo ultimo" sin nombrarlo.
 //
@@ -64,11 +69,60 @@ const ESPERA_RESUMEN_SOBRECARGA = 25_000
 const UPDATE_VERBS =
   /(\blist[oa]s?\b|complet|termin|finaliz|\bhech[oa]\b|mu[eé]ve|p[aá]sa|reprogram|posterg|adelant|reasign|as[ií]gna|bloque|desbloque|en proceso|falta info|esperando aprob|prioridad|c[aá]mbi|pon[lg]|deja(la|lo)|atrasa)/i
 
+// "Agrega/crea/arma un proyecto...", en Auto: sin esto, Minuta ya distinguia 'proyecto' de
+// 'minuta' por tipo, pero solo si alguien tocaba el selector del chat -en Auto, "agrega un
+// proyecto..." caia a la clasificacion generica y se creaba como una actividad suelta, caso
+// real reportado-.
+const PROYECTO_RE =
+  /\b(crea|creemos|arma|armemos|agrega|agreguemos|inicia|iniciemos|abre|abramos)\w*\s+(un\s+)?proyecto\b/i
+
+// Marca donde termina el NOMBRE del proyecto y empieza su primer punto/subtarea, cuando
+// alguien dicta los dos en el mismo mensaje (caso real: "agrega un proyecto, gobernar el
+// infull, primer punto, revisar quien cargara el pedido..."). El clasificador de IA esta
+// pensado para titulo de ACTIVIDAD ("Agregar proyecto y revisar carga de pedido"), no para
+// el nombre limpio de un proyecto -por eso este parseo es aparte, no via classifyMessage-.
+const PRIMER_PUNTO_RE = /^(primer punto|primera tarea|primero|paso 1)\b[:\s]*/i
+
+function parseProyectoIntent(content: string): { nombre: string; primerPunto: string | null } {
+  const capitalizar = (s: string) => s.charAt(0).toUpperCase() + s.slice(1)
+  // El reemplazo no hace nada si la frase disparadora no esta presente (ej. cuando se elige
+  // "Proyecto" a mano en el selector y no hace falta decir "agrega un proyecto"). El conector
+  // que suele quedar pegado ("...proyecto PARA revisar X") tampoco es parte del nombre.
+  const texto = content
+    .replace(PROYECTO_RE, '')
+    .replace(/^[,:\s]+/, '')
+    .replace(/^(para|de|sobre|con)\s+/i, '')
+  const partes = texto
+    .split(',')
+    .map((p) => p.trim())
+    .filter(Boolean)
+  const idx = partes.findIndex((p) => PRIMER_PUNTO_RE.test(p))
+  if (idx === -1) {
+    return { nombre: capitalizar(partes.join(', ') || 'Nuevo proyecto'), primerPunto: null }
+  }
+  const nombre = partes.slice(0, idx).join(', ') || 'Nuevo proyecto'
+  const restoPunto = partes[idx].replace(PRIMER_PUNTO_RE, '')
+  const primerPunto = [restoPunto, ...partes.slice(idx + 1)].filter(Boolean).join(', ')
+  return { nombre: capitalizar(nombre), primerPunto: primerPunto || null }
+}
+
+// Responder a una actividad ya creada diciendo que en realidad es un proyecto: convierte esa
+// actividad (se elimina) y crea el proyecto en su lugar, en vez de caer en el flujo de
+// "actualizar campos" (que no tiene forma de decir "cambia de tipo" y contesta "no vi ningun
+// cambio", caso real reportado).
+const RECLASIFICAR_PROYECTO_RE =
+  /\b(es\s+(un\s+|una\s+)?proyecto\b|(pasalo|p[aá]salo|conviertelo|convi[eé]rtelo|hazlo|creala|cr[eé]ala|crealo|cr[eé]alo)\s+(a\s+|como\s+)?proyecto)\b/i
+
 // Primer filtro para el popout: si el texto MENCIONA la palabra "error" o "ingesta",
 // en modo Auto siempre preguntamos que tipo es (actividad / error / ingesta). Solo se salta
 // si el usuario ya eligio el tipo con el selector del chat (ahi es explicito y no hay duda).
 const MENTIONS_ERROR = /\berror(es)?\b/i
 const MENTIONS_INGESTA = /\bingest(a|ar|as|ando|amos)\b/i
+// Señal SUAVE de que el mensaje describe algo de varios pasos, sin usar la frase explicita
+// "crea/agrega un proyecto" (esa ya se resuelve sola, mas arriba, sin preguntar). Aca la duda
+// es real: ¿esto es una actividad o el usuario esta describiendo una iniciativa con partes?
+const MENTIONS_PROYECTO_SUAVE =
+  /\b(primer punto|primera tarea|paso 1|varios pasos|varias (tareas|subtareas|etapas)|subtareas)\b/i
 
 function addBusinessDays(date: Date, days: number): Date {
   const result = new Date(date)
@@ -380,7 +434,7 @@ export interface PendingCategory {
   responsibleHint: string | null
   senderId: string
   // Opciones no-actividad a ofrecer en el popout, segun las palabras encontradas en el texto.
-  options: ('error' | 'ingesta')[]
+  options: ('error' | 'ingesta' | 'proyecto')[]
   sourceMessageId: string
   // Para registrar si el usuario termina corrigiendo lo que predijo la IA.
   decisionId?: string | null
@@ -400,7 +454,9 @@ export function useChatMessages() {
   // Espejo de messages para leerlo desde los flujos async sin arrastrar un closure viejo:
   // classifyAndAct corre despues de varios await y ahi el estado ya cambio.
   const messagesRef = useRef<ChatMessage[]>([])
-  messagesRef.current = messages
+  useEffect(() => {
+    messagesRef.current = messages
+  }, [messages])
   const [loading, setLoading] = useState(true)
   const [sending, setSending] = useState(false)
   const [aiProcessing, setAiProcessing] = useState(false)
@@ -430,6 +486,9 @@ export function useChatMessages() {
     }[]
   >([])
   const sobrecargaTimerRef = useRef<ReturnType<typeof setTimeout> | null>(null)
+  // La funcion se declara mas abajo (necesita helpers definidos despues); el ref permite
+  // llamarla desde el cleanup del primer efecto sin depender del orden de declaracion.
+  const emitirResumenSobrecargaRef = useRef<() => Promise<void>>(() => Promise.resolve())
   const teamId = profile?.team_id ?? ''
   // Capacidades segun el rol del EQUIPO ACTIVO (una persona puede ser jefatura en un equipo
   // y colaboradora en otro). isAdmin = admin global (ve toda la conversacion del equipo).
@@ -494,7 +553,7 @@ export function useChatMessages() {
       // cambiar de pagina y nadie se enteraria de la acumulacion.
       if (sobrecargaTimerRef.current) {
         clearTimeout(sobrecargaTimerRef.current)
-        void emitirResumenSobrecarga()
+        void emitirResumenSobrecargaRef.current()
       }
     }
   }, [user, teamId])
@@ -750,6 +809,112 @@ export function useChatMessages() {
   }
 
   /**
+   * Pide confirmar antes de eliminar una actividad puntual (respondiendo su mensaje con
+   * "borrala"/"eliminala"). A diferencia de deshacerUltima -rapido, sin preguntar, solo la
+   * ULTIMA creada hace menos de 30 min- esto apunta a CUALQUIER actividad que el usuario
+   * identifico respondiendo, sin ventana de tiempo. La seguridad no es "reciente y tuya":
+   * es preguntar antes de borrar.
+   */
+  const solicitarEliminarActividad = async (activityId: string) => {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) {
+      await aiSay('Esa actividad ya no existe.')
+      return
+    }
+    const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    if (activity.status !== 'pendiente') {
+      await aiSay(
+        `No puedo eliminar "${title}": ya esta "${statusLabels[activity.status] ?? activity.status}". Si igual sobra, hazlo desde Actividades.`,
+      )
+      return
+    }
+    await aiSay(`¿Eliminar "${title}"? No se puede deshacer.`, null, {
+      type: 'delete_confirm',
+      activityId: activity.id,
+      title,
+    })
+  }
+
+  /** Confirmado desde el popout de delete_confirm (ChatPage). */
+  const confirmarEliminarActividad = async (
+    activityId: string,
+    title: string,
+    confirmMessageId?: string,
+  ) => {
+    try {
+      await activitiesService.remove(activityId)
+    } catch (err) {
+      console.error('Eliminar actividad fallo:', err)
+      await aiSay(`No pude eliminar "${title}" (revisa tus permisos).`)
+      return
+    }
+    if (confirmMessageId) await resolveInteractive(confirmMessageId, `Eliminada "${title}"`)
+    await aiSay(`🗑 Listo, elimine "${title}".`)
+  }
+
+  /** Responder a una actividad con "es un proyecto"/"creala como proyecto": pide confirmar
+   * la conversion (elimina la actividad, crea el proyecto en su lugar). */
+  const solicitarReclasificarProyecto = async (activityId: string) => {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) {
+      await aiSay('Esa actividad ya no existe.')
+      return
+    }
+    const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    if (activity.status !== 'pendiente') {
+      await aiSay(
+        `No puedo convertir "${title}" en proyecto: ya esta "${statusLabels[activity.status] ?? activity.status}".`,
+      )
+      return
+    }
+    const { nombre, primerPunto } = parseProyectoIntent(activity.description || title)
+    await aiSay(
+      `¿Convertir "${title}" en un proyecto (con subtareas)? Se elimina la actividad y se crea el proyecto en su lugar.`,
+      null,
+      {
+        type: 'reclass_proyecto_confirm',
+        activityId: activity.id,
+        title,
+        tema: nombre || title,
+        comentarios: activity.description || title,
+        primerPunto,
+        plazo: activity.due_date,
+        senderId: activity.created_by,
+      },
+    )
+  }
+
+  /** Confirmado desde el popout de reclass_proyecto_confirm (ChatPage). */
+  const confirmarReclasificarProyecto = async (
+    activityId: string,
+    tema: string,
+    comentarios: string,
+    primerPunto: string | null,
+    plazo: string | null,
+    senderId: string,
+    confirmMessageId?: string,
+  ) => {
+    try {
+      await activitiesService.remove(activityId)
+    } catch (err) {
+      console.error('Reclasificar a proyecto: no pude eliminar la actividad original:', err)
+      await aiSay(
+        'No pude convertir: no logre eliminar la actividad original (revisa tus permisos).',
+      )
+      return
+    }
+    if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a proyecto')
+    await createMinutaTopic(
+      { tema, comentarios, plazo },
+      [],
+      senderId,
+      undefined,
+      'proyecto',
+      primerPunto,
+    )
+  }
+
+  /**
    * Anota una creacion sobre un dia cargado y reprograma el aviso.
    *
    * La espera es larga a proposito. Midiendo un caso real, la gente escribe una tarea cada
@@ -809,6 +974,7 @@ export function useChatMessages() {
       })
     }
   }
+  emitirResumenSobrecargaRef.current = emitirResumenSobrecarga
 
   /** Mueve el lote N dias habiles. Devuelve la fecha nueva para poder confirmarla. */
   const moverLoteSobrecarga = async (
@@ -1298,7 +1464,7 @@ export function useChatMessages() {
         title: a.title.replace(/^\[Ingesta\]\s*/, ''),
       }))
       await appendAndSave({
-        id: `ai-actpick-${Date.now()}`,
+        id: `ai-actpick-${crypto.randomUUID()}`,
         content: '¿A cual actividad te refieres? Toca para elegir.',
         sender_id: 'ai',
         category: null,
@@ -1647,14 +1813,21 @@ export function useChatMessages() {
     responsables: { id: string; name: string }[],
     senderId: string,
     confirmMessageId?: string,
+    tipo: HojaTipo = 'minuta',
+    // Si alguien dicto el proyecto Y su primer punto en el mismo mensaje ("...primer punto,
+    // revisar X"), se cuelga como su primera subtarea apenas se crea la raiz.
+    primerPunto?: string | null,
   ) => {
+    const esProyecto = tipo === 'proyecto'
     const responsableNames = responsables.map((r) => r.name).join(', ')
+    let creado
     try {
-      // orden = al final de la lista (antes todos entraban con orden 0 y quedaban empatados)
-      const existing = await minutesService.getByTeam(teamId)
-      await minutesService.create({
+      // orden = al final de la lista DE ESE TIPO (antes todos entraban con orden 0 y
+      // quedaban empatados; y contar contra el tipo equivocado desordenaba el otro).
+      const existing = await minutesService.getByTeam(teamId, tipo)
+      creado = await minutesService.create({
         team_id: teamId,
-        tipo: 'minuta',
+        tipo,
         orden: existing.length,
         tema: topic.tema,
         para_todos: false,
@@ -1672,6 +1845,28 @@ export function useChatMessages() {
       return null
     }
 
+    if (esProyecto && primerPunto) {
+      try {
+        await minutesService.create({
+          team_id: teamId,
+          tipo,
+          orden: 0,
+          tema: primerPunto,
+          para_todos: false,
+          responsables: [],
+          responsables_text: '',
+          estado: 'pendiente',
+          plazo: null,
+          comentarios: '',
+          linked_activity_ids: [],
+          created_by: senderId,
+          parent_item_id: creado.id,
+        })
+      } catch (err) {
+        console.error('Primer punto del proyecto fallo:', err)
+      }
+    }
+
     if (confirmMessageId) {
       await resolveInteractive(
         confirmMessageId,
@@ -1679,7 +1874,11 @@ export function useChatMessages() {
       )
     }
 
-    const parts = [`✅ Tema agregado a la minuta: "${topic.tema}"`]
+    const parts = [
+      esProyecto
+        ? `✅ Proyecto creado: "${topic.tema}"`
+        : `✅ Tema agregado a la minuta: "${topic.tema}"`,
+    ]
     if (teamNameRef.current) parts.push(`Equipo: ${teamNameRef.current}`)
     if (responsables.length) {
       parts.push(`Responsable${responsables.length > 1 ? 's' : ''}: ${responsableNames}`)
@@ -1692,13 +1891,20 @@ export function useChatMessages() {
       )
     }
     if (topic.plazo) parts.push(`Plazo: ${formatDateLocal(topic.plazo)}`)
+    if (esProyecto) {
+      parts.push(
+        primerPunto
+          ? `Primer punto: "${primerPunto}"`
+          : 'Agrégale subtareas respondiendo este mensaje o desde Proyectos',
+      )
+    }
     await aiSay(parts.join('. ') + '.')
 
     for (const r of responsables) {
       if (r.id === senderId) continue
       try {
         await notificationsService.send(r.id, {
-          title: 'Nuevo tema en la minuta',
+          title: esProyecto ? 'Nuevo proyecto' : 'Nuevo tema en la minuta',
           body: topic.plazo
             ? `"${topic.tema}" - Plazo: ${formatDateLocal(topic.plazo)}`
             : `"${topic.tema}"`,
@@ -2074,7 +2280,7 @@ export function useChatMessages() {
   // esta hecha, y porque el flujo que sigue puede abrir otra pregunta (responsable, sobrecarga).
   const confirmCategory = async (
     pending: PendingCategory,
-    choice: 'actividad' | 'ingesta' | 'error',
+    choice: 'actividad' | 'ingesta' | 'error' | 'proyecto',
     confirmMessageId?: string,
   ) => {
     if (confirmMessageId) {
@@ -2100,6 +2306,19 @@ export function useChatMessages() {
         decisionId: pending.decisionId,
       })
     }
+    if (choice === 'proyecto') {
+      // Mismo parseo dedicado que usa la deteccion automatica: separa nombre de primer
+      // punto si vinieron juntos, en vez de usar el titulo de la IA (pensado para actividad).
+      const { nombre, primerPunto } = parseProyectoIntent(pending.content)
+      return createMinutaTopic(
+        { tema: nombre, comentarios: pending.content, plazo: pending.dueDate },
+        [],
+        pending.senderId,
+        undefined,
+        'proyecto',
+        primerPunto,
+      )
+    }
     return createActivityOrIngesta({
       content: pending.content,
       title: pending.title,
@@ -2118,22 +2337,34 @@ export function useChatMessages() {
     setAiProcessing(true)
 
     const content = message.content.trim()
+    // Se usa mas abajo tambien para detectar "crea un proyecto" en Auto, asi que se calcula
+    // aca arriba en vez de mas adelante (donde vivia antes, solo para la rama de preguntas).
+    const isAutoMode = !forcedType || forcedType === 'auto'
 
     try {
-      // DESHACER. Va primero: si no, "borrala" se clasificaria como una actividad nueva
-      // titulada "borrala", que es exactamente el tipo de basura que esto viene a limpiar.
-      if (DESHACER_RE.test(content)) {
-        await deshacerUltima()
-        setAiProcessing(false)
-        return
-      }
-
       // RESPUESTA A UN MENSAJE: si se sabe de que actividad habla el mensaje citado, no hay
       // nada que adivinar. Se salta la lista, el targetIndex y el popout de "¿a cual te
       // refieres?": la IA solo tiene que leer que cambio se pide. Ver migracion 032.
+      //
+      // Va ANTES que el atajo de deshacer: si no, responder a una actividad puntual con
+      // "borrala" caia en deshacerUltima() -que solo conoce la ULTIMA creada en esta sesion,
+      // no la que se identifico respondiendo- y borraba la equivocada (o ninguna).
       const isReply = !!(message.reply_to || message.metadata?.reply_preview)
       if (isReply) {
         const repliedActivityId = resolveRepliedActivityId(message)
+        // "es un proyecto"/"creala como proyecto" respondiendo a la actividad recien creada:
+        // convierte en vez de intentar "actualizarla" (que no tiene forma de cambiar el tipo
+        // y termina respondiendo "no vi ningun cambio", caso real reportado).
+        if (RECLASIFICAR_PROYECTO_RE.test(content) && repliedActivityId) {
+          await solicitarReclasificarProyecto(repliedActivityId)
+          setAiProcessing(false)
+          return
+        }
+        if (DESHACER_RE.test(content) && repliedActivityId) {
+          await solicitarEliminarActividad(repliedActivityId)
+          setAiProcessing(false)
+          return
+        }
         // Con la actividad identificada no hay nada que adivinar. Sin ella, se busca entre
         // las abiertas o se pregunta cual es: lo que NO se hace nunca es crear una actividad
         // nueva con el texto de la instruccion.
@@ -2147,10 +2378,24 @@ export function useChatMessages() {
         return
       }
 
-      // MINUTA: tipo forzado desde el selector -> crea un tema en la minuta del equipo.
-      // Se pasa por el clasificador para extraer tema, responsable y plazo del texto libre,
-      // igual que una actividad: si nombran a alguien, el tema queda asignado a esa persona.
-      if (forcedType === 'minuta') {
+      // DESHACER (fuera de una respuesta): deshace lo ULTIMO creado en esta sesion, rapido y
+      // sin preguntar. Va antes de clasificar: si no, "borrala" se leeria como una actividad
+      // nueva titulada "borrala", que es exactamente el tipo de basura que esto viene a limpiar.
+      if (DESHACER_RE.test(content)) {
+        await deshacerUltima()
+        setAiProcessing(false)
+        return
+      }
+
+      // MINUTA / PROYECTO: tipo forzado desde el selector, O "agrega/crea un proyecto..."
+      // detectado en Auto -> crea un tema en esa hoja del equipo (mismo mecanismo, solo
+      // cambia el valor de `tipo`: son la misma tabla con listas separadas, igual que ya
+      // distingue 'ingesta'). Se pasa por el clasificador para extraer tema, responsable y
+      // plazo del texto libre, igual que una actividad: si nombran a alguien, el tema queda
+      // asignado a esa persona.
+      const proyectoAuto = isAutoMode && teamId && PROYECTO_RE.test(content)
+      if (forcedType === 'minuta' || forcedType === 'proyecto' || proyectoAuto) {
+        const tipoHoja: HojaTipo = forcedType === 'minuta' ? 'minuta' : 'proyecto'
         const members = await ensureMembers()
         let tema = content
         let hints: string[] = []
@@ -2160,6 +2405,9 @@ export function useChatMessages() {
             content,
             members.map((m) => m.full_name),
           )
+          // El titulo de la IA sirve para minuta (esta entrenada para eso), pero para
+          // proyecto devuelve frases estilo "Agregar proyecto y revisar X" en vez del
+          // nombre limpio -por eso se pisa con el parseo dedicado abajo-.
           tema = parsed.entities.title || content
           hints = parsed.entities.responsibles?.length
             ? parsed.entities.responsibles
@@ -2170,6 +2418,15 @@ export function useChatMessages() {
         } catch (err) {
           // Si la IA falla, el tema se crea igual con el texto tal cual.
           console.error('Minuta classify failed:', err)
+        }
+
+        // Nombre del proyecto y su primer punto (si vino en el mismo mensaje), separados
+        // del texto crudo -no del titulo de la IA-, que es justo lo que no sirve aca.
+        let primerPunto: string | null = null
+        if (tipoHoja === 'proyecto') {
+          const parsedProyecto = parseProyectoIntent(content)
+          tema = parsedProyecto.nombre
+          primerPunto = parsedProyecto.primerPunto
         }
 
         const topic: PendingMinuta = { tema, comentarios: content, plazo }
@@ -2190,7 +2447,14 @@ export function useChatMessages() {
           }
 
           if (!pendiente) {
-            await createMinutaTopic(topic, resolved, message.sender_id)
+            await createMinutaTopic(
+              topic,
+              resolved,
+              message.sender_id,
+              undefined,
+              tipoHoja,
+              primerPunto,
+            )
           } else {
             // El nombre que no se pudo resolver se pregunta; los que ya calzaron viajan en
             // metadata para no perderlos cuando el usuario responda la pregunta.
@@ -2213,6 +2477,8 @@ export function useChatMessages() {
                 candidates,
                 minuta: topic,
                 otherResponsables: resolved,
+                tipoMinuta: tipoHoja,
+                primerPunto,
               },
             })
           }
@@ -2222,7 +2488,7 @@ export function useChatMessages() {
               `No puedes asignar temas de minuta a otras personas, asi que "${tema}" queda sin responsable.`,
             )
           }
-          await createMinutaTopic(topic, [], message.sender_id)
+          await createMinutaTopic(topic, [], message.sender_id, undefined, tipoHoja, primerPunto)
         }
 
         setMessages((prev) => prev.map((m) => (m.id === message.id ? { ...m, category: null } : m)))
@@ -2237,10 +2503,13 @@ export function useChatMessages() {
       // clasificaba como pregunta, Lumix contestaba "no encontre nada" en vez de crear la
       // actividad. wantsEditList/wantsQuestionList ya cubren "ver" + palabra de tarea
       // (activ/tarea/pendient/labor) por su cuenta, asi que no se pierde ese caso.
+      // "hay " normalmente es pregunta ("hay actividades pendientes?"), pero "hay QUE" es una
+      // orden en espanol ("hay que ordenar la bodega" = alguien debe hacerlo), no una consulta.
+      // Sin el lookahead, esa frase se contestaba como pregunta y nunca se creaba nada
+      // (caso real reportado).
       const questionWords =
-        /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |entregame |cuentame |resume |listame |muestrame |consultame |hay |mostrame |quiero ver|mis |cuales son)\b/i
+        /^(que |como |cual |cuantas |cuantos |quien |donde |cuando |dame |dime |entregame |cuentame |resume |listame |muestrame |consultame |hay (?!que\b)|mostrame |quiero ver|mis |cuales son)\b/i
       const isQuestion = /^[?¿/]/.test(content) || questionWords.test(content)
-      const isAutoMode = !forcedType || forcedType === 'auto'
 
       // LISTADO EDITABLE: "cambiar/ver/modificar las de <persona/equipo>" (aunque no sea pregunta)
       if (isAutoMode && teamId && wantsEditList(content)) {
@@ -2364,6 +2633,10 @@ export function useChatMessages() {
       // el tipo con el selector del chat, forcedType != 'auto' y no entra aca (es explicito).
       const mentionsError = MENTIONS_ERROR.test(content)
       const mentionsIngesta = MENTIONS_INGESTA.test(content)
+      // "primer punto"/"varios pasos"/etc sin la frase explicita "crea un proyecto" (esa ya
+      // se resolvio sola, mas arriba): es ambiguo de verdad, asi que se pregunta en vez de
+      // crear una actividad suelta y perder que en realidad eran varios pasos relacionados.
+      const mentionsProyecto = MENTIONS_PROYECTO_SUAVE.test(content)
 
       // La IA devuelve cuanta confianza tiene y el prompt le pide bajar de 0.6 cuando duda.
       // Ese dato se guardaba para telemetria y NO cambiaba nada: en 8 de 67 clasificaciones
@@ -2373,12 +2646,15 @@ export function useChatMessages() {
       // menciona "error" o "ingesta"; solo cambia el motivo por el que se abre.
       const dudaDelModelo = typeof result.confidence === 'number' && result.confidence < 0.6
 
-      if (isAutoMode && (mentionsError || mentionsIngesta || dudaDelModelo)) {
-        const options: ('error' | 'ingesta')[] = []
+      if (isAutoMode && (mentionsError || mentionsIngesta || mentionsProyecto || dudaDelModelo)) {
+        const options: ('error' | 'ingesta' | 'proyecto')[] = []
         if (mentionsError) options.push('error')
         if (mentionsIngesta) options.push('ingesta')
-        // Si se abre por duda y no hay pistas en el texto, se ofrecen las dos alternativas:
-        // el modelo no supo, asi que acotar las opciones seria inventar una certeza que no hay.
+        if (mentionsProyecto) options.push('proyecto')
+        // Si se abre por duda y no hay NINGUNA pista en el texto (ni error, ni ingesta, ni
+        // proyecto), se ofrecen error+ingesta como antes: el modelo no supo, y esas dos
+        // siguen siendo la ambiguedad clasica. Si ya se detecto proyecto, no hace falta
+        // inventar mas alternativas encima.
         if (!options.length) options.push('error', 'ingesta')
         const pending: PendingCategory = {
           content,
@@ -2394,12 +2670,20 @@ export function useChatMessages() {
           predictedCategory: result.category,
         }
         const optLabel = options
-          .map((o) => (o === 'ingesta' ? 'una ingesta de datos' : 'un error'))
+          .map((o) =>
+            o === 'ingesta'
+              ? 'una ingesta de datos'
+              : o === 'proyecto'
+                ? 'un proyecto (con subtareas)'
+                : 'un error',
+          )
           .join(' o ')
         // Se dice POR QUE se pregunta. "No estoy seguro" es informacion util: le avisa a la
         // persona que conviene mirar, en vez de parecer una pregunta caprichosa.
         const preambulo =
-          dudaDelModelo && !mentionsError && !mentionsIngesta ? 'No estoy seguro. ' : ''
+          dudaDelModelo && !mentionsError && !mentionsIngesta && !mentionsProyecto
+            ? 'No estoy seguro. '
+            : ''
         await appendAndSave({
           id: `ai-catconfirm-${Date.now()}`,
           content: `${preambulo}¿"${title}" es una actividad o ${optLabel}?`,
@@ -2480,5 +2764,17 @@ export function useChatMessages() {
     applyPendingUpdate,
     editActivityFields,
     listMembers,
+    confirmarEliminarActividad,
+    // Si no quiere borrar, la pregunta queda resuelta igual que las demas, sin quedar colgada.
+    descartarEliminar: (messageId: string) => resolveInteractive(messageId, 'No se elimino'),
+    confirmarReclasificarProyecto,
+    descartarReclasificar: (messageId: string) =>
+      resolveInteractive(messageId, 'Se dejo como actividad'),
+    // name_confirm y activity_pick: su "Cancelar" solo cerraba el modal en pantalla sin marcar
+    // nada en la base (a diferencia de las demas preguntas). Quedaban "pendientes" para
+    // siempre aunque la persona ya dijo que no le interesaba -caso real: alguien cancela y se
+    // va, y quien vuelve a mirar el chat la ve como si nunca se hubiera resuelto-.
+    descartarNombre: (messageId: string) => resolveInteractive(messageId, 'No se eligio'),
+    descartarActividadElegida: (messageId: string) => resolveInteractive(messageId, 'No se eligio'),
   }
 }

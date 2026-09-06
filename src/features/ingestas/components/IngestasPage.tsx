@@ -60,8 +60,8 @@ export function IngestasPage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200">Ingestas de Datos</h2>
+      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+        <h2 className="text-sm font-semibold text-fg-body">Ingestas de Datos</h2>
         <div className="flex items-center gap-2">
           <button
             onClick={() =>
@@ -78,7 +78,7 @@ export function IngestasPage() {
                 'ingestas',
               )
             }
-            className="px-2 py-1 rounded text-[10px] text-slate-400 hover:text-emerald-400 hover:bg-slate-800 transition-colors"
+            className="px-2 py-1 rounded text-[10px] text-fg-faint hover:text-emerald-400 hover:bg-surface transition-colors"
           >
             <svg
               className="w-3.5 h-3.5 inline mr-1"
@@ -100,7 +100,7 @@ export function IngestasPage() {
       </div>
 
       {/* Filters */}
-      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-slate-800 bg-slate-900/50 overflow-x-auto flex-shrink-0 flex-nowrap">
+      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-border bg-surface-soft/50 overflow-x-auto flex-shrink-0 flex-nowrap">
         {statusFilters.map((f) => (
           <button
             key={f.value}
@@ -108,7 +108,7 @@ export function IngestasPage() {
             className={`px-3 py-1.5 rounded-lg text-xs font-medium whitespace-nowrap transition-colors ${
               filterStatus === f.value
                 ? 'bg-indigo-600/20 text-indigo-400'
-                : 'text-slate-400 hover:text-slate-200 hover:bg-slate-800'
+                : 'text-fg-faint hover:text-fg-body hover:bg-surface'
             }`}
           >
             {f.label}
@@ -118,7 +118,7 @@ export function IngestasPage() {
         <select
           value={filterMember}
           onChange={(e) => setFilterMember(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
         >
           <option value="todas">Todo el equipo</option>
           {members.map((m) => (
@@ -127,11 +127,11 @@ export function IngestasPage() {
             </option>
           ))}
         </select>
-        <div className="w-px bg-slate-700 mx-1" />
+        <div className="w-px bg-surface-2 mx-1" />
         <select
           value={dateType}
           onChange={(e) => setDateType(e.target.value as typeof dateType)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
         >
           <option value="entrega">Entrega</option>
           <option value="creadas">Creadas</option>
@@ -141,13 +141,13 @@ export function IngestasPage() {
           type="date"
           value={dateFrom}
           onChange={(e) => setDateFrom(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
         />
         <input
           type="date"
           value={dateTo}
           onChange={(e) => setDateTo(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-slate-800 border border-slate-700 text-slate-300 focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
+          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[120px]"
         />
         {(dateFrom || dateTo) && (
           <button
@@ -155,7 +155,7 @@ export function IngestasPage() {
               setDateFrom('')
               setDateTo('')
             }}
-            className="px-2 py-1.5 rounded-lg text-xs text-slate-400 hover:text-slate-200 hover:bg-slate-800"
+            className="px-2 py-1.5 rounded-lg text-xs text-fg-faint hover:text-fg-body hover:bg-surface"
           >
             Limpiar
           </button>
@@ -179,13 +179,13 @@ export function IngestasPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar ingesta..."
-            className="w-full rounded-lg bg-slate-800 border border-slate-700 pl-8 pr-7 py-1.5 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="w-full rounded-lg bg-surface border border-border-strong pl-8 pr-7 py-1.5 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           />
           {search && (
             <button
               onClick={() => setSearch('')}
               aria-label="Limpiar busqueda"
-              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-slate-300 text-sm"
+              className="absolute right-2 top-1/2 -translate-y-1/2 text-slate-500 hover:text-fg-muted text-sm"
             >
               ×
             </button>
@@ -197,7 +197,7 @@ export function IngestasPage() {
         <div className="overflow-x-auto">
           <table className="w-full text-xs">
             <thead>
-              <tr className="border-b border-slate-700 text-slate-500">
+              <tr className="border-b border-border-strong text-slate-500">
                 <th className="text-left py-2 px-3 font-medium">Ingesta</th>
                 <th className="text-left py-2 px-3 font-medium hidden md:table-cell">
                   Responsable
@@ -219,7 +219,7 @@ export function IngestasPage() {
                 </tr>
               ) : activities.length === 0 ? (
                 <tr>
-                  <td colSpan={8} className="py-12 text-center text-slate-400 text-sm">
+                  <td colSpan={8} className="py-12 text-center text-fg-faint text-sm">
                     Sin ingestas registradas
                   </td>
                 </tr>
@@ -230,15 +230,15 @@ export function IngestasPage() {
                     <tr
                       key={a.id}
                       onClick={() => setSelected(a)}
-                      className="border-b border-slate-800 hover:bg-slate-800/30 cursor-pointer"
+                      className="border-b border-border hover:bg-surface/30 cursor-pointer"
                     >
                       <td className="py-2.5 px-3">
-                        <span className="text-slate-200 truncate max-w-[220px] block">
+                        <span className="text-fg-body truncate max-w-[220px] block">
                           {a.title.replace('[Ingesta] ', '')}
                         </span>
                       </td>
                       <td className="py-2.5 px-3 hidden md:table-cell">
-                        <span className="text-xs text-slate-400 truncate max-w-[100px] block">
+                        <span className="text-xs text-fg-faint truncate max-w-[100px] block">
                           {members.find((m) => m.id === a.responsible_id)?.full_name ||
                             'Sin asignar'}
                         </span>
@@ -248,13 +248,18 @@ export function IngestasPage() {
                           {[1, 2, 3].map((p) => (
                             <div
                               key={p}
-                              className={`w-1.5 h-3 rounded-sm ${p >= a.priority ? priorityColors[p] : 'bg-slate-700'}`}
+                              className={`w-1.5 h-3 rounded-sm ${p >= a.priority ? priorityColors[p] : 'bg-surface-2'}`}
                             />
                           ))}
                         </div>
                       </td>
                       <td className={`py-2.5 px-3 ${getDaysColor(days)}`}>
                         {formatDateLocal(a.due_date, 'short')}
+                        {(a.plazo_change_count ?? 0) > 0 && (
+                          <span className="block text-[10px] text-amber-400">
+                            movida {a.plazo_change_count}x
+                          </span>
+                        )}
                       </td>
                       <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
                         {formatDateLocal(a.created_at, 'short')}
@@ -304,11 +309,11 @@ export function IngestasPage() {
           <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
             <div>
               <p className="text-xs text-slate-500 mb-1">Descripcion</p>
-              <p className="text-sm text-slate-300">{selected.description}</p>
+              <p className="text-sm text-fg-muted">{selected.description || 'Sin descripcion'}</p>
             </div>
-            <div className="flex items-center gap-2 p-2 rounded-lg bg-slate-800/50">
+            <div className="flex items-center gap-2 p-2 rounded-lg bg-surface/50">
               <p className="text-xs text-slate-500">Creado por:</p>
-              <p className="text-xs text-slate-300 font-medium">
+              <p className="text-xs text-fg-muted font-medium">
                 {members.find((m) => m.id === selected.created_by)?.full_name || 'Desconocido'}
               </p>
             </div>
@@ -324,7 +329,7 @@ export function IngestasPage() {
                   const newObs = `Tipo: ${e.target.value}. ${selected.observations?.replace(/Tipo:.*?\.\s*/, '') || ''}`
                   await activitiesService.update(selected.id, { observations: newObs })
                 }}
-                className="w-full rounded border border-slate-700 bg-slate-800 px-2 py-1 text-xs text-slate-200"
+                className="w-full rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg-body"
               >
                 <option value="datos">Carga de datos</option>
                 <option value="transformacion">Transformacion</option>
@@ -348,7 +353,7 @@ export function IngestasPage() {
                 }}
                 rows={2}
                 placeholder="Agregar comentario..."
-                className="w-full rounded-lg border border-slate-700 bg-slate-800 px-3 py-2 text-xs text-slate-200 placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
+                className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
               />
             </div>
             <div className="grid grid-cols-2 gap-4">
@@ -386,10 +391,16 @@ export function IngestasPage() {
                     setSelected({ ...selected, due_date: d })
                   }}
                 />
+                {(selected.plazo_change_count ?? 0) > 0 && (
+                  <span className="block text-[10px] text-amber-400 mt-0.5">
+                    cambiada {selected.plazo_change_count}{' '}
+                    {selected.plazo_change_count === 1 ? 'vez' : 'veces'}
+                  </span>
+                )}
               </div>
               <div>
                 <p className="text-xs text-slate-500 mb-1">Creado</p>
-                <p className="text-sm text-slate-300">{formatDateLocal(selected.created_at)}</p>
+                <p className="text-sm text-fg-muted">{formatDateLocal(selected.created_at)}</p>
               </div>
             </div>
             <div>
@@ -405,7 +416,7 @@ export function IngestasPage() {
                     className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
                       (selected.estimated_hours ?? 3) === h
                         ? 'bg-indigo-600 text-white'
-                        : 'bg-slate-700 text-slate-300 hover:bg-slate-600'
+                        : 'bg-surface-2 text-fg-muted hover:bg-slate-600'
                     }`}
                   >
                     {h}
@@ -425,16 +436,16 @@ export function IngestasPage() {
                   <div key={step.label} className="flex items-start gap-3">
                     <div className="flex flex-col items-center">
                       <div
-                        className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${step.active ? 'bg-purple-500 border-purple-500' : 'bg-slate-800 border-slate-600'}`}
+                        className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${step.active ? 'bg-purple-500 border-purple-500' : 'bg-surface border-slate-600'}`}
                       />
                       {i < 2 && (
                         <div
-                          className={`w-0.5 h-6 ${step.active ? 'bg-purple-500' : 'bg-slate-700'}`}
+                          className={`w-0.5 h-6 ${step.active ? 'bg-purple-500' : 'bg-surface-2'}`}
                         />
                       )}
                     </div>
                     <div className="pb-4">
-                      <p className={`text-sm ${step.active ? 'text-slate-200' : 'text-slate-500'}`}>
+                      <p className={`text-sm ${step.active ? 'text-fg-body' : 'text-slate-500'}`}>
                         {step.label}
                       </p>
                     </div>
@@ -443,7 +454,7 @@ export function IngestasPage() {
               </div>
             </div>
             {canManageIngestas && (
-              <div className="flex gap-2 pt-2 border-t border-slate-700">
+              <div className="flex gap-2 pt-2 border-t border-border-strong">
                 {selected.status === 'pendiente' && (
                   <Button
                     size="sm"

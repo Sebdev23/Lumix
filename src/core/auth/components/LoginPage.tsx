@@ -16,6 +16,12 @@ export function LoginPage() {
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
     setError('')
+    // Validacion propia en vez de "required": el mensaje nativo del navegador ("Please fill
+    // out this field") sale en ingles y no calza con el resto de la app, ya toda en espanol.
+    if (!email.trim() || !password.trim()) {
+      setError('Completa email y contrasena.')
+      return
+    }
     setLoading(true)
     const { error: err } = await signIn(email, password)
     setLoading(false)
@@ -48,23 +54,21 @@ export function LoginPage() {
             placeholder="tu@email.com"
             value={email}
             onChange={(e) => setEmail(e.target.value)}
-            required
           />
           <Input
-            label="Contrasena"
+            label="Contraseña"
             type="password"
-            placeholder="Tu contrasena"
+            placeholder="Tu contraseña"
             value={password}
             onChange={(e) => setPassword(e.target.value)}
-            required
           />
           <Button type="submit" className="w-full" size="lg" disabled={loading}>
-            {loading ? 'Ingresando...' : 'Iniciar sesion'}
+            {loading ? 'Ingresando...' : 'Iniciar sesión'}
           </Button>
         </form>
 
         <p className="text-xs text-slate-600 text-center mt-6">
-          No tienes cuenta? Pide una invitacion a tu administrador.
+          ¿No tienes cuenta? Pide una invitación a tu administrador.
         </p>
       </div>
     </div>

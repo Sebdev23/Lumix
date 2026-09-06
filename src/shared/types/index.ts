@@ -70,7 +70,10 @@ export interface PlazoHistoryEntry {
   at: string // ISO timestamp del cambio
 }
 
-export type HojaTipo = 'minuta' | 'ingesta'
+// 'proyecto': tema raiz con subtareas que se sigue como iniciativa, no como tema de la
+// reunion semanal (migracion 042). No comparte cadencia con 'minuta', asi que es su propio
+// tipo -mismo patron que ya separaba 'ingesta'-, no un flag dentro de minuta.
+export type HojaTipo = 'minuta' | 'ingesta' | 'proyecto'
 
 export interface MinuteItem {
   id: string

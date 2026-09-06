@@ -7,8 +7,10 @@ import { Badge } from '@shared/components/ui/Badge'
 import { Avatar } from '@shared/components/ui/Avatar'
 import { LumixIcon } from '@shared/components/ui/LumixIcon'
 import { useAuth } from '@core/auth/hooks/useAuth'
+import { useTheme } from '@core/theme/ThemeContext'
 import { supabase } from '@infrastructure/supabase/client'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
+import { normalizeFullName } from '@shared/utils/name'
 
 const EMOJI_OPTIONS = [
   '😀',
@@ -63,6 +65,7 @@ const ROLE_LABELS: Record<string, string> = {
 
 export function ProfilePage() {
   const { profile, user, signOut } = useAuth()
+  const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
   const [fullName, setFullName] = useState(profile?.full_name ?? '')
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url ?? '')
@@ -79,7 +82,7 @@ export function ProfilePage() {
     setSaving(true)
     try {
       await profilesService.update(user.id, {
-        full_name: fullName,
+        full_name: normalizeFullName(fullName),
         avatar_url: avatarUrl || null,
       })
     } finally {
@@ -119,8 +122,8 @@ export function ProfilePage() {
 
   return (
     <div className="flex flex-col h-full">
-      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-slate-800 bg-slate-900 flex-shrink-0">
-        <h2 className="text-sm font-semibold text-slate-200">Perfil</h2>
+      <div className="flex items-center justify-between px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel flex-shrink-0">
+        <h2 className="text-sm font-semibold text-fg-body">Perfil</h2>
       </div>
 
       <div className="flex-1 overflow-y-auto p-4 space-y-4">
@@ -139,7 +142,7 @@ export function ProfilePage() {
               )}
             </button>
             <div>
-              <p className="text-sm font-medium text-slate-200">{profile?.full_name}</p>
+              <p className="text-sm font-medium text-fg-body">{profile?.full_name}</p>
               <Badge variant="info" className="mt-1">
                 {ROLE_LABELS[profile?.role ?? 'colaborador'] ?? profile?.role}
               </Badge>
@@ -148,8 +151,8 @@ export function ProfilePage() {
           </div>
 
           {showEmoji && (
-            <div className="mt-3 pt-3 border-t border-slate-700">
-              <p className="text-xs text-slate-400 mb-2">Elegi un emoji como avatar</p>
+            <div className="mt-3 pt-3 border-t border-border">
+              <p className="text-xs text-fg-faint mb-2">Elegi un emoji como avatar</p>
               <div className="flex flex-wrap gap-1 max-h-32 overflow-y-auto">
                 {EMOJI_OPTIONS.map((emoji) => (
                   <button
@@ -158,7 +161,7 @@ export function ProfilePage() {
                       setAvatarUrl(emoji)
                       setShowEmoji(false)
                     }}
-                    className="w-8 h-8 flex items-center justify-center rounded hover:bg-slate-700 text-lg transition-colors"
+                    className="w-8 h-8 flex items-center justify-center rounded hover:bg-surface-2 text-lg transition-colors"
                   >
                     {emoji}
                   </button>
@@ -166,7 +169,7 @@ export function ProfilePage() {
                 {avatarUrl && (
                   <button
                     onClick={() => setAvatarUrl('')}
-                    className="w-8 h-8 flex items-center justify-center rounded hover:bg-red-900/50 text-xs text-red-400 transition-colors"
+                    className="w-8 h-8 flex items-center justify-center rounded hover:bg-red-900/50 text-xs text-red-400 light:text-red-600 light:hover:bg-red-100 transition-colors"
                     title="Quitar emoji"
                   >
                     ✕
@@ -179,7 +182,7 @@ export function ProfilePage() {
 
         {/* Nombre */}
         <Card padding="md">
-          <p className="text-xs text-slate-400 mb-2">Nombre completo</p>
+          <p className="text-xs text-fg-faint mb-2">Nombre completo</p>
           <div className="flex gap-2">
             <Input
               value={fullName}
@@ -197,11 +200,11 @@ export function ProfilePage() {
         <Card padding="md">
           <button
             onClick={() => setShowPassword((v) => !v)}
-            className="w-full text-left text-sm font-medium text-slate-200 flex items-center justify-between"
+            className="w-full text-left text-sm font-medium text-fg-body flex items-center justify-between"
           >
             Cambiar contrasena
             <svg
-              className={`w-4 h-4 text-slate-400 transition-transform ${showPassword ? 'rotate-180' : ''}`}
+              className={`w-4 h-4 text-fg-faint transition-transform ${showPassword ? 'rotate-180' : ''}`}
               fill="none"
               viewBox="0 0 24 24"
               stroke="currentColor"
@@ -216,17 +219,14 @@ export function ProfilePage() {
           </button>
 
           {showPassword && (
-            <form
-              onSubmit={changePassword}
-              className="mt-3 space-y-3 pt-3 border-t border-slate-700"
-            >
+            <form onSubmit={changePassword} className="mt-3 space-y-3 pt-3 border-t border-border">
               {passwordError && (
-                <p className="text-xs text-red-400 bg-red-900/30 border border-red-700/50 rounded-lg px-3 py-2">
+                <p className="text-xs text-red-400 light:text-red-600 bg-red-900/30 border border-red-700/50 light:bg-red-50 light:border-red-200 rounded-lg px-3 py-2">
                   {passwordError}
                 </p>
               )}
               {passwordSuccess && (
-                <p className="text-xs text-emerald-400 bg-emerald-900/30 border border-emerald-700/50 rounded-lg px-3 py-2">
+                <p className="text-xs text-emerald-400 light:text-emerald-700 bg-emerald-900/30 border border-emerald-700/50 light:bg-emerald-50 light:border-emerald-200 rounded-lg px-3 py-2">
                   {passwordSuccess}
                 </p>
               )}
@@ -251,17 +251,47 @@ export function ProfilePage() {
           )}
         </Card>
 
+        {/* Apariencia: oscuro (default de siempre) o claro, opt-in y guardado por dispositivo */}
+        <Card padding="md">
+          <p className="text-sm font-medium text-fg-body mb-2">Apariencia</p>
+          <div className="inline-flex rounded-lg bg-surface p-0.5">
+            <button
+              onClick={() => setTheme('dark')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                theme === 'dark'
+                  ? 'bg-slate-700 text-indigo-300 shadow-sm'
+                  : 'text-fg-faint hover:text-fg-body'
+              }`}
+            >
+              🌙 Oscuro
+            </button>
+            <button
+              onClick={() => setTheme('light')}
+              className={`px-3 py-1.5 rounded-md text-xs font-medium transition-colors ${
+                theme === 'light'
+                  ? 'light:bg-white light:text-indigo-600 light:shadow-sm'
+                  : 'text-fg-faint hover:text-fg-body'
+              }`}
+            >
+              ☀️ Claro
+            </button>
+          </div>
+          <p className="text-[11px] text-slate-500 light:text-slate-400 mt-2">
+            Se guarda en este dispositivo.
+          </p>
+        </Card>
+
         {/* Sobre Lumix */}
         <Card padding="lg">
           <div className="flex items-center gap-3 mb-4">
             <LumixIcon size="md" />
             <div>
-              <p className="text-base font-semibold text-slate-100">Lumix</p>
+              <p className="text-base font-semibold text-fg">Lumix</p>
               <p className="text-xs text-slate-500">Tu asistente conversacional</p>
             </div>
           </div>
 
-          <p className="text-sm text-slate-300 leading-relaxed mb-4">
+          <p className="text-sm text-fg-muted leading-relaxed mb-4">
             Lumix transforma tus conversaciones en acciones. Escribi en lenguaje natural lo que
             necesitas y el se encarga del resto. Sin formularios, sin menus, solo chat.
           </p>
@@ -301,21 +331,21 @@ export function ProfilePage() {
             ].map((item) => (
               <div
                 key={item.title}
-                className="flex items-start gap-2.5 p-2.5 rounded-lg bg-slate-800/50 border border-slate-700/30"
+                className="flex items-start gap-2.5 p-2.5 rounded-lg bg-surface-soft border border-border"
               >
                 <span className="text-lg flex-shrink-0">{item.icon}</span>
                 <div>
-                  <p className="text-xs font-medium text-slate-200">{item.title}</p>
-                  <p className="text-[11px] text-slate-400 leading-relaxed">{item.desc}</p>
+                  <p className="text-xs font-medium text-fg-body">{item.title}</p>
+                  <p className="text-[11px] text-fg-faint leading-relaxed">{item.desc}</p>
                 </div>
               </div>
             ))}
           </div>
 
           <div className="rounded-lg bg-indigo-600/10 border border-indigo-500/20 p-3">
-            <p className="text-xs text-indigo-300">
+            <p className="text-xs text-indigo-300 light:text-indigo-700">
               <span className="font-medium">Tip:</span> Escribi{' '}
-              <code className="px-1 py-0.5 rounded bg-indigo-600/20 text-indigo-300 text-[11px]">
+              <code className="px-1 py-0.5 rounded bg-indigo-600/20 text-indigo-300 light:text-indigo-700 text-[11px]">
                 ayuda
               </code>{' '}
               en el chat para ver ejemplos de todo lo que podes hacer.
@@ -326,7 +356,7 @@ export function ProfilePage() {
         {/* Cerrar sesion */}
         <button
           onClick={handleLogout}
-          className="w-full px-4 py-3 rounded-xl bg-red-900/20 border border-red-700/30 text-sm text-red-400 hover:bg-red-900/30 transition-colors"
+          className="w-full px-4 py-3 rounded-xl bg-red-900/20 border border-red-700/30 text-sm text-red-400 hover:bg-red-900/30 light:bg-red-50 light:border-red-200 light:text-red-600 light:hover:bg-red-100 transition-colors"
         >
           Cerrar sesion
         </button>

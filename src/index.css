@@ -1,24 +1,106 @@
 @import 'tailwindcss';
 
+/* Tema claro: opt-in, no automatico por prefers-color-scheme -el look oscuro actual es el
+   default fijo para quien no elige nada-. Se activa con [data-theme="light"] en <html> (ver
+   ThemeContext).
+
+   Sistema de TOKENS (no clases "light:" repetidas): cada color neutro tiene un nombre semantico
+   (panel, surface, fg, border, etc.) cuyo valor real vive en una variable CSS que cambia con
+   [data-theme]. Los componentes usan una sola clase (`bg-panel`, `text-fg-muted`) que ya
+   responde a los dos temas solos -no hay una clase por tema que mantener sincronizada-.
+
+   Por que el cambio (encontrado probando la Fase 6 con clases "light:" manuales): un script de
+   migracion masiva se comio casos con sufijo de opacidad (`/50`), clases sueltas en un ternario
+   con comilla simple, y until selectores especiales de Tailwind (`[&>th]:...`) -3 bugs reales
+   en produccion de la sesion-. Con tokens, esa clase de bug deja de poder pasar: no hay una
+   segunda clase que un script (o una persona) se pueda olvidar de agregar.
+
+   Patron recomendado por Tailwind v4 para variables CSS + dark/light: los canales RGB crudos
+   viven en :root / [data-theme='light'], y un @theme NO-inline los mapea a colores de Tailwind
+   (usar @theme inline aca rompe el cambio de tema: hornea el valor en tiempo de build). */
+@custom-variant light (&:where([data-theme='light'], [data-theme='light'] *));
+
+:root {
+  /* Oscuro (default, FIJO): exactamente los mismos tonos que ya se usaban como clases sueltas
+     -bg-slate-900, text-slate-200, etc.-, solo que ahora con nombre. No se toca ni un valor
+     de aca por ningun motivo: es el look de siempre. */
+  --shell: 2 6 23; /* slate-950: fondo general de la app */
+  --panel: 15 23 42; /* slate-900: headers, modales, paneles solidos */
+  --surface: 30 41 59; /* slate-800: botones/controles segmentados */
+  --field: 30 41 59; /* slate-800: inputs/dropdowns (separado de surface para no atarlos) */
+  --surface-2: 51 65 85; /* slate-700: hover, avatares, pildoras */
+  --surface-soft: 15 23 42; /* slate-900 a baja opacidad: insets sutiles (subtareas, tarjetas) */
+  --border: 30 41 59; /* slate-800: divisores */
+  --border-strong: 51 65 85; /* slate-700: bordes de inputs/tarjetas */
+  --fg: 241 245 249; /* slate-100: titulos */
+  --fg-body: 226 232 240; /* slate-200: texto de cuerpo */
+  --fg-muted: 203 213 225; /* slate-300: texto secundario */
+  --fg-faint: 148 163 184; /* slate-400: texto de apoyo/metadatos */
+}
+
+/* Claro: paleta redisenada tras revision (la primera version se sentia "sucia"/amarillenta -un
+   neutro CALIDO- en vez de moderna). Referencias: Vercel Geist (superficie #fff / secundaria
+   #fafafa, texto primario #000, secundario #666) y GitHub Primer (borde default #d0d7de, fondo
+   sutil #f6f8fa) - los dos tratan el oscuro como el tema "canonico" y el claro como la variante,
+   igual que aca. Fondo general ahora es un gris frio casi-blanco (slate-50), no beige; titulos
+   mas oscuros (slate-900) para mas contraste/nitidez. Contraste pensado para pasar WCAG AA
+   (>=4.5:1 en texto normal). */
+[data-theme='light'] {
+  --shell: 248 250 252; /* slate-50 */
+  --panel: 255 255 255;
+  --surface: 241 245 249; /* slate-100 */
+  --field: 255 255 255; /* blanco: un input se lee mejor solido que gris palido */
+  --surface-2: 226 232 240; /* slate-200 */
+  --surface-soft: 248 250 252; /* slate-50 */
+  /* Divisores muy sutiles a proposito: en oscuro una linea de 1px se nota poco por el bajo
+     contraste general, pero la MISMA linea sobre blanco se lee "dura" -el ojo es mas sensible
+     a una raya gris sobre blanco que sobre un fondo ya oscuro-. La practica recomendada (Primer,
+     Geist, y la literatura de UI en general) es "gris casi invisible + espacio" en vez de lineas
+     marcadas; border-strong (bordes de inputs, que si necesitan definirse) queda un poco mas
+     visible que el divisor suelto. */
+  --border: 241 245 249; /* slate-100 */
+  --border-strong: 203 213 225; /* slate-300: bordes de inputs/tarjetas, estos si necesitan
+     definirse (Primer usa un tono similar, #d0d7de, para bordes interactivos) */
+  --fg: 15 23 42; /* slate-900: mas oscuro que antes para titulos con mas peso visual */
+  --fg-body: 51 65 85; /* slate-700 */
+  --fg-muted: 71 85 105; /* slate-600 */
+  --fg-faint: 100 116 139; /* slate-500 */
+}
+
 @theme {
   --color-primary: #6366f1;
   --color-primary-light: #818cf8;
   --color-primary-dark: #4f46e5;
-  --color-surface: #0f172a;
-  --color-surface-light: #1e293b;
-  --color-surface-lighter: #334155;
-  --color-text: #f1f5f9;
-  --color-text-muted: #94a3b8;
   --color-success: #22c55e;
   --color-warning: #f59e0b;
   --color-error: #ef4444;
   --color-critical: #dc2626;
+
+  /* IMPORTANTE: sin "/ <alpha-value>". Esa sintaxis es de Tailwind v3 (un placeholder de texto
+     que el build de JS reemplazaba a mano) y NO existe en v4 -aca no la procesa nadie, el
+     navegador la recibe literal, "rgb(30 41 59 / <alpha-value>)" no es una funcion rgb() valida,
+     y el color entero se descarta (cae al initial/heredado: fondos transparentes, bordes
+     "currentColor" -por eso se veian blancos en oscuro y negros en claro-). En v4 el soporte de
+     opacidad (bg-panel/50) ya viene solo via color-mix(), no hace falta escribir nada especial
+     aca; alcanza con un color valido. */
+  --color-shell: rgb(var(--shell));
+  --color-panel: rgb(var(--panel));
+  --color-surface: rgb(var(--surface));
+  --color-field: rgb(var(--field));
+  --color-surface-2: rgb(var(--surface-2));
+  --color-surface-soft: rgb(var(--surface-soft));
+  --color-border: rgb(var(--border));
+  --color-border-strong: rgb(var(--border-strong));
+  --color-fg: rgb(var(--fg));
+  --color-fg-body: rgb(var(--fg-body));
+  --color-fg-muted: rgb(var(--fg-muted));
+  --color-fg-faint: rgb(var(--fg-faint));
 }
 
 body {
   margin: 0;
-  background-color: var(--color-surface);
-  color: var(--color-text);
+  background-color: rgb(var(--shell));
+  color: rgb(var(--fg-body));
   font-family:
     'Inter',
     system-ui,
@@ -51,10 +133,22 @@ body {
   background: #475569;
 }
 
+[data-theme='light'] ::-webkit-scrollbar-thumb {
+  background: #cbd5e1;
+}
+
+[data-theme='light'] ::-webkit-scrollbar-thumb:hover {
+  background: #94a3b8;
+}
+
 /* Firefox */
 * {
   scrollbar-width: thin;
   scrollbar-color: #334155 transparent;
+}
+
+[data-theme='light'] * {
+  scrollbar-color: #cbd5e1 transparent;
 }
 
 /* PWA safe area */

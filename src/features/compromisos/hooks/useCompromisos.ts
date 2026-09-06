@@ -65,6 +65,10 @@ export interface Compromiso extends Activity {
   diasVencida: number
   /** Ya se escalo a la minuta para conversarse. */
   enMinuta: boolean
+  /** De donde salio: un tema suelto de minuta, o una subtarea de un proyecto (parent_item_id). */
+  origen: 'minuta' | 'proyecto'
+  /** Titulo del tema raiz, solo si origen es 'proyecto' (da contexto: "de: Revisar capacidad"). */
+  origenProyecto?: string
 }
 
 export interface GrupoPersona {
@@ -134,16 +138,36 @@ export function useCompromisos() {
     return true
   })
 
+  // Tema que trajo esta actividad a Compromisos (el que la tiene en linked_activity_ids).
+  const temaDe = (activityId: string) =>
+    temas.find((t) => t.linked_activity_ids.includes(activityId))
+
+  // Sube por parent_item_id hasta el tema raiz. Todos los ancestros estan en `temas`
+  // -mismo equipo, mismo tipo 'minuta'-, asi que la cadena nunca queda cortada a mitad.
+  const raizDe = (item: MinuteItem): MinuteItem => {
+    let actual = item
+    while (actual.parent_item_id) {
+      const padre = temas.find((t) => t.id === actual.parent_item_id)
+      if (!padre) break
+      actual = padre
+    }
+    return actual
+  }
+
   const decorar = (a: Activity): Compromiso => {
     const vence = new Date(a.due_date)
     vence.setHours(0, 0, 0, 0)
     const completada = a.status === 'completado'
+    const origenTema = temaDe(a.id)
+    const esProyecto = !!origenTema?.parent_item_id
     return {
       ...a,
       aTiempo: completada && !!a.completed_at && new Date(a.completed_at) <= new Date(a.due_date),
       diasVencida:
         !completada && vence < hoy ? Math.floor((hoy.getTime() - vence.getTime()) / 86_400_000) : 0,
       enMinuta: escaladas.has(a.id),
+      origen: esProyecto ? 'proyecto' : 'minuta',
+      origenProyecto: esProyecto ? raizDe(origenTema!).tema : undefined,
     }
   }
 
