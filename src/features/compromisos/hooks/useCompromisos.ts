@@ -33,6 +33,7 @@ import { useState, useEffect, useCallback } from 'react'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { minutesService } from '@infrastructure/supabase/minutes.service'
+import { teamsService, type GrupoTrabajo } from '@infrastructure/supabase/teams.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { compromisosEnVentana, compromisoStats } from '@shared/utils/compromisos'
@@ -83,6 +84,14 @@ export interface GrupoPersona {
   vencidos: number
 }
 
+/** Agrupa personas por su grupo de trabajo (alias "foco", migracion 043). `id: null` es el
+ *  balde de quien no tiene grupo asignado -no se descarta, solo no encaja en ningun grupo-. */
+export interface GrupoDeTrabajoCompromisos {
+  id: string | null
+  nombre: string
+  personas: GrupoPersona[]
+}
+
 export function useCompromisos() {
   const [todas, setTodas] = useState<Activity[]>([])
   const [temas, setTemas] = useState<MinuteItem[]>([])
@@ -93,9 +102,33 @@ export function useCompromisos() {
   const [escaladas, setEscaladas] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(true)
   const [offset, setOffset] = useState(0)
+  const [gruposDisponibles, setGruposDisponibles] = useState<GrupoTrabajo[]>([])
+  const [grupoPorUsuario, setGrupoPorUsuario] = useState<Record<string, string | null>>({})
   const { profile } = useAuth()
   const { canViewAllActivities, isGlobalAdmin } = useCapabilities()
   const teamId = profile?.team_id ?? ''
+
+  // Grupos de trabajo (alias "foco", migracion 043): solo para ofrecer la vista "por grupo"
+  // -si el equipo no usa grupos, esto queda vacio y la pantalla se ve exactamente igual que
+  // siempre (agrupada por persona, sin nada nuevo que aprender).
+  useEffect(() => {
+    if (!teamId) return
+    let cancelled = false
+    Promise.all([teamsService.getGrupos(teamId), teamsService.getMembers(teamId)]).then(
+      ([grupos, miembros]) => {
+        if (cancelled) return
+        setGruposDisponibles(grupos)
+        const map: Record<string, string | null> = {}
+        miembros.forEach((m) => {
+          map[m.user_id] = m.grupo_id ?? null
+        })
+        setGrupoPorUsuario(map)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [teamId])
 
   const load = useCallback(async () => {
     if (!teamId) return
@@ -197,6 +230,24 @@ export function useCompromisos() {
     .filter((g) => g.compromisos.length > 0)
     .sort((a, b) => b.compromisos.length - a.compromisos.length)
 
+  // Mismo `porPersona`, reagrupado por su grupo de trabajo. Solo tiene datos si el equipo
+  // efectivamente definio y asigno grupos -si no, queda [] y la UI ofrece solo "por persona".
+  const porGrupo: GrupoDeTrabajoCompromisos[] = (() => {
+    if (gruposDisponibles.length === 0) return []
+    const porGrupoId = new Map<string | null, GrupoPersona[]>()
+    porPersona.forEach((p) => {
+      const gId = grupoPorUsuario[p.id] ?? null
+      porGrupoId.set(gId, [...(porGrupoId.get(gId) ?? []), p])
+    })
+    const nombrados = gruposDisponibles
+      .map((g) => ({ id: g.id, nombre: g.nombre, personas: porGrupoId.get(g.id) ?? [] }))
+      .filter((g) => g.personas.length > 0)
+    const sinGrupo = porGrupoId.get(null) ?? []
+    return sinGrupo.length > 0
+      ? [...nombrados, { id: null, nombre: 'Sin grupo', personas: sinGrupo }]
+      : nombrados
+  })()
+
   const resumen = {
     ...compromisoStats(compromisos),
     aTiempo: compromisos.filter((c) => c.aTiempo).length,
@@ -274,6 +325,7 @@ export function useCompromisos() {
 
   return {
     porPersona,
+    porGrupo,
     resumen,
     loading,
     offset,

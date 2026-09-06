@@ -1,5 +1,4 @@
 import { useState } from 'react'
-import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
@@ -377,10 +376,11 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
     removeItem,
     createActivitiesFromItem,
   } = useMinuta(tipo)
-  // El filtro de grupo de trabajo (alias "foco") es solo para jefatura -es una herramienta
-  // de supervision, no algo que un colaborador necesite para ver su propia minuta.
-  const { role, isGlobalAdmin } = useCapabilities()
-  const esJefe = isGlobalAdmin || role === 'jefatura' || role === 'admin'
+  // El filtro de grupo de trabajo (alias "foco"): mismo permiso que ya gobierna gestionar la
+  // hoja (canManage), no un chequeo de rol aparte -si no, alguien con el permiso concedido
+  // puntualmente (sin ser jefatura/admin de rol) no veia el filtro aunque si puede gestionar
+  // todo lo demas de la pantalla. Bug real reportado por Sebastian, corregido.
+  const esJefe = canManage
 
   const [cargaMasiva, setCargaMasiva] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)

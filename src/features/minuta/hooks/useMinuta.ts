@@ -177,6 +177,18 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
       (a) => inWeek(a.created_at) || inWeek(a.updated_at) || inWeek(a.completed_at),
     )
 
+  // Un tema "contenedor" puede no tener responsable propio y dejar todo el trabajo real en
+  // sus subtareas (ej. "Seguimiento de X" con responsables: [], y el trabajo de verdad
+  // colgado como subtareas de una persona). El filtro de grupo tiene que mirar tambien ahi
+  // -si no, ese tema desaparece del filtro aunque su gente si pertenezca al grupo elegido
+  // (bug real reportado por Sebastian: el filtro "no funcionaba" para temas asi).
+  const perteneceAlGrupo = (it: DecoratedItem): boolean => {
+    if (it.responsables.some((r) => grupoPorUsuario[r] === filterGrupo)) return true
+    return decorated
+      .filter((d) => d.parent_item_id === it.id)
+      .some((hijo) => perteneceAlGrupo(hijo))
+  }
+
   // Filtro base: responsable + busqueda + (semana si esta activo). Aplica a los contadores.
   // Los sub-temas (parent_item_id no nulo) no entran aca: viven anidados bajo su tema padre
   // -ver SubtareasPanel en MinutaPage-, si no la lista principal se duplica con cada
@@ -185,8 +197,7 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
   const base = decorated.filter((it) => {
     if (it.parent_item_id) return false
     if (filterMember !== 'todas' && !it.responsables.includes(filterMember)) return false
-    if (filterGrupo !== 'todas' && !it.responsables.some((r) => grupoPorUsuario[r] === filterGrupo))
-      return false
+    if (filterGrupo !== 'todas' && !perteneceAlGrupo(it)) return false
     if (q && !`${it.tema} ${it.comentarios}`.toLowerCase().includes(q)) return false
     if (weekMode && !hadActivityInWeek(it)) return false
     return true

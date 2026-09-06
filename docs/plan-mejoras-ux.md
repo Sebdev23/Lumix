@@ -1125,6 +1125,37 @@ el mapeo queda como se espera, y al borrar el grupo el colaborador quedó "sin g
 `npm run build`, `tsc --noEmit` y `eslint` limpios (0 errores, mismos warnings preexistentes de
 siempre). **Pendiente:** confirmación visual de Sebastián — no hay navegador en esta sesión.
 
+### Bug real reportado: el filtro de grupo "no funcionaba" en Minuta ✅ HECHO
+
+Sebastián probó de verdad (creó los grupos "Despacho" y "Excelencia" en Equipo Prueba, asignó
+gente) y reportó que el filtro no funcionaba. Investigando contra sus propios datos reales se
+encontró la causa: un tema "contenedor" puede no tener responsable propio y dejar todo el
+trabajo real colgado en sus subtareas (caso real encontrado: "Seguimiento de líder de
+entrenamiento" con `responsables: []`, y Manuel — asignado a "Excelencia" — como responsable de
+sus subtareas "Pedido" y "Pedido de control"). El filtro de grupo (`useMinuta.ts`) solo miraba
+el responsable del tema RAÍZ, así que ese tema desaparecía al filtrar por "Excelencia" aunque la
+persona que sí hace el trabajo estuviera en ese grupo — exactamente el caso que Sebastián probó.
+
+**Corregido:** nueva función `perteneceAlGrupo(it)` que revisa el responsable del tema Y,
+recursivamente, el de todas sus subtareas (a cualquier profundidad) — si cualquiera de ellos
+pertenece al grupo elegido, el tema completo se muestra. Verificado a mano contra los datos
+reales de Sebastián (sin tocarlos): filtrar por "Excelencia" ahora sí incluye "Seguimiento de
+líder de entrenamiento" (por Manuel, en sus subtareas); filtrar por "Despacho" solo muestra los
+temas de Juan Diaz, sin ese contenedor. De paso se simplificó el permiso que muestra el selector
+del filtro: de un chequeo de rol exacto (`jefatura`/`admin`) a la misma capability `canManage`
+que ya gobierna el resto de Minuta, más consistente con cómo se resuelve todo lo demás en la
+pantalla.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios (0 errores).
+
+**Pendiente, sin ejecutar:** Compromisos ganó una vista opcional "Por grupo" (además de "Por
+persona", que sigue siendo la vista por defecto) — agrupa a las personas bajo su grupo de
+trabajo, con el mismo patrón plegable de siempre, solo aparece si el equipo tiene grupos con
+gente asignada. `useCompromisos.ts` expone `porGrupo` (grupo → personas, con un balde "Sin
+grupo" para quien no tenga uno); `CompromisosPage.tsx` factorizó el bloque de una persona en un
+componente `PersonaCard` reusado en las dos vistas, para no duplicar el JSX. `npm run
+build`/`tsc --noEmit`/`eslint` limpios. **Falta confirmación visual de Sebastián.**
+
 ---
 
 ## Bug encontrado de paso: columna "Plazo" se contrae en la tabla de Minuta ✅ HECHO
