@@ -158,7 +158,11 @@ export function ErrorsPage() {
           </button>
         ))}
       </div>
-      <div className="flex flex-wrap items-center gap-1 px-2 sm:px-4 pb-2 border-b border-border bg-surface-soft/50 flex-shrink-0">
+      {/* Sin flex-wrap: en un celular angosto con tantos filtros (severidad, responsable,
+          tipo de fecha, 2 fechas, buscador) se acomodaba en 3-4 lineas, empujando el
+          encabezado a ocupar la mayoria de la pantalla (bug real reportado por Sebastian).
+          Mismo patron de scroll horizontal que ya usa Actividades para el mismo problema. */}
+      <div className="flex items-center gap-1 px-2 sm:px-4 pb-2 border-b border-border bg-surface-soft/50 overflow-x-auto flex-nowrap flex-shrink-0">
         <select
           value={filterSeverity}
           onChange={(e) => setFilterSeverity(e.target.value as ErrorSeverity | 'todas')}

@@ -443,8 +443,10 @@ export function ActivitiesPage() {
         </div>
       </div>
 
-      {/* Filters */}
-      <div className="flex gap-1 px-2 sm:px-4 py-2 border-b border-border bg-surface-soft/50 overflow-x-auto flex-shrink-0 flex-nowrap">
+      {/* Filters: items-center evita que las filas se estiren para igualar el input de fecha
+          nativo -en el celular puede renderizar mas alto de lo esperado, y sin esto agrandaba
+          toda la barra (bug real reportado por Sebastian: "la parte de arriba se pierde"). */}
+      <div className="flex items-center gap-1 px-2 sm:px-4 py-2 border-b border-border bg-surface-soft/50 overflow-x-auto flex-shrink-0 flex-nowrap">
         {statusFilters.map((f) => (
           <button
             key={f.value}

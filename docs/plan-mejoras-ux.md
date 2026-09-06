@@ -1251,6 +1251,29 @@ rápidos que complementan el menú hamburguesa completo, no lo reemplazan), y pi
 Proyectos y Compromisos. `navItems.tsx`: `bottomNavItems` pasó de 4 a 6 accesos (reusando los
 mismos íconos que ya tenía el menú completo, `FolderIcon`/`CheckCircleIcon`).
 
+### Actividades y Bitácora: la barra de filtros se veía mal en el celular
+
+Sebastián probó en el celular real y reportó que en Actividades y Bitácora "la parte de arriba
+se pierde de vista" apenas entra a la pantalla (antes de tocar nada) — en Minuta se veía bien.
+Comparando el código de las tres pantallas se encontraron 2 causas reales y concretas:
+
+- **Actividades**: a su fila de filtros le faltaba `items-center` (Minuta sí la tiene en la
+  suya). Sin eso, por default los hijos de un flex se estiran (`align-items: stretch`) para
+  igualar al más alto — y un `<input type="date">` nativo puede renderizar más alto de lo
+  esperado en el celular, agrandando toda la barra sin que se note en escritorio.
+- **Bitácora**: su fila de filtros (agregada en la Fase 10, H1) usaba `flex-wrap` a propósito
+  para no desbordar — pero con tantos filtros juntos (severidad, responsable, tipo de fecha, 2
+  fechas, buscador) en una pantalla angosta se acomodaba en 3-4 líneas, empujando el contenido
+  bastante hacia abajo.
+
+**Corregido:** `items-center` agregado a la fila de Actividades; la fila de Bitácora se unificó
+con el mismo patrón que ya usa Actividades (una sola línea con scroll horizontal, en vez de
+apilarse en varias).
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián en el
+celular real — no hay forma de estar 100% seguro sin probarlo en el dispositivo donde se
+reportó.
+
 ---
 
 ## Bug encontrado de paso: columna "Plazo" se contrae en la tabla de Minuta ✅ HECHO
