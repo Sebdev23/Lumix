@@ -22,6 +22,8 @@ export interface Profile {
   role: Role
   team_id: string
   created_at: string
+  /** Version de changelog (src/shared/changelog.ts) que esta persona ya vio. Migracion 044. */
+  changelog_visto?: number
 }
 
 export interface Activity {

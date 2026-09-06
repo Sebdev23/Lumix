@@ -2,6 +2,7 @@ import { useState } from 'react'
 import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { BottomNav } from './BottomNav'
+import { NovedadesModal } from '@shared/components/ui/NovedadesModal'
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -14,6 +15,7 @@ export function AppLayout() {
 
   return (
     <div className="flex h-dvh bg-shell text-fg">
+      <NovedadesModal />
       {/* Mobile overlay */}
       {sidebarOpen && (
         <div

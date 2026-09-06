@@ -1148,13 +1148,66 @@ pantalla.
 
 `npm run build`/`tsc --noEmit`/`eslint` limpios (0 errores).
 
-**Pendiente, sin ejecutar:** Compromisos ganó una vista opcional "Por grupo" (además de "Por
-persona", que sigue siendo la vista por defecto) — agrupa a las personas bajo su grupo de
-trabajo, con el mismo patrón plegable de siempre, solo aparece si el equipo tiene grupos con
-gente asignada. `useCompromisos.ts` expone `porGrupo` (grupo → personas, con un balde "Sin
-grupo" para quien no tenga uno); `CompromisosPage.tsx` factorizó el bloque de una persona en un
-componente `PersonaCard` reusado en las dos vistas, para no duplicar el JSX. `npm run
-build`/`tsc --noEmit`/`eslint` limpios. **Falta confirmación visual de Sebastián.**
+Compromisos ganó una vista opcional "Por grupo" (además de "Por persona", que sigue siendo la
+vista por defecto) — agrupa a las personas bajo su grupo de trabajo, con el mismo patrón
+plegable de siempre, solo aparece si el equipo tiene grupos con gente asignada. `useCompromisos.ts`
+expone `porGrupo` (grupo → personas, con un balde "Sin grupo" para quien no tenga uno);
+`CompromisosPage.tsx` factorizó el bloque de una persona en un componente `PersonaCard` reusado
+en las dos vistas, para no duplicar el JSX.
+
+**Confirmado por Sebastián: probado, funciona bien.** Fase 11 (grupos de trabajo/foco: catálogo,
+filtro en Minuta/Actividades, vista por grupo en Compromisos) queda cerrada.
+
+---
+
+## Bug real: el tip "Escribí ayuda en el chat" no hacía nada ✅ HECHO
+
+`ProfilePage.tsx` (tarjeta "Sobre Lumix") prometía: _"Escribí `ayuda` en el chat para ver
+ejemplos de todo lo que podés hacer."_ Sebastián lo probó y no funcionó — investigando se
+confirmó que **"ayuda" nunca se había implementado**: no existía en ningún lado del código
+(`useChatMessages.ts`, ni las Edge Functions). El mensaje caía directo en la clasificación
+normal de la IA y creaba una actividad rara titulada "ayuda".
+
+**Corregido:** nuevo `AYUDA_RE` (mismo patrón que ya usan `ACUSE_RE`/`DESHACER_RE` — frase corta
+y dedicada, "ayuda" dentro de una oración larga sigue siendo otra cosa), chequeado al principio
+de `classifyAndAct`, antes incluso de la rama de respuesta a un mensaje citado. Responde con un
+mensaje fijo (`MENSAJE_AYUDA`) que resume, con un ejemplo real por categoría, todo lo que se
+puede escribir: Actividades, Minuta, Proyectos, Errores, Modo masivo, Cambios (respondiendo),
+Deshacer, Consultas — las mismas 8 que ahora aparecen en la tarjeta "Sobre Lumix" de Perfil.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián — no
+hay navegador en esta sesión.
+
+---
+
+## Aviso de novedades: una vez por usuario ✅ HECHO
+
+Sebastián preguntó cómo pasar todo esto a producción, y pidió que quien entre a Lumix se
+entere de los cambios de esta sesión — pero que el aviso se muestre **una sola vez por
+persona**, no una vez por dispositivo (a diferencia del tema claro, que sí es por dispositivo
+a propósito).
+
+**Implementado:**
+
+- **Migración 044**: columna `changelog_visto` (entero, default 0) en `profiles` — vive en la
+  persona, no en `localStorage`, para que no se repita si entra desde otro dispositivo. Sin RLS
+  nueva: `profiles_update` (migración 001) ya permite `auth.uid() = id`, y el trigger
+  anti-escalación (migración 017) solo vigila `role`/`team_id`.
+- **`src/shared/changelog.ts`**: `CHANGELOG_VERSION` (empieza en 1) + `CHANGELOG_ITEMS`, la
+  lista de qué avisar. Para la próxima tanda de cambios: subir el número y reemplazar la
+  lista (no se acumulan versiones viejas, cada versión muestra solo lo suyo).
+- **`NovedadesModal.tsx`**: se monta en `AppLayout.tsx` (siempre que hay sesión). Si
+  `profile.changelog_visto < CHANGELOG_VERSION`, muestra un modal con la lista (mismo estilo
+  que la tarjeta "Sobre Lumix" de Perfil); al cerrarlo, actualiza el campo en la base para que
+  no vuelva a aparecer.
+- Contenido de la versión 1: tema claro, Proyectos, grupos de trabajo, Minuta con subtareas,
+  ayuda en el chat — el resumen de lo más visible de esta sesión.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. Verificado contra la base real que la columna
+quedó en 0 para los usuarios existentes (van a ver el aviso la próxima vez que entren).
+**Pendiente:** confirmación visual de Sebastián, y **todavía no se publicó nada** — la
+migración ya corrió contra la base real (es lo mismo de siempre en este proyecto, comparte
+base con producción), pero el código sigue solo en commits locales.
 
 ---
 

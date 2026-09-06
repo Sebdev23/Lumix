@@ -304,6 +304,16 @@ export function ProfilePage() {
                 desc: 'Crea, asigna y gestiona tareas con lenguaje natural',
               },
               {
+                icon: '🗓️',
+                title: 'Minuta',
+                desc: 'Dicta temas para la reunion semanal, con subtareas',
+              },
+              {
+                icon: '🚀',
+                title: 'Proyectos',
+                desc: 'Inicia iniciativas de varias semanas, con Lista/Tablero/Cronograma',
+              },
+              {
                 icon: '🐛',
                 title: 'Bitacora',
                 desc: 'Registra errores con severidad detectada automaticamente',

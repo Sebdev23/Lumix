@@ -55,6 +55,25 @@ const ACUSE_RE =
 const DESHACER_RE =
   /^(deshaz|deshacer|deshacelo|deshazlo|b[oó]rra(la|lo)|elimina(la|lo)?|elim[ií]n(ala|alo)|cancela(la|lo)?|cancél(ala|alo)|no era (eso|esa|ese)|me equivoqu[eé]|equivocado|mal)(\s+(eso|esa|ese|esto|la|lo))?[\s.!]*$/i
 
+// "Ayuda": el tip de Perfil ("Escribi ayuda en el chat...") prometia esto pero nunca se habia
+// implementado -el mensaje caia en la clasificacion normal de la IA y creaba una actividad
+// rara titulada "ayuda" (bug real reportado). Exige que sea la frase completa y corta -"ayuda"
+// dentro de una oracion larga es otra cosa ("necesito ayuda con el pedido de mañana").
+const AYUDA_RE = /^(ayuda|help|que puedes hacer|qué puedes hacer)[\s?.!]*$/i
+
+const MENSAJE_AYUDA = `Esto es lo que podes escribirme, en lenguaje natural:
+
+📋 Actividades — "Revisar el pedido de mañana, para Juan"
+🗓️ Minuta — "Agrega a la minuta: revisar capacidad de planta"
+🚀 Proyectos — "Crea un proyecto Gobernar el Infull, primer punto revisar quien carga el pedido"
+🐛 Errores — "Se cayó el reporte de ventas, es urgente"
+📦 Modo masivo — pega una lista de varias actividades de una vez
+✏️ Cambios — respondiendo un mensaje: "cambiale la fecha al viernes", "reasignala a Pedro", "márcala completa"
+🗑️ Deshacer — "bórrala" (respondiendo) o "deshacer" (lo último que creaste)
+💬 Consultas — "¿cuántas actividades tiene Juan pendientes?"
+
+Tocá el selector de arriba (Auto/Actividad/Error/...) si querés forzar un tipo en vez de dejar que la IA lo adivine.`
+
 // Cuando un mensaje habla de "lo ultimo" sin nombrarlo.
 //
 // El primer intento fue detectar pronombres con una expresion regular y fallo en los dos
@@ -2342,6 +2361,15 @@ export function useChatMessages() {
     const isAutoMode = !forcedType || forcedType === 'auto'
 
     try {
+      // AYUDA: va antes que todo lo demas, incluso una respuesta citada -si alguien escribe
+      // "ayuda" respondiendo cualquier mensaje, sigue queriendo el resumen, no un intento de
+      // "actualizar" lo citado con la palabra "ayuda".
+      if (AYUDA_RE.test(content)) {
+        await aiSay(MENSAJE_AYUDA)
+        setAiProcessing(false)
+        return
+      }
+
       // RESPUESTA A UN MENSAJE: si se sabe de que actividad habla el mensaje citado, no hay
       // nada que adivinar. Se salta la lista, el targetIndex y el popout de "¿a cual te
       // refieres?": la IA solo tiene que leer que cambio se pide. Ver migracion 032.
