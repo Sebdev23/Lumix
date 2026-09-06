@@ -1205,9 +1205,51 @@ a propósito).
 
 `npm run build`/`tsc --noEmit`/`eslint` limpios. Verificado contra la base real que la columna
 quedó en 0 para los usuarios existentes (van a ver el aviso la próxima vez que entren).
-**Pendiente:** confirmación visual de Sebastián, y **todavía no se publicó nada** — la
-migración ya corrió contra la base real (es lo mismo de siempre en este proyecto, comparte
-base con producción), pero el código sigue solo en commits locales.
+**Publicado** (Sebastián pidió pasar todo a producción): `git push origin main` (5 commits) +
+deploy de la función `ai-update` a Supabase (había cambiado esta sesión, no la toca el push).
+
+---
+
+## Bugs reales de mobile, probados en celular real ✅ HECHO
+
+Sebastián probó en un celular real (no solo en el navegador de escritorio) y encontró 2 bugs:
+
+### Botón enviar tapado por el teclado en el chat
+
+El layout usaba `100dvh` (`AppLayout.tsx`) — una unidad pensada para cuando la barra de
+direcciones del navegador aparece/desaparece, no para el teclado en pantalla. En Safari/iOS en
+particular, el teclado se superpone por ENCIMA del layout sin que este se achique, así que el
+último tramo (donde vive el input y el botón enviar) queda literalmente detrás del teclado. El
+zoom manual "arreglaba" el síntoma porque fuerza a Safari a recalcular el viewport visual, no
+porque el layout estuviera resuelto de verdad.
+
+**Corregido:** nuevo hook `useAppHeight` (`src/shared/hooks/useAppHeight.ts`) que mide el alto
+real disponible con `window.visualViewport` (sí descuenta el teclado, a diferencia de `dvh`) y
+lo fija en una variable CSS (`--app-height`) que `AppLayout.tsx` usa en vez de la clase `h-dvh`.
+Se actualiza solo con cada cambio del teclado/rotación, sin depender de que la persona haga zoom.
+
+### El chip "Proyecto" del chat quedaba fuera de vista
+
+El selector de tipo de mensaje (Auto/Actividad/.../Proyecto, hasta 7 chips) ya tenía scroll
+horizontal desde un fix anterior (Fase 10), pero sin ningún mecanismo que llevara el chip
+elegido a la vista — "Proyecto", al ser el último de la lista, quedaba fuera de pantalla en un
+celular angosto sin ningún aviso de que hacía falta scrollear para verlo.
+
+**Corregido:** `ChatPage.tsx` guarda una referencia al chip activo y, con un `useEffect` sobre
+`messageType`, lo desplaza a la vista (`scrollIntoView`) cada vez que cambia — sin scrollear en
+cada render, solo cuando la selección realmente cambia.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián en el
+celular real donde encontró los bugs — no hay forma de probar esto sin un dispositivo físico en
+esta sesión.
+
+### Bottom nav: 2 atajos más
+
+Sebastián preguntó si los 4 atajos de la barra inferior (Chat/Actividades/Minuta/Panel) eran
+todo lo que había o si faltaba algo — se confirmó que es un diseño a propósito (accesos
+rápidos que complementan el menú hamburguesa completo, no lo reemplazan), y pidió sumar
+Proyectos y Compromisos. `navItems.tsx`: `bottomNavItems` pasó de 4 a 6 accesos (reusando los
+mismos íconos que ya tenía el menú completo, `FolderIcon`/`CheckCircleIcon`).
 
 ---
 

@@ -197,5 +197,12 @@ export const bottomNavItems: NavItem[] = [
   { to: '/chat', label: 'Chat', icon: ChatIcon },
   { to: '/activities', label: 'Activ.', icon: ListIcon, capability: 'modulos.actividades' },
   { to: '/minuta', label: 'Minuta', icon: ClipboardIcon, capability: 'modulos.minuta' },
+  { to: '/proyectos', label: 'Proy.', icon: FolderIcon, capability: 'modulos.proyectos' },
+  {
+    to: '/compromisos',
+    label: 'Compr.',
+    icon: CheckCircleIcon,
+    capability: 'modulos.compromisos',
+  },
   { to: '/dashboard', label: 'Panel', icon: ChartIcon, capability: 'modulos.dashboard' },
 ]

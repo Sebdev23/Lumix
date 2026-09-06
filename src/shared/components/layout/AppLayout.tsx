@@ -3,6 +3,7 @@ import { Outlet, useLocation } from 'react-router-dom'
 import { Sidebar } from './Sidebar'
 import { BottomNav } from './BottomNav'
 import { NovedadesModal } from '@shared/components/ui/NovedadesModal'
+import { useAppHeight } from '@shared/hooks/useAppHeight'
 
 export function AppLayout() {
   const [sidebarOpen, setSidebarOpen] = useState(false)
@@ -12,9 +13,10 @@ export function AppLayout() {
   // el celular (con el teclado abierto) eso terminaba empujando el boton fuera del area
   // visible. Las demas rutas mantienen el BottomNav como siempre.
   const ocultarBottomNav = location.pathname.startsWith('/chat')
+  useAppHeight()
 
   return (
-    <div className="flex h-dvh bg-shell text-fg">
+    <div className="flex bg-shell text-fg" style={{ height: 'var(--app-height, 100dvh)' }}>
       <NovedadesModal />
       {/* Mobile overlay */}
       {sidebarOpen && (

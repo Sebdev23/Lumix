@@ -139,9 +139,21 @@ export function ChatPage() {
   const toast = useToast()
   const scrollRef = useRef<HTMLDivElement>(null)
   const inputRef = useRef<HTMLTextAreaElement>(null)
+  // El chip activo (ej. "Proyecto", el ultimo de la fila) se desplaza a la vista solo al
+  // elegirse -sin esto quedaba fuera de la pantalla en un celular angosto, sin ningun aviso
+  // de que habia que scrollear para verlo (bug real reportado por Sebastian).
+  const activeChipRef = useRef<HTMLButtonElement>(null)
 
   const { user, profile } = useAuth()
   const teamId = profile?.team_id ?? ''
+
+  useEffect(() => {
+    activeChipRef.current?.scrollIntoView({
+      behavior: 'smooth',
+      inline: 'nearest',
+      block: 'nearest',
+    })
+  }, [messageType])
 
   useEffect(() => {
     if (teamId) teamsService.getById(teamId).then((t) => setTeamName(t?.name || ''))
@@ -640,13 +652,15 @@ export function ChatPage() {
           <div className="max-w-3xl mx-auto">
             {/* Type selector: puede haber hasta 7 chips (con Minuta/Proyecto visibles) que no
                 siempre caben en una pantalla angosta; con overflow-x-auto se desplazan en vez de
-                cortarse sin aviso. */}
+                cortarse sin aviso. "Proyecto" es el ultimo de la lista: sin el scrollIntoView de
+                abajo quedaba fuera de vista al elegirlo (bug real reportado por Sebastian). */}
             <div className="flex gap-1 mb-2 overflow-x-auto flex-nowrap">
               {(['auto', 'actividad', 'error', 'ingesta', 'masivo', 'minuta', 'proyecto'] as const)
                 .filter((t) => (t !== 'minuta' && t !== 'proyecto') || canManageMinuta)
                 .map((t) => (
                   <button
                     key={t}
+                    ref={messageType === t ? activeChipRef : undefined}
                     onClick={() => setMessageType(t)}
                     className={`px-2.5 py-1 rounded-lg text-[10px] font-medium transition-colors flex-shrink-0 ${
                       messageType === t
