@@ -1003,7 +1003,7 @@ siempre).
 
 ---
 
-## Fase 11 — Idea a definir: "focos" de equipo (agrupar personas) + orden configurable (sin ejecutar)
+## Fase 11 — "Grupos de trabajo" (foco) por equipo: filtro en Minuta/Actividades ✅ HECHO
 
 Sebastián transmitió feedback de usuarios: un equipo puede tener distintos **focos** internos
 (sus ejemplos: "excelencia", "productividad", "entrenamiento"), y a la jefatura le gustaría ver
@@ -1089,8 +1089,41 @@ antes de empezar.
 foco (no agrupamiento visual) tanto en Minuta como en Actividades, visible solo para jefatura —
 descarta la parte más compleja de agrupar Compromisos por foco (punto 3 de la recomendación de
 arriba, que queda descartado) y confirma el punto 4 (filtro en Minuta) extendido también a
-Actividades. Sigue sin ejecutar: falta resolver igual las preguntas de catálogo vs. texto libre,
-y si "grupo de trabajo" (mencionado para el orden de Actividades) es lo mismo que "foco".
+Actividades. Y resolvió las 2 preguntas pendientes: **"foco" y "grupo de trabajo" son el mismo
+concepto**, y **la jefatura los crea y asigna** (catálogo por equipo, no texto libre).
+
+### Implementado ✅ HECHO
+
+**Migración 043** (`grupos_trabajo`): tabla nueva por equipo (`team_id`, `nombre`, único por
+equipo), columna `grupo_id` en `team_members` (`ON DELETE SET NULL`: borrar un grupo no borra a
+nadie, solo lo deja "sin grupo"). RLS reusa los helpers ya probados (`is_team_manager` para
+crear/editar/borrar, `es_miembro_del_equipo` para que cualquiera del equipo pueda leer el
+catálogo y usarlo en el filtro) — nada de policies nuevas raras. Asignar el grupo a una persona
+es un `UPDATE` de `team_members`, ya gobernado por la policy de la migración 021: no hizo falta
+tocar RLS para eso.
+
+- **Gestión** (`TeamsPage.tsx`): nueva sección "Grupos de trabajo" (solo jefatura/admin del
+  equipo) con chips + input para crear, y un ✕ para borrar cada uno. Por cada miembro, un
+  `<select>` "Grupo" junto al de rol (solo aparece si el equipo ya tiene al menos un grupo
+  creado, para no ensuciar la UI de un equipo que no lo usa).
+- **Filtro en Actividades** (`useActivities.ts`/`ActivitiesPage.tsx`): nuevo `<select>` "Grupo",
+  visible solo si `isManager` (ya usado para el filtro de responsable) y hay un equipo
+  específico elegido (el grupo es un catálogo por equipo, no tiene sentido con "todos los
+  equipos" a la vez). Se resuelve con una consulta chica (`getGrupos` + `getMembers` del equipo
+  elegido) que arma un mapa `usuario → grupo`, y filtra el arreglo ya cargado en memoria — sin
+  tocar el resto de filtros existentes.
+- **Filtro en Minuta** (`useMinuta.ts`/`MinutaPage.tsx`): mismo patrón, resuelto contra el equipo
+  activo (`profile.team_id`). Visible solo si el rol en el equipo activo es jefatura/admin (o
+  admin global) — a diferencia de Actividades, acá se gateó por rol y no por una capability,
+  porque es explícitamente "una herramienta de supervisión", no algo graduable con permisos.
+
+**Probado contra RLS real** (Equipo Prueba, datos de prueba limpiados al terminar): se creó un
+grupo "Excelencia (prueba)", se asignó a un colaborador (`UPDATE team_members`), se confirmó que
+el mapeo queda como se espera, y al borrar el grupo el colaborador quedó "sin grupo" solo
+(`ON DELETE SET NULL` funcionando), sin tocar nada más de su membresía.
+
+`npm run build`, `tsc --noEmit` y `eslint` limpios (0 errores, mismos warnings preexistentes de
+siempre). **Pendiente:** confirmación visual de Sebastián — no hay navegador en esta sesión.
 
 ---
 

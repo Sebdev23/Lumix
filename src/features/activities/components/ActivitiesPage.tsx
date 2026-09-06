@@ -65,6 +65,9 @@ export function ActivitiesPage() {
     setFilterTeam,
     filterMember,
     setFilterMember,
+    filterGrupo,
+    setFilterGrupo,
+    gruposDisponibles,
     dateType,
     setDateType,
     dateFrom,
@@ -482,6 +485,22 @@ export function ActivitiesPage() {
             {members.map((m) => (
               <option key={m.id} value={m.id}>
                 {m.full_name}
+              </option>
+            ))}
+          </select>
+        )}
+        {/* Grupo de trabajo (alias "foco"): solo tiene sentido con UN equipo elegido, ya
+            que el grupo es un catalogo por equipo (migracion 043). */}
+        {isManager && filterTeam !== 'todas' && gruposDisponibles.length > 0 && (
+          <select
+            value={filterGrupo}
+            onChange={(e) => setFilterGrupo(e.target.value)}
+            className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          >
+            <option value="todas">Cualquier grupo</option>
+            {gruposDisponibles.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.nombre}
               </option>
             ))}
           </select>

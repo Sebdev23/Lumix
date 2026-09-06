@@ -2,7 +2,7 @@ import { useState, useEffect, useCallback, useRef } from 'react'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
-import { teamsService } from '@infrastructure/supabase/teams.service'
+import { teamsService, type GrupoTrabajo } from '@infrastructure/supabase/teams.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { parseDateLocal } from '@shared/utils/date'
 import { useToast } from '@shared/components/ui/Toast'
@@ -31,6 +31,9 @@ export function useActivities() {
   // Lo que cambia es cual es el punto de partida.
   const [filterTeam, setFilterTeam] = useState<string>('todas')
   const [filterMember, setFilterMember] = useState<string>('todas')
+  const [filterGrupo, setFilterGrupo] = useState<string>('todas')
+  const [gruposDisponibles, setGruposDisponibles] = useState<GrupoTrabajo[]>([])
+  const [grupoPorUsuario, setGrupoPorUsuario] = useState<Record<string, string | null>>({})
   const [search, setSearch] = useState('')
   const { user, profile } = useAuth()
   const toast = useToast()
@@ -82,6 +85,34 @@ export function useActivities() {
     load()
   }, [user, load])
 
+  // Grupos de trabajo (alias "foco", migracion 043) del equipo elegido: solo tiene sentido
+  // resolverlos cuando hay UN equipo especifico seleccionado (el grupo es un concepto por
+  // equipo). Si se vuelve a "todas", se limpia para no dejar un filtro fantasma aplicado.
+  useEffect(() => {
+    if (filterTeam === 'todas') {
+      // eslint-disable-next-line react-hooks/set-state-in-effect
+      setGruposDisponibles([])
+      setGrupoPorUsuario({})
+      setFilterGrupo('todas')
+      return
+    }
+    let cancelled = false
+    Promise.all([teamsService.getGrupos(filterTeam), teamsService.getMembers(filterTeam)]).then(
+      ([grupos, miembros]) => {
+        if (cancelled) return
+        setGruposDisponibles(grupos)
+        const map: Record<string, string | null> = {}
+        miembros.forEach((m) => {
+          map[m.user_id] = m.grupo_id ?? null
+        })
+        setGrupoPorUsuario(map)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [filterTeam])
+
   const isManager = managedIds.length > 0
 
   let filtered = activities
@@ -103,6 +134,12 @@ export function useActivities() {
   if (filterMember !== 'todas') {
     filtered = filtered.filter((a) => a.responsible_id === filterMember)
     countBase = countBase.filter((a) => a.responsible_id === filterMember)
+  }
+
+  if (filterGrupo !== 'todas') {
+    const enGrupo = (a: Activity) => (grupoPorUsuario[a.responsible_id] ?? null) === filterGrupo
+    filtered = filtered.filter(enGrupo)
+    countBase = countBase.filter(enGrupo)
   }
 
   if (dateFrom && dateTo) {
@@ -225,6 +262,9 @@ export function useActivities() {
     setFilterTeam,
     filterMember,
     setFilterMember,
+    filterGrupo,
+    setFilterGrupo,
+    gruposDisponibles,
     search,
     setSearch,
     dateType,

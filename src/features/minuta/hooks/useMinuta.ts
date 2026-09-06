@@ -3,6 +3,7 @@ import { minutesService } from '@infrastructure/supabase/minutes.service'
 import { activitiesService } from '@infrastructure/supabase/activities.service'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { notificationsService } from '@infrastructure/supabase/notifications.service'
+import { teamsService, type GrupoTrabajo } from '@infrastructure/supabase/teams.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { formatDateLocal } from '@shared/utils/date'
@@ -60,6 +61,9 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
   const [loading, setLoading] = useState(true)
   const [view, setView] = useState<'pendientes' | 'asignados' | 'resueltos' | 'todos'>('pendientes')
   const [filterMember, setFilterMember] = useState<string>('todas')
+  const [filterGrupo, setFilterGrupo] = useState<string>('todas')
+  const [gruposDisponibles, setGruposDisponibles] = useState<GrupoTrabajo[]>([])
+  const [grupoPorUsuario, setGrupoPorUsuario] = useState<Record<string, string | null>>({})
   const [search, setSearch] = useState('')
   const [weekMode, setWeekMode] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0) // 0 = semana actual, -1 = anterior, etc.
@@ -84,6 +88,27 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     setActivitiesById(Object.fromEntries(acts.map((a) => [a.id, a])))
     setLoading(false)
   }, [teamId, tipo])
+
+  // Grupos de trabajo (alias "foco", migracion 043): filtro por equipo, solo lo usa jefatura
+  // -la UI decide si mostrar el selector, aca solo se resuelven los datos-.
+  useEffect(() => {
+    if (!teamId) return
+    let cancelled = false
+    Promise.all([teamsService.getGrupos(teamId), teamsService.getMembers(teamId)]).then(
+      ([grupos, miembros]) => {
+        if (cancelled) return
+        setGruposDisponibles(grupos)
+        const map: Record<string, string | null> = {}
+        miembros.forEach((m) => {
+          map[m.user_id] = m.grupo_id ?? null
+        })
+        setGrupoPorUsuario(map)
+      },
+    )
+    return () => {
+      cancelled = true
+    }
+  }, [teamId])
 
   useEffect(() => {
     if (!user || !teamId) return
@@ -160,6 +185,8 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
   const base = decorated.filter((it) => {
     if (it.parent_item_id) return false
     if (filterMember !== 'todas' && !it.responsables.includes(filterMember)) return false
+    if (filterGrupo !== 'todas' && !it.responsables.some((r) => grupoPorUsuario[r] === filterGrupo))
+      return false
     if (q && !`${it.tema} ${it.comentarios}`.toLowerCase().includes(q)) return false
     if (weekMode && !hadActivityInWeek(it)) return false
     return true
@@ -420,6 +447,9 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     setView,
     filterMember,
     setFilterMember,
+    filterGrupo,
+    setFilterGrupo,
+    gruposDisponibles,
     search,
     setSearch,
     weekMode,

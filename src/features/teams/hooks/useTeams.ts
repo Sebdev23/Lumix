@@ -1,5 +1,5 @@
 import { useState, useEffect } from 'react'
-import { teamsService } from '@infrastructure/supabase/teams.service'
+import { teamsService, type GrupoTrabajo } from '@infrastructure/supabase/teams.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 
 interface Team {
@@ -16,6 +16,7 @@ interface Member {
   user_id: string
   role: string
   permissions?: Record<string, boolean>
+  grupo_id?: string | null
   profile: { full_name: string; email: string }
 }
 
@@ -98,6 +99,11 @@ export function useTeamMembers(teamId: string) {
     setMembers(await teamsService.getMembers(teamId))
   }
 
+  const changeGrupo = async (userId: string, grupoId: string | null) => {
+    await teamsService.assignGrupo(teamId, userId, grupoId)
+    setMembers(await teamsService.getMembers(teamId))
+  }
+
   return {
     members,
     loading,
@@ -105,9 +111,50 @@ export function useTeamMembers(teamId: string) {
     removeMember,
     changeRole,
     updatePermissions,
+    changeGrupo,
     reload: async () => {
       const data = await teamsService.getMembers(teamId)
       setMembers(data)
     },
   }
+}
+
+// Grupos de trabajo (alias "foco") de un equipo: catalogo que crea/borra jefatura, usado
+// para asignar personas (aqui) y para filtrar en Minuta/Actividades (donde solo se lee).
+export function useGruposTrabajo(teamId: string) {
+  const [grupos, setGrupos] = useState<GrupoTrabajo[]>([])
+  const [loading, setLoading] = useState(true)
+  const { user } = useAuth()
+
+  const reload = async () => {
+    if (!teamId) return
+    setGrupos(await teamsService.getGrupos(teamId))
+  }
+
+  useEffect(() => {
+    if (!teamId) return
+    let cancelled = false
+    teamsService.getGrupos(teamId).then((data) => {
+      if (!cancelled) {
+        setGrupos(data)
+        setLoading(false)
+      }
+    })
+    return () => {
+      cancelled = true
+    }
+  }, [teamId])
+
+  const crearGrupo = async (nombre: string) => {
+    if (!user || !nombre.trim()) return
+    await teamsService.createGrupo(teamId, nombre, user.id)
+    await reload()
+  }
+
+  const eliminarGrupo = async (grupoId: string) => {
+    await teamsService.deleteGrupo(grupoId)
+    await reload()
+  }
+
+  return { grupos, loading, crearGrupo, eliminarGrupo, reload }
 }

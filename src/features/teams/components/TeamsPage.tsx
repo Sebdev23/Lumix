@@ -8,7 +8,7 @@ import { Avatar } from '@shared/components/ui/Avatar'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { CAPABILITIES, ROLE_DEFAULTS } from '@core/auth/capabilities'
-import { useTeams, useTeamMembers } from '@features/teams/hooks/useTeams'
+import { useTeams, useTeamMembers, useGruposTrabajo } from '@features/teams/hooks/useTeams'
 import { teamsService } from '@infrastructure/supabase/teams.service'
 
 const MEMBER_ROLES = ['jefatura', 'colaborador', 'invitado']
@@ -29,7 +29,10 @@ export function TeamsPage() {
     removeMember,
     changeRole,
     updatePermissions,
+    changeGrupo,
   } = useTeamMembers(selectedTeam ?? '')
+  const { grupos, crearGrupo, eliminarGrupo } = useGruposTrabajo(selectedTeam ?? '')
+  const [nuevoGrupo, setNuevoGrupo] = useState('')
   const [inviteEmail, setInviteEmail] = useState('')
   // Umbral del equipo seleccionado. Se guarda al instante y se refleja al tiro; si la base
   // lo rechaza se revierte, para que el control nunca muestre algo que no quedo guardado.
@@ -160,6 +163,60 @@ export function TeamsPage() {
                     </div>
                   )}
 
+                  {/* Grupos de trabajo (alias "foco"): catalogo por equipo, solo jefatura los
+                      crea/borra. Sirven para filtrar en Minuta/Actividades. */}
+                  {canManageThis && (
+                    <div className="mb-4 pb-3 border-b border-border-strong/60">
+                      <h4 className="text-xs font-medium text-fg-faint mb-2">Grupos de trabajo</h4>
+                      <div className="flex flex-wrap gap-1.5 mb-2">
+                        {grupos.length === 0 && (
+                          <p className="text-[11px] text-slate-500">
+                            Sin grupos todavía — crea uno para poder asignarlo a las personas.
+                          </p>
+                        )}
+                        {grupos.map((g) => (
+                          <span
+                            key={g.id}
+                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface text-[11px] text-fg-body"
+                          >
+                            {g.nombre}
+                            <button
+                              onClick={() => eliminarGrupo(g.id)}
+                              title="Eliminar grupo"
+                              className="text-slate-500 hover:text-red-400 light:hover:text-red-600"
+                            >
+                              ✕
+                            </button>
+                          </span>
+                        ))}
+                      </div>
+                      <div className="flex gap-2">
+                        <input
+                          value={nuevoGrupo}
+                          onChange={(e) => setNuevoGrupo(e.target.value)}
+                          onKeyDown={(e) => {
+                            if (e.key === 'Enter' && nuevoGrupo.trim()) {
+                              crearGrupo(nuevoGrupo)
+                              setNuevoGrupo('')
+                            }
+                          }}
+                          placeholder="Nuevo grupo (ej: Excelencia)"
+                          className="flex-1 text-xs rounded-lg border border-border-strong bg-surface px-3 py-1.5 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                        />
+                        <Button
+                          size="sm"
+                          onClick={() => {
+                            crearGrupo(nuevoGrupo)
+                            setNuevoGrupo('')
+                          }}
+                          disabled={!nuevoGrupo.trim()}
+                        >
+                          + Grupo
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+
                   <h4 className="text-xs font-medium text-fg-faint mb-3">Miembros</h4>
 
                   {membersLoading ? (
@@ -215,6 +272,25 @@ export function TeamsPage() {
                                   )}
                               </div>
                             </div>
+
+                            {/* Grupo de trabajo: solo si el equipo ya tiene alguno creado. */}
+                            {canManageThis && grupos.length > 0 && (
+                              <div className="flex items-center gap-1.5 text-[11px]">
+                                <span className="text-slate-500">Grupo:</span>
+                                <select
+                                  value={m.grupo_id ?? ''}
+                                  onChange={(e) => changeGrupo(m.user_id, e.target.value || null)}
+                                  className="rounded border border-border-strong bg-surface px-1.5 py-1 text-[11px] text-fg-body"
+                                >
+                                  <option value="">Sin grupo</option>
+                                  {grupos.map((g) => (
+                                    <option key={g.id} value={g.id}>
+                                      {g.nombre}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+                            )}
 
                             {/* Permisos por flag (los que ya trae el rol van marcados y bloqueados) */}
                             {canManageThis && (

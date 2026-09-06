@@ -17,7 +17,14 @@ interface TeamMember {
   user_id: string
   role: string
   permissions?: Record<string, boolean>
+  grupo_id?: string | null
   joined_at: string
+}
+
+export interface GrupoTrabajo {
+  id: string
+  team_id: string
+  nombre: string
 }
 
 export const teamsService = {
@@ -131,6 +138,41 @@ export const teamsService = {
     const { error } = await supabase
       .from('team_members')
       .delete()
+      .eq('team_id', teamId)
+      .eq('user_id', userId)
+    if (error) throw error
+  },
+
+  // Grupos de trabajo (alias "foco"): catalogo por equipo, lo crea/asigna jefatura.
+  async getGrupos(teamId: string): Promise<GrupoTrabajo[]> {
+    const { data, error } = await supabase
+      .from('grupos_trabajo')
+      .select('id, team_id, nombre')
+      .eq('team_id', teamId)
+      .order('nombre')
+    if (error) throw error
+    return data ?? []
+  },
+
+  async createGrupo(teamId: string, nombre: string, createdBy: string): Promise<GrupoTrabajo> {
+    const { data, error } = await supabase
+      .from('grupos_trabajo')
+      .insert({ team_id: teamId, nombre: nombre.trim(), created_by: createdBy })
+      .select('id, team_id, nombre')
+      .single()
+    if (error) throw error
+    return data
+  },
+
+  async deleteGrupo(grupoId: string): Promise<void> {
+    const { error } = await supabase.from('grupos_trabajo').delete().eq('id', grupoId)
+    if (error) throw error
+  },
+
+  async assignGrupo(teamId: string, userId: string, grupoId: string | null): Promise<void> {
+    const { error } = await supabase
+      .from('team_members')
+      .update({ grupo_id: grupoId })
       .eq('team_id', teamId)
       .eq('user_id', userId)
     if (error) throw error

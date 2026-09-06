@@ -1,4 +1,5 @@
 import { useState } from 'react'
+import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
@@ -356,6 +357,9 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
     setView,
     filterMember,
     setFilterMember,
+    filterGrupo,
+    setFilterGrupo,
+    gruposDisponibles,
     search,
     setSearch,
     weekMode,
@@ -373,6 +377,10 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
     removeItem,
     createActivitiesFromItem,
   } = useMinuta(tipo)
+  // El filtro de grupo de trabajo (alias "foco") es solo para jefatura -es una herramienta
+  // de supervision, no algo que un colaborador necesite para ver su propia minuta.
+  const { role, isGlobalAdmin } = useCapabilities()
+  const esJefe = isGlobalAdmin || role === 'jefatura' || role === 'admin'
 
   const [cargaMasiva, setCargaMasiva] = useState(false)
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null)
@@ -545,6 +553,21 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
             </option>
           ))}
         </select>
+
+        {esJefe && gruposDisponibles.length > 0 && (
+          <select
+            value={filterGrupo}
+            onChange={(e) => setFilterGrupo(e.target.value)}
+            className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+          >
+            <option value="todas">Cualquier grupo</option>
+            {gruposDisponibles.map((g) => (
+              <option key={g.id} value={g.id}>
+                {g.nombre}
+              </option>
+            ))}
+          </select>
+        )}
 
         <div className="relative flex-1 min-w-[150px] max-w-xs">
           <svg
