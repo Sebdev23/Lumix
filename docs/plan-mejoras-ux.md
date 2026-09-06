@@ -1266,6 +1266,23 @@ actualizado el 06-09-2026".
 
 `npm run build`/`tsc --noEmit`/`eslint` limpios.
 
+### El texto del chat se perdía de vista mientras se escribía
+
+Sebastián probó de nuevo y avisó que, resuelto el desborde del botón, quedaba un problema
+más chico: al escribir un mensaje de más de una línea, no se veía lo que se estaba tecleando.
+Causa: el `<textarea>` del chat tenía `rows={1}` fijo y nunca crecía — a diferencia de
+`EditableText` (tema/subtarea en Minuta), que sí crece con el contenido desde la Fase 7. Un
+mensaje de dos o tres líneas quedaba con scroll interno apenas visible dentro de una caja de
+una sola línea de alto.
+
+**Corregido:** mismo patrón que `EditableText` (medir `scrollHeight` y ajustar el alto), con un
+tope de ~6 líneas (160px) para que un texto largo pegado no se coma toda la pantalla — de ahí
+para arriba, scroll interno normal. Se achica solo de vuelta a una línea al enviar el mensaje
+(el mismo efecto corre cuando `input` vuelve a quedar vacío).
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián en el
+celular real.
+
 ### El chip "Proyecto" del chat quedaba fuera de vista
 
 El selector de tipo de mensaje (Auto/Actividad/.../Proyecto, hasta 7 chips) ya tenía scroll
