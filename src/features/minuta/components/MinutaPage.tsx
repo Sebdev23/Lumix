@@ -217,7 +217,7 @@ export function SubtareasPanel({
                 if (e.key === 'Escape') setAdding(false)
               }}
               placeholder="Nueva subtarea…"
-              className="flex-1 rounded border border-border-strong bg-surface px-2 py-1 text-[11px] text-fg-body"
+              className="flex-1 rounded border border-border-strong bg-surface px-2 py-1 text-base sm:text-[11px] text-fg-body"
             />
           </div>
         ) : (
@@ -587,7 +587,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar tema..."
-            className="w-full rounded-lg bg-surface border border-border-strong pl-8 pr-7 py-1.5 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="w-full rounded-lg bg-surface border border-border-strong pl-8 pr-7 py-1.5 text-base sm:text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           />
           {search && (
             <button

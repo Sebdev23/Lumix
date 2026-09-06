@@ -56,7 +56,7 @@ export function ProyectosPage() {
                 if (e.key === 'Escape') setCreando(false)
               }}
               placeholder="Nombre del proyecto…"
-              className="flex-1 rounded-lg border border-border-strong bg-surface px-3 py-2 text-sm text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              className="flex-1 rounded-lg border border-border-strong bg-surface px-3 py-2 text-base text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
             <Button size="sm" onClick={crear} disabled={!nuevo.trim()}>
               Crear

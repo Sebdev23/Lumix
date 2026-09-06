@@ -81,7 +81,11 @@ export function EditableText({
         rows={1}
         spellCheck={false}
         placeholder={placeholder}
-        className={`w-full resize-none overflow-hidden rounded border border-indigo-500/40 bg-field px-1.5 py-1 focus:outline-none focus:ring-1 focus:ring-indigo-500/60 ${textClassName}`}
+        // !text-base fuerza 16px SIEMPRE en el modo edicion (el !important gana sobre
+        // cualquier text-xs/sm que traiga textClassName, pensado para la vista de solo
+        // lectura) -Safari/iOS hace zoom automatico al enfocar un campo con letra menor a
+        // 16px, y este componente se usa en muchos lugares (tema, subtarea, comentarios).
+        className={`w-full resize-none overflow-hidden rounded border border-indigo-500/40 bg-field px-1.5 py-1 !text-base focus:outline-none focus:ring-1 focus:ring-indigo-500/60 ${textClassName}`}
       />
     )
   }

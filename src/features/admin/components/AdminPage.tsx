@@ -164,7 +164,7 @@ export function AdminPage() {
               value={newTeamName}
               onChange={(e) => setNewTeamName(e.target.value)}
               placeholder="Nombre del nuevo equipo"
-              className="flex-1 text-xs rounded-lg border border-border-strong bg-surface px-3 py-2 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+              className="flex-1 text-base sm:text-xs rounded-lg border border-border-strong bg-surface px-3 py-2 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
             />
             <Button size="sm" onClick={handleCreateTeam} disabled={!newTeamName.trim()}>
               + Equipo

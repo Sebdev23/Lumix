@@ -696,7 +696,10 @@ export function ChatPage() {
                     : 'Escribe un mensaje...'
                 }
                 rows={1}
-                className="flex-1 resize-none rounded-xl border border-border-strong bg-panel px-4 py-2.5 text-sm text-fg placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
+                // text-base (16px), no text-sm (14px): Safari/iOS hace zoom automatico al
+                // enfocar cualquier campo con letra menor a 16px -eso era la causa real del
+                // "zoom" y el boton desbordado que reporto Sebastian probando en el celular.
+                className="flex-1 resize-none rounded-xl border border-border-strong bg-panel px-4 py-2.5 text-base text-fg placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 focus:border-indigo-500"
               />
               <Button
                 size="sm"
@@ -862,7 +865,7 @@ export function ChatPage() {
                             onChange={(e) => setCustomDays(e.target.value)}
                             placeholder="dias"
                             autoFocus
-                            className="w-20 rounded-lg border border-border-strong bg-field px-3 py-2 text-sm text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-center"
+                            className="w-20 rounded-lg border border-border-strong bg-field px-3 py-2 text-base text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 text-center"
                           />
                           <span className="text-sm text-fg-faint">dias habiles</span>
                         </div>
@@ -1276,7 +1279,7 @@ export function ChatPage() {
                   value={editForm.description}
                   onChange={(e) => setEditForm((f) => ({ ...f, description: e.target.value }))}
                   rows={3}
-                  className="w-full resize-none rounded-lg border border-border-strong bg-field px-3 py-2 text-sm text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-3"
+                  className="w-full resize-none rounded-lg border border-border-strong bg-field px-3 py-2 text-base text-fg-body focus:outline-none focus:ring-2 focus:ring-indigo-500/50 mb-3"
                 />
 
                 <label className="block text-[11px] text-fg-faint mb-1">Prioridad</label>

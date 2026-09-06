@@ -201,7 +201,7 @@ export function TeamsPage() {
                             }
                           }}
                           placeholder="Nuevo grupo (ej: Excelencia)"
-                          className="flex-1 text-xs rounded-lg border border-border-strong bg-surface px-3 py-1.5 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                          className="flex-1 text-base sm:text-xs rounded-lg border border-border-strong bg-surface px-3 py-1.5 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                         />
                         <Button
                           size="sm"
@@ -343,7 +343,7 @@ export function TeamsPage() {
                         value={inviteEmail}
                         onChange={(e) => setInviteEmail(e.target.value)}
                         placeholder="Email para invitar..."
-                        className="flex-1 text-xs rounded-lg border border-border-strong bg-surface px-3 py-2 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
+                        className="flex-1 text-base sm:text-xs rounded-lg border border-border-strong bg-surface px-3 py-2 text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50"
                       />
                       <Button size="sm" onClick={handleInvite}>
                         Invitar

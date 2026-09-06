@@ -11,6 +11,7 @@ import { useTheme } from '@core/theme/ThemeContext'
 import { supabase } from '@infrastructure/supabase/client'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { normalizeFullName } from '@shared/utils/name'
+import { APP_VERSION, APP_VERSION_DATE } from '@shared/changelog'
 
 const EMOJI_OPTIONS = [
   '😀',
@@ -361,6 +362,9 @@ export function ProfilePage() {
               en el chat para ver ejemplos de todo lo que podes hacer.
             </p>
           </div>
+          <p className="text-[11px] text-slate-500 text-center mt-3">
+            Version {APP_VERSION} · actualizado el {APP_VERSION_DATE}
+          </p>
         </Card>
 
         {/* Cerrar sesion */}

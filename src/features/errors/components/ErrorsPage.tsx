@@ -237,7 +237,7 @@ export function ErrorsPage() {
             value={search}
             onChange={(e) => setSearch(e.target.value)}
             placeholder="Buscar error..."
-            className="w-full rounded-lg bg-surface border border-border-strong pl-8 pr-7 py-1.5 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            className="w-full rounded-lg bg-surface border border-border-strong pl-8 pr-7 py-1.5 text-base sm:text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
           />
           {search && (
             <button

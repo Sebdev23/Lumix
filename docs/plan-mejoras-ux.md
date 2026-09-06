@@ -1228,6 +1228,44 @@ real disponible con `window.visualViewport` (sí descuenta el teclado, a diferen
 lo fija en una variable CSS (`--app-height`) que `AppLayout.tsx` usa en vez de la clase `h-dvh`.
 Se actualiza solo con cada cambio del teclado/rotación, sin depender de que la persona haga zoom.
 
+**Actualización: seguía pasando — causa real distinta, encontrada y corregida.** Sebastián
+probó de nuevo y seguía viendo el botón desbordarse, describiéndolo como "hace zoom cuando
+escribo". Eso apuntó a una causa DISTINTA a la del `100dvh`/teclado de arriba: **Safari/iOS hace
+zoom automático al enfocar cualquier campo de texto con letra menor a 16px** — y el textarea del
+chat usaba `text-sm` (14px). Ese zoom (no el teclado tapando el layout) era el verdadero
+responsable de que el botón quedara fuera de pantalla.
+
+**Corregido** (`text-base`, 16px, en vez de `text-sm`/`text-xs`/`text-[11px]`) en el textarea del
+chat y, tras un barrido por toda la app buscando el mismo patrón, también en: el `Input`
+compartido (Login/Perfil), los buscadores de Actividades/Minuta/Ingestas/Bitácora, el campo de
+nueva subtarea en Minuta (`text-base sm:text-[11px]`, conserva el tamaño chico en escritorio), el
+nombre de nuevo Proyecto, crear grupo de trabajo e invitar por email en Equipos, el número de
+días de la alerta de sobrecarga, y el textarea de edición de actividad del chat. El componente
+compartido `EditableText` (tema/subtarea/comentarios en Minuta y Proyectos) fuerza `!text-base`
+en el modo edición sin importar qué tamaño traiga para la vista de solo lectura.
+
+Los `<input type="date">` (selectores de fecha nativos, angostos) se dejaron sin tocar a
+propósito: agrandar su letra arriesgaba desbordar su ancho fijo, y el riesgo de zoom ahí es
+menor (es un picker nativo, no texto tecleado).
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián en el
+celular real donde reportó el bug.
+
+Sebastián validó los dos fixes buscando en foros/documentación externa como referencia
+(16px+ en inputs es la solución estándar documentada para el zoom de iOS Safari, sin trucos de
+viewport que rompen accesibilidad; `visualViewport.resize` es el patrón recomendado para medir
+el alto real con el teclado abierto). Confirmado, no es una solución improvisada.
+
+### Número de versión visible en Perfil
+
+Sebastián pidió poder ver, de un vistazo, qué versión de Lumix tiene cargada y cuándo se
+actualizó por última vez. `src/shared/changelog.ts` suma `APP_VERSION` (derivado de
+`CHANGELOG_VERSION`, un solo lugar que actualizar en cada tanda de cambios) y
+`APP_VERSION_DATE`. Se muestra al pie de la tarjeta "Sobre Lumix" en Perfil: "Versión 1.1 ·
+actualizado el 06-09-2026".
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios.
+
 ### El chip "Proyecto" del chat quedaba fuera de vista
 
 El selector de tipo de mensaje (Auto/Actividad/.../Proyecto, hasta 7 chips) ya tenía scroll
