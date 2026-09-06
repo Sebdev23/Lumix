@@ -97,6 +97,20 @@
   --color-fg-faint: rgb(var(--fg-faint));
 }
 
+/* html/body FIJOS a toda la pantalla, sin poder scrollear ellos mismos: sin esto, el
+   documento entero queda scrolleable (aunque nunca se note en desktop), y en Safari/iOS
+   al enfocar el textarea del chat el navegador decide "traer el campo a la vista" scrolleando
+   el DOCUMENTO -no nuestros contenedores internos-, lo que se veia como que toda la pantalla
+   saltaba hacia arriba al escribir (bug real reportado por Sebastian). Con html/body fijos,
+   ese salto no tiene donde ocurrir: todo el scroll real pasa por los contenedores internos
+   (overflow-y-auto) que ya existen adentro de cada pantalla. */
+html,
+body {
+  height: 100%;
+  overflow: hidden;
+  overscroll-behavior: none;
+}
+
 body {
   margin: 0;
   background-color: rgb(var(--shell));
@@ -111,7 +125,7 @@ body {
 }
 
 #root {
-  min-height: 100dvh;
+  height: 100%;
 }
 
 /* Custom scrollbar */

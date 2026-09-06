@@ -3,7 +3,7 @@
 // cambios: subir CHANGELOG_VERSION en 1, actualizar APP_VERSION_DATE a la fecha de esa tanda, y
 // reemplazar CHANGELOG_ITEMS por los cambios de esa tanda (no se acumulan versiones viejas en la
 // lista, cada version muestra solo lo suyo).
-export const CHANGELOG_VERSION = 1
+export const CHANGELOG_VERSION = 2
 
 // Se muestra en Perfil (footer de "Sobre Lumix") para que cualquiera pueda confirmar, mirando
 // la pantalla, que version tiene cargada -util para saber si ya le llego una actualizacion.
@@ -18,28 +18,23 @@ export interface ChangelogItem {
 
 export const CHANGELOG_ITEMS: ChangelogItem[] = [
   {
-    icon: '☀️',
-    title: 'Tema claro',
-    desc: 'Elegi entre oscuro y claro desde tu Perfil. Se guarda por dispositivo.',
+    icon: '📱',
+    title: 'Chat mas estable en el celular',
+    desc: 'Ya no salta la pantalla ni hace zoom al escribir, y el texto crece con el mensaje.',
   },
   {
-    icon: '🚀',
-    title: 'Proyectos',
-    desc: 'Nueva hoja para iniciativas de varias semanas, con vista Lista, Tablero y Cronograma.',
+    icon: '🧭',
+    title: 'Mas accesos rapidos',
+    desc: 'Proyectos y Compromisos ya estan en la barra de abajo del celular.',
   },
   {
     icon: '👥',
-    title: 'Grupos de trabajo',
-    desc: 'La jefatura arma grupos (ej. "Excelencia") y puede filtrar Minuta, Actividades y Compromisos por grupo.',
+    title: 'Filtro de grupo corregido',
+    desc: 'Ahora funciona bien en Minuta, incluso en temas sin responsable propio.',
   },
   {
-    icon: '🗓️',
-    title: 'Minuta con subtareas',
-    desc: 'Los temas admiten un paso mas (subtarea), con edicion con lapiz y borrado.',
-  },
-  {
-    icon: '💬',
-    title: 'Ayuda en el chat',
-    desc: 'Escribi "ayuda" para ver ejemplos de todo lo que le podes pedir a Lumix.',
+    icon: '🔢',
+    title: 'Numero de version en Perfil',
+    desc: 'Al pie de "Sobre Lumix" para saber siempre que version tenes cargada.',
   },
 ]

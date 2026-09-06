@@ -1283,6 +1283,26 @@ para arriba, scroll interno normal. Se achica solo de vuelta a una línea al env
 `npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián en el
 celular real.
 
+### Aclaración: no era el textarea, era la PÁGINA la que saltaba al tope
+
+Sebastián aclaró qué quiso decir con "se pierde de vista lo que escribo": no era el cuadro de
+texto (eso ya se corrigió arriba, sigue siendo una mejora real), sino que **la pantalla entera
+se corría hacia el tope superior del teléfono** al escribir. Eso apunta a una causa más de
+fondo: `html`/`body` no tenían ningún límite de altura ni `overflow` fijado — el documento
+completo quedaba scrolleable (invisible en escritorio, donde nunca hace falta), y en
+Safari/iOS, al enfocar el textarea, el navegador decide por su cuenta "traer el campo a la
+vista" scrolleando el DOCUMENTO en vez de los contenedores internos que ya tiene la app — eso
+se sentía como que toda la pantalla saltaba.
+
+**Corregido** (`src/index.css`): `html`/`body` fijos a la altura de la pantalla
+(`height: 100%`, `overflow: hidden`, `overscroll-behavior: none`), así el documento en sí
+nunca puede scrollear — todo el scroll real sigue pasando por los contenedores internos
+(`overflow-y-auto`) que cada pantalla ya tiene. `#root` pasó de `min-height: 100dvh` a
+`height: 100%` para completar la cadena.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián en el
+celular real.
+
 ### El chip "Proyecto" del chat quedaba fuera de vista
 
 El selector de tipo de mensaje (Auto/Actividad/.../Proyecto, hasta 7 chips) ya tenía scroll
@@ -1342,6 +1362,37 @@ por defecto no tiene ancho propio) y el texto de trazabilidad debajo ("cambiada 
 fecha por subtareas"). Corregido agregando `min-w-[130px]` a Estado (para que quepa "Definir en
 reunion", la etiqueta más larga) y `min-w-[110px]` a Plazo (para el `DatePicker` + su texto de
 abajo). `npm run build`/`tsc --noEmit` limpios.
+
+---
+
+## Bug real: no se pueden agregar subtareas a un Proyecto respondiendo por chat (sin ejecutar)
+
+Sebastián preguntó si desde el chat se puede crear un proyecto con muchas subtareas de una
+sola vez. Investigando el código (sin tocar nada) se confirmó que **no** — hoy el chat solo
+puede crear como mucho UNA subtarea al crear el proyecto (el "primer punto", via
+`parseProyectoIntent()`), y se encontró un bug real en el camino:
+
+**El mensaje de confirmación miente.** Al crear un proyecto, Lumix responde _"Agrégale
+subtareas respondiendo este mensaje o desde Proyectos"_ (`useChatMessages.ts`, dentro de
+`createMinutaTopic`) — pero esa respuesta **no está conectada a nada**. El `aiSay(...)` que
+manda esa confirmación no adjunta ningún `metadata` con el id del proyecto creado, y el único
+mecanismo que existe para resolver una respuesta citada (`resolveRepliedActivityId`) solo sabe
+leer `metadata.activityId` de una ACTIVIDAD, no de un `minute_item`/proyecto. Si alguien
+responde ese mensaje como el texto invita a hacer, Lumix no reconoce a qué proyecto se refiere
+y lo trata como un mensaje suelto cualquiera.
+
+**Hoy, para varias subtareas, la única forma confiable es entrar a Proyectos** y agregarlas
+ahí una por una (sin límite, ya probado y funcionando).
+
+**Rumbo de arreglo (a confirmar con Sebastián antes de construir):** que el mensaje de
+confirmación del proyecto SÍ lleve el id del proyecto en su `metadata` (mismo patrón que ya
+usa `emitActivityCard`/`resolveRepliedActivityId` para actividades), y que `classifyAndAct`
+reconozca una respuesta a ESE mensaje como "agregar subtarea a este proyecto" en vez de
+clasificarlo como un mensaje nuevo — reusando el mismo `minutesService.create(...,
+parent_item_id: <id del proyecto>)` que ya usa el "primer punto".
+
+**Estado: solo anotado, sin ejecutar** — Sebastián pidió dejarlo registrado, falta que confirme
+si quiere que se construya.
 
 ---
 
