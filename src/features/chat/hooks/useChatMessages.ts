@@ -132,6 +132,27 @@ function parseProyectoIntent(content: string): { nombre: string; primerPunto: st
 const RECLASIFICAR_PROYECTO_RE =
   /\b(es\s+(un\s+|una\s+)?proyecto\b|(pasalo|p[aá]salo|conviertelo|convi[eé]rtelo|hazlo|creala|cr[eé]ala|crealo|cr[eé]alo)\s+(a\s+|como\s+)?proyecto)\b/i
 
+// Mismo caso que el de proyecto (arriba), pero para ingesta: "es una ingesta" respondiendo a
+// una actividad ya creada (caso real reportado: la actividad quedaba intacta y la IA contestaba
+// "no vi ningun cambio", porque el tipo no es uno de los campos que sabe actualizar).
+const RECLASIFICAR_INGESTA_RE =
+  /\b(es\s+(un\s+|una\s+)?ingesta\b|(pasalo|p[aá]salo|conviertelo|convi[eé]rtelo|hazlo|creala|cr[eé]ala|crealo|cr[eé]alo)\s+(a\s+|como\s+)?ingesta)\b/i
+
+// Mismo caso, ahora para error (a pedido de Sebastian, misma logica que proyecto/ingesta).
+const RECLASIFICAR_ERROR_RE =
+  /\b(es\s+(un\s+)?error\b|(pasalo|p[aá]salo|conviertelo|convi[eé]rtelo|hazlo|creala|cr[eé]ala|crealo|cr[eé]alo)\s+(a\s+|como\s+)?error)\b/i
+
+// Detecta un documento de minuta ya estructurado (secciones + viñetas), pegado entero en modo
+// Minuta/Proyecto -caso real reportado por Sebastian: alguien pega el acta completa de una
+// reunion grabada y Lumix la mete entera como UN solo tema, perdiendo toda la estructura.
+// Contar viñetas (no encabezados: varian mucho -numeros, emojis, mayusculas-, las viñetas son
+// la señal universal sin importar el formato de quien escribe el acta) alcanza para decidir si
+// vale la pena separar en varios temas en vez de uno solo.
+function contarVinetas(texto: string): number {
+  return texto.split('\n').filter((l) => /^[ \t]*[*\-•][ \t]+\S/.test(l)).length
+}
+const MINUTA_ESTRUCTURADA_MIN_VINETAS = 4
+
 // Primer filtro para el popout: si el texto MENCIONA la palabra "error" o "ingesta",
 // en modo Auto siempre preguntamos que tipo es (actividad / error / ingesta). Solo se salta
 // si el usuario ya eligio el tipo con el selector del chat (ahi es explicito y no hay duda).
@@ -913,17 +934,11 @@ export function useChatMessages() {
     senderId: string,
     confirmMessageId?: string,
   ) => {
-    try {
-      await activitiesService.remove(activityId)
-    } catch (err) {
-      console.error('Reclasificar a proyecto: no pude eliminar la actividad original:', err)
-      await aiSay(
-        'No pude convertir: no logre eliminar la actividad original (revisa tus permisos).',
-      )
-      return
-    }
-    if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a proyecto')
-    await createMinutaTopic(
+    // Primero se crea el proyecto y RECIEN si eso funciona se borra la actividad original.
+    // Antes era al reves: si la creacion fallaba (ej. permisos insuficientes sobre
+    // minute_items), la actividad ya estaba borrada y no quedaba nada en su lugar -perdida de
+    // datos real, reportada por Sebastian con el caso analogo de ingesta.
+    const creado = await createMinutaTopic(
       { tema, comentarios, plazo },
       [],
       senderId,
@@ -931,6 +946,152 @@ export function useChatMessages() {
       'proyecto',
       primerPunto,
     )
+    if (!creado) return
+    try {
+      await activitiesService.remove(activityId)
+    } catch (err) {
+      console.error('Reclasificar a proyecto: no pude eliminar la actividad original:', err)
+      await aiSay(
+        `Se creo el proyecto "${tema}", pero no pude eliminar la actividad original (revisa tus permisos): quedaron las dos.`,
+      )
+      if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a proyecto')
+      return
+    }
+    if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a proyecto')
+  }
+
+  /** Responder a una actividad con "es una ingesta"/"pasala a ingesta": pide confirmar la
+   * conversion (elimina la actividad, crea la solicitud de ingesta en su lugar). Caso real
+   * reportado por Sebastian: "Revisar la KSBC 1" creada como actividad, luego "es una
+   * ingesta" -la IA contestaba "no vi ningun cambio" porque el tipo no es un campo que sepa
+   * actualizar. */
+  const solicitarReclasificarIngesta = async (activityId: string) => {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) {
+      await aiSay('Esa actividad ya no existe.')
+      return
+    }
+    const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    if (activity.status !== 'pendiente') {
+      await aiSay(
+        `No puedo convertir "${title}" en solicitud de ingesta: ya esta "${statusLabels[activity.status] ?? activity.status}".`,
+      )
+      return
+    }
+    await aiSay(
+      `¿Convertir "${title}" en una solicitud de Ingesta? Se elimina la actividad y se crea la solicitud en su lugar.`,
+      null,
+      {
+        type: 'reclass_ingesta_confirm',
+        activityId: activity.id,
+        title,
+        comentarios: activity.description || title,
+        plazo: activity.due_date,
+        senderId: activity.created_by,
+      },
+    )
+  }
+
+  /** Confirmado desde el popout de reclass_ingesta_confirm (ChatPage). */
+  const confirmarReclasificarIngesta = async (
+    activityId: string,
+    title: string,
+    comentarios: string,
+    plazo: string | null,
+    senderId: string,
+    confirmMessageId?: string,
+  ) => {
+    // Primero se crea la solicitud y RECIEN si eso funciona se borra la actividad original
+    // (mismo orden que confirmarReclasificarProyecto, arreglado por el mismo motivo: caso
+    // real donde el insert en minute_items fallo por permisos y la actividad ya estaba
+    // borrada, sin nada que la reemplazara).
+    const creado = await createMinutaTopic(
+      { tema: title, comentarios, plazo },
+      [],
+      senderId,
+      undefined,
+      'ingesta',
+      null,
+      null,
+    )
+    if (!creado) return
+    try {
+      await activitiesService.remove(activityId)
+    } catch (err) {
+      console.error('Reclasificar a ingesta: no pude eliminar la actividad original:', err)
+      await aiSay(
+        `Se creo la solicitud de ingesta "${title}", pero no pude eliminar la actividad original (revisa tus permisos): quedaron las dos.`,
+      )
+      if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a ingesta')
+      return
+    }
+    if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a ingesta')
+  }
+
+  /** Responder a una actividad con "es un error"/"pasala a error": pide confirmar la
+   * conversion (crea el error en la bitacora, elimina la actividad original si funciona).
+   * Mismo patron que proyecto/ingesta, a pedido de Sebastian. */
+  const solicitarReclasificarError = async (activityId: string) => {
+    const activity = await activitiesService.getById(activityId)
+    if (!activity) {
+      await aiSay('Esa actividad ya no existe.')
+      return
+    }
+    const title = activity.title.replace(/^\[Ingesta\]\s*/, '')
+    if (activity.status !== 'pendiente') {
+      await aiSay(
+        `No puedo convertir "${title}" en error: ya esta "${statusLabels[activity.status] ?? activity.status}".`,
+      )
+      return
+    }
+    await aiSay(
+      `¿Convertir "${title}" en un error de la bitacora? Se elimina la actividad y se crea el error en su lugar.`,
+      null,
+      {
+        type: 'reclass_error_confirm',
+        activityId: activity.id,
+        title,
+        comentarios: activity.description || title,
+        senderId: activity.created_by,
+      },
+    )
+  }
+
+  /** Confirmado desde el popout de reclass_error_confirm (ChatPage). */
+  const confirmarReclasificarError = async (
+    activityId: string,
+    title: string,
+    comentarios: string,
+    senderId: string,
+    confirmMessageId?: string,
+  ) => {
+    // Mismo orden crear-primero-borrar-despues que proyecto/ingesta: si la creacion del error
+    // fallara, la actividad original no se toca.
+    let creado
+    try {
+      creado = await createErrorFromMessage({
+        content: comentarios,
+        title,
+        severity: 'media',
+        senderId,
+      })
+    } catch (err) {
+      console.error('Reclasificar a error: no pude crear el error:', err)
+      await aiSay('No pude convertir: no logre crear el error (revisa tus permisos).')
+      return
+    }
+    if (!creado) return
+    try {
+      await activitiesService.remove(activityId)
+    } catch (err) {
+      console.error('Reclasificar a error: no pude eliminar la actividad original:', err)
+      await aiSay(
+        `Se creo el error "${title}" en la bitacora, pero no pude eliminar la actividad original (revisa tus permisos): quedaron las dos.`,
+      )
+      if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a error')
+      return
+    }
+    if (confirmMessageId) await resolveInteractive(confirmMessageId, 'Convertido a error')
   }
 
   /**
@@ -1316,6 +1477,17 @@ export function useChatMessages() {
   //   3. El mensaje que origino la actividad: trae activity_id, puesto por la migracion 032.
   //
   // Si no hay ninguna, devuelve null y el mensaje sigue el flujo de siempre.
+  // Responder al mensaje de confirmacion de un Proyecto ("Agregale subtareas respondiendo
+  // este mensaje...") cuelga una subtarea nueva bajo ese proyecto. Antes esa promesa no
+  // estaba conectada a nada (bug real reportado por Sebastian) -el mensaje de confirmacion
+  // ahora lleva `metadata.proyectoId` (ver createMinutaTopic), y esto lo resuelve.
+  function resolveRepliedProyectoId(message: ChatMessage): string | null {
+    if (!message.reply_to) return null
+    const target = messagesRef.current.find((m) => m.id === message.reply_to)
+    const meta = target?.metadata as { type?: string; proyectoId?: string } | null | undefined
+    return meta?.type === 'proyecto_confirm' ? (meta.proyectoId ?? null) : null
+  }
+
   function resolveRepliedActivityId(message: ChatMessage): string | null {
     const preview = message.metadata?.reply_preview as { activityId?: string } | undefined
     if (preview?.activityId) return preview.activityId
@@ -1836,9 +2008,14 @@ export function useChatMessages() {
     // Si alguien dicto el proyecto Y su primer punto en el mismo mensaje ("...primer punto,
     // revisar X"), se cuelga como su primera subtarea apenas se crea la raiz.
     primerPunto?: string | null,
+    // Ingesta usa responsable en TEXTO LIBRE (Fase 13: puede ser alguien de otro equipo, o
+    // externo) en vez de `responsables` (ids de miembros del equipo activo). Cuando viene
+    // seteado, reemplaza el nombre armado a partir de `responsables`.
+    responsableTextoLibre?: string | null,
   ) => {
     const esProyecto = tipo === 'proyecto'
-    const responsableNames = responsables.map((r) => r.name).join(', ')
+    const esIngesta = tipo === 'ingesta'
+    const responsableNames = responsableTextoLibre ?? responsables.map((r) => r.name).join(', ')
     let creado
     try {
       // orden = al final de la lista DE ESE TIPO (antes todos entraban con orden 0 y
@@ -1852,7 +2029,10 @@ export function useChatMessages() {
         para_todos: false,
         responsables: responsables.map((r) => r.id),
         responsables_text: responsableNames,
+        // `estado` no se usa para Ingesta (columna NOT NULL, se llena igual); estado_ingesta
+        // es el que de verdad importa para esa hoja (mismo criterio que useMinuta.addItem).
         estado: 'pendiente',
+        estado_ingesta: esIngesta ? 'no_iniciado' : null,
         plazo: topic.plazo,
         comentarios: topic.comentarios === topic.tema ? '' : topic.comentarios,
         linked_activity_ids: [],
@@ -1896,10 +2076,16 @@ export function useChatMessages() {
     const parts = [
       esProyecto
         ? `✅ Proyecto creado: "${topic.tema}"`
-        : `✅ Tema agregado a la minuta: "${topic.tema}"`,
+        : esIngesta
+          ? `✅ Solicitud de ingesta creada: "${topic.tema}"`
+          : `✅ Tema agregado a la minuta: "${topic.tema}"`,
     ]
     if (teamNameRef.current) parts.push(`Equipo: ${teamNameRef.current}`)
-    if (responsables.length) {
+    if (esIngesta) {
+      // Responsable de Ingesta es texto libre (puede ser de otro equipo o externo): no aplica
+      // el aviso de "revisa que sea miembro" que sí tiene sentido para Minuta/Proyecto.
+      parts.push(responsableNames ? `Responsable: ${responsableNames}` : 'Sin responsable asignado')
+    } else if (responsables.length) {
       parts.push(`Responsable${responsables.length > 1 ? 's' : ''}: ${responsableNames}`)
     } else {
       // Si el mensaje nombraba a alguien y no se pudo asignar, avisar es mejor que el
@@ -1909,7 +2095,8 @@ export function useChatMessages() {
         `Sin responsable asignado (si nombraste a alguien, revisa que sea miembro de "${teamNameRef.current || 'este equipo'}")`,
       )
     }
-    if (topic.plazo) parts.push(`Plazo: ${formatDateLocal(topic.plazo)}`)
+    if (topic.plazo)
+      parts.push(`${esIngesta ? 'Fecha de compromiso' : 'Plazo'}: ${formatDateLocal(topic.plazo)}`)
     if (esProyecto) {
       parts.push(
         primerPunto
@@ -1917,7 +2104,15 @@ export function useChatMessages() {
           : 'Agrégale subtareas respondiendo este mensaje o desde Proyectos',
       )
     }
-    await aiSay(parts.join('. ') + '.')
+    // metadata.proyectoId: sin esto, responder este mensaje ("Agregale subtareas
+    // respondiendo...") no tenia forma de saber a que proyecto se referia -el texto lo
+    // prometia pero no estaba conectado a nada (bug real reportado por Sebastian). Se
+    // resuelve en classifyAndAct via resolveRepliedProyectoId.
+    await aiSay(
+      parts.join('. ') + '.',
+      null,
+      esProyecto ? { type: 'proyecto_confirm', proyectoId: creado.id } : undefined,
+    )
 
     for (const r of responsables) {
       if (r.id === senderId) continue
@@ -1937,7 +2132,7 @@ export function useChatMessages() {
         console.error('Minuta notify failed:', err)
       }
     }
-    return true
+    return creado
   }
 
   // Resuelve la alerta de sobrecarga: crea la actividad con la fecha que eligio el usuario.
@@ -2132,7 +2327,9 @@ export function useChatMessages() {
       description: opts.content,
       severity: (opts.severity as 'baja' | 'media' | 'alta' | 'critica') || 'media',
       responsible_id: opts.senderId,
-      status: 'abierto',
+      // Arranca directo en "En proceso" (en_revision), sin pasar por 'abierto' -mismo criterio
+      // que createError en useErrors.ts, unificado a pedido de Sebastian.
+      status: 'en_revision',
       date: new Date().toISOString().split('T')[0],
       time: new Date().toTimeString().slice(0, 8),
       team_id: teamId,
@@ -2166,7 +2363,34 @@ export function useChatMessages() {
     // creada con lo que el modelo predijo (ai_decisions.entity_id).
     decisionId?: string | null
   }) {
-    const { content, title, actCategory, priority, dueDate, senderId } = opts
+    const { content, title, actCategory, dueDate, senderId } = opts
+
+    // Ingesta NO vive en `activities` (eso era el modelo viejo, [Ingesta] como prefijo del
+    // titulo -las 12 filas fantasma que se borraron al simplificar IngestasTabs, invisibles
+    // desde que /ingestas lee minute_items). Desde la Fase 13, Ingesta es su propio tipo de
+    // minute_items, con responsable en TEXTO LIBRE (puede ser de otro equipo o externo), asi
+    // que no corresponde el matching de miembros/sobrecarga que sigue abajo para actividad.
+    if (actCategory === 'ingesta') {
+      const creado = await createMinutaTopic(
+        { tema: title, comentarios: content, plazo: dueDate },
+        [],
+        senderId,
+        undefined,
+        'ingesta',
+        null,
+        opts.responsibleHint ?? null,
+      )
+      if (creado)
+        void aiDecisionsService.linkEntity(opts.decisionId ?? null, 'minute_items', creado.id)
+      if (opts.sourceMessageId) {
+        setMessages((prev) =>
+          prev.map((m) => (m.id === opts.sourceMessageId ? { ...m, category: null } : m)),
+        )
+      }
+      return
+    }
+
+    const { priority } = opts
     const members = await ensureMembers()
 
     let responsibleId = senderId
@@ -2285,9 +2509,7 @@ export function useChatMessages() {
     if (opts.sourceMessageId) {
       setMessages((prev) =>
         prev.map((m) =>
-          m.id === opts.sourceMessageId
-            ? { ...m, category: actCategory === 'ingesta' ? null : 'actividad' }
-            : m,
+          m.id === opts.sourceMessageId ? { ...m, category: 'actividad' as const } : m,
         ),
       )
     }
@@ -2379,12 +2601,54 @@ export function useChatMessages() {
       // no la que se identifico respondiendo- y borraba la equivocada (o ninguna).
       const isReply = !!(message.reply_to || message.metadata?.reply_preview)
       if (isReply) {
+        // Responder al mensaje de confirmacion de un Proyecto: agrega una subtarea nueva a
+        // ESE proyecto. Va antes que la rama de actividades: una respuesta asi nunca cita
+        // una actividad, asi que no hay ambiguedad entre las dos.
+        const repliedProyectoId = resolveRepliedProyectoId(message)
+        if (repliedProyectoId && !ACUSE_RE.test(content) && !DESHACER_RE.test(content)) {
+          try {
+            const hermanas = (await minutesService.getByTeam(teamId, 'proyecto')).filter(
+              (i) => i.parent_item_id === repliedProyectoId,
+            )
+            await minutesService.create({
+              team_id: teamId,
+              tipo: 'proyecto',
+              orden: hermanas.length,
+              tema: content,
+              para_todos: false,
+              responsables: [],
+              responsables_text: '',
+              estado: 'pendiente',
+              plazo: null,
+              comentarios: '',
+              linked_activity_ids: [],
+              created_by: message.sender_id,
+              parent_item_id: repliedProyectoId,
+            })
+            await aiSay(`✅ Subtarea agregada: "${content}"`)
+          } catch (err) {
+            console.error('Subtarea de proyecto por respuesta fallo:', err)
+            await aiSay('No pude agregar la subtarea (revisa tus permisos).')
+          }
+          setAiProcessing(false)
+          return
+        }
         const repliedActivityId = resolveRepliedActivityId(message)
         // "es un proyecto"/"creala como proyecto" respondiendo a la actividad recien creada:
         // convierte en vez de intentar "actualizarla" (que no tiene forma de cambiar el tipo
         // y termina respondiendo "no vi ningun cambio", caso real reportado).
         if (RECLASIFICAR_PROYECTO_RE.test(content) && repliedActivityId) {
           await solicitarReclasificarProyecto(repliedActivityId)
+          setAiProcessing(false)
+          return
+        }
+        if (RECLASIFICAR_INGESTA_RE.test(content) && repliedActivityId) {
+          await solicitarReclasificarIngesta(repliedActivityId)
+          setAiProcessing(false)
+          return
+        }
+        if (RECLASIFICAR_ERROR_RE.test(content) && repliedActivityId) {
+          await solicitarReclasificarError(repliedActivityId)
           setAiProcessing(false)
           return
         }
@@ -2422,8 +2686,79 @@ export function useChatMessages() {
       // plazo del texto libre, igual que una actividad: si nombran a alguien, el tema queda
       // asignado a esa persona.
       const proyectoAuto = isAutoMode && teamId && PROYECTO_RE.test(content)
-      if (forcedType === 'minuta' || forcedType === 'proyecto' || proyectoAuto) {
-        const tipoHoja: HojaTipo = forcedType === 'minuta' ? 'minuta' : 'proyecto'
+      // Documento de minuta ya estructurado (varias viñetas) pegado en modo Auto: caso real
+      // reportado por Sebastian -sin esto, caía derecho al camino de "actividad" (el
+      // clasificador de Auto no tiene forma de saber que un acta completa no es una tarea
+      // suelta) ANTES de llegar siquiera a este bloque. Mismo umbral que la deteccion de abajo.
+      const minutaEstructuradaAuto =
+        isAutoMode &&
+        teamId &&
+        !proyectoAuto &&
+        contarVinetas(content) >= MINUTA_ESTRUCTURADA_MIN_VINETAS
+      if (
+        forcedType === 'minuta' ||
+        forcedType === 'proyecto' ||
+        proyectoAuto ||
+        minutaEstructuradaAuto
+      ) {
+        const tipoHoja: HojaTipo = forcedType === 'proyecto' || proyectoAuto ? 'proyecto' : 'minuta'
+
+        // Minuta ya estructurada (varias viñetas): se separa en un tema por viñeta en vez de
+        // aplastar todo el documento en uno solo. Sin subtareas ni agrupar por sección -cada
+        // viñeta queda como su propio tema suelto, a pedido de Sebastian (mas simple: se asigna
+        // despues, uno por uno, si hace falta). Reusa el mismo parseo que el modo "masivo" de
+        // actividades (`classifyBulk`/ai-bulk): un item por viñeta detectada, title/description
+        // separados. Si algo falla, cae al camino normal de un solo tema (mas abajo).
+        if (contarVinetas(content) >= MINUTA_ESTRUCTURADA_MIN_VINETAS) {
+          try {
+            const membersBulk = await ensureMembers()
+            const { activities: items } = await classifyBulk(
+              content,
+              membersBulk.map((m) => m.full_name),
+            )
+            if (items.length >= 2) {
+              const existing = await minutesService.getByTeam(teamId, tipoHoja)
+              let orden = existing.length
+              let creados = 0
+              for (const item of items) {
+                try {
+                  await minutesService.create({
+                    team_id: teamId,
+                    tipo: tipoHoja,
+                    orden: orden++,
+                    tema: item.title,
+                    para_todos: false,
+                    responsables: [],
+                    responsables_text: '',
+                    estado: 'pendiente',
+                    plazo: item.due_date,
+                    comentarios:
+                      item.description && item.description !== item.title ? item.description : '',
+                    linked_activity_ids: [],
+                    created_by: message.sender_id,
+                  })
+                  creados++
+                } catch (err) {
+                  console.error('Item de minuta estructurada fallo:', err)
+                }
+              }
+              await aiSay(
+                `✅ Detecte una minuta con varios puntos y la separe: ${creados} tema${creados === 1 ? '' : 's'} agregado${creados === 1 ? '' : 's'} a ${tipoHoja === 'proyecto' ? 'Proyectos' : 'la minuta'}.`,
+              )
+              setMessages((prev) =>
+                prev.map((m) => (m.id === message.id ? { ...m, category: null } : m)),
+              )
+              setAiProcessing(false)
+              return
+            }
+          } catch (err) {
+            console.error(
+              'Parseo de minuta estructurada fallo, cae al camino normal de un solo tema:',
+              err,
+            )
+          }
+        }
+
         const members = await ensureMembers()
         let tema = content
         let hints: string[] = []
@@ -2797,6 +3132,12 @@ export function useChatMessages() {
     descartarEliminar: (messageId: string) => resolveInteractive(messageId, 'No se elimino'),
     confirmarReclasificarProyecto,
     descartarReclasificar: (messageId: string) =>
+      resolveInteractive(messageId, 'Se dejo como actividad'),
+    confirmarReclasificarIngesta,
+    descartarReclasificarIngesta: (messageId: string) =>
+      resolveInteractive(messageId, 'Se dejo como actividad'),
+    confirmarReclasificarError,
+    descartarReclasificarError: (messageId: string) =>
       resolveInteractive(messageId, 'Se dejo como actividad'),
     // name_confirm y activity_pick: su "Cancelar" solo cerraba el modal en pantalla sin marcar
     // nada en la base (a diferencia de las demas preguntas). Quedaban "pendientes" para

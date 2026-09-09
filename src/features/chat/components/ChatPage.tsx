@@ -58,6 +58,8 @@ const AUTO_OPEN_TYPES = [
   'activity_pick',
   'delete_confirm',
   'reclass_proyecto_confirm',
+  'reclass_ingesta_confirm',
+  'reclass_error_confirm',
 ]
 
 const STATUS_OPTIONS: { value: ActivityStatus; label: string }[] = [
@@ -109,6 +111,23 @@ export function ChatPage() {
     messageId: string
   } | null>(null)
   const [reclassifying, setReclassifying] = useState(false)
+  const [reclassIngestaConfirm, setReclassIngestaConfirm] = useState<{
+    activityId: string
+    title: string
+    comentarios: string
+    plazo: string | null
+    senderId: string
+    messageId: string
+  } | null>(null)
+  const [reclassifyingIngesta, setReclassifyingIngesta] = useState(false)
+  const [reclassErrorConfirm, setReclassErrorConfirm] = useState<{
+    activityId: string
+    title: string
+    comentarios: string
+    senderId: string
+    messageId: string
+  } | null>(null)
+  const [reclassifyingError, setReclassifyingError] = useState(false)
   const [savingCategory, setSavingCategory] = useState(false)
   const [savingAssign, setSavingAssign] = useState(false)
   const [savingPick, setSavingPick] = useState(false)
@@ -184,6 +203,10 @@ export function ChatPage() {
     descartarEliminar,
     confirmarReclasificarProyecto,
     descartarReclasificar,
+    confirmarReclasificarIngesta,
+    descartarReclasificarIngesta,
+    confirmarReclasificarError,
+    descartarReclasificarError,
     descartarNombre,
     descartarActividadElegida,
   } = useChatMessages()
@@ -603,6 +626,43 @@ export function ChatPage() {
                       setReclassConfirm({ ...m, messageId: msg.id })
                     }}
                   />
+                ) : msg.metadata?.type === 'reclass_ingesta_confirm' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="sky"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() => {
+                      const m = msg.metadata as unknown as {
+                        activityId: string
+                        title: string
+                        comentarios: string
+                        plazo: string | null
+                        senderId: string
+                      }
+                      setReclassIngestaConfirm({ ...m, messageId: msg.id })
+                    }}
+                  />
+                ) : msg.metadata?.type === 'reclass_error_confirm' ? (
+                  <LumixPromptBubble
+                    key={msg.id}
+                    content={msg.content}
+                    timestamp={msg.created_at}
+                    accent="sky"
+                    resolution={msg.metadata.resolution as string | undefined}
+                    ajena={!!msg.owner_id && msg.owner_id !== user?.id}
+                    onOpen={() => {
+                      const m = msg.metadata as unknown as {
+                        activityId: string
+                        title: string
+                        comentarios: string
+                        senderId: string
+                      }
+                      setReclassErrorConfirm({ ...m, messageId: msg.id })
+                    }}
+                  />
                 ) : (
                   <div key={msg.id} ref={registerBubble(msg.id)}>
                     <ChatBubble
@@ -716,6 +776,10 @@ export function ChatPage() {
               />
               <Button
                 size="sm"
+                // !px-3.5 !py-3: el boton mas tocado de toda la app (se manda CADA mensaje
+                // desde aca) mereces un objetivo tactil real -py-1.5 de "sm" quedaba en
+                // ~28px de alto, bien por debajo de los ~44px que recomiendan Apple/Material.
+                className="!px-3.5 !py-3"
                 onClick={handleSend}
                 disabled={!input.trim() || sending || aiProcessing || bulkParsing}
               >
@@ -1246,6 +1310,109 @@ export function ChatPage() {
                 onClick={async () => {
                   await descartarReclasificar(reclassConfirm.messageId)
                   setReclassConfirm(null)
+                }}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmar conversion de una actividad a Solicitud de Ingesta (respondiendo su mensaje
+          con "es una ingesta"/"pasala a ingesta"). Elimina la actividad y crea la solicitud en
+          su lugar; no se cierra tocando afuera, exige elegir. */}
+      {reclassIngestaConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-panel rounded-xl border border-sky-500/30 p-5 max-w-xs w-full mx-4">
+            <p className="text-sm font-medium text-sky-400 mb-1">
+              ¿Convertir en solicitud de Ingesta?
+            </p>
+            <p className="text-xs text-slate-400 mb-4 leading-snug">
+              "{reclassIngestaConfirm.title}". Se elimina la actividad y se crea la solicitud en
+              Ingesta en su lugar.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={reclassifyingIngesta}
+                onClick={async () => {
+                  setReclassifyingIngesta(true)
+                  try {
+                    await confirmarReclasificarIngesta(
+                      reclassIngestaConfirm.activityId,
+                      reclassIngestaConfirm.title,
+                      reclassIngestaConfirm.comentarios,
+                      reclassIngestaConfirm.plazo,
+                      reclassIngestaConfirm.senderId,
+                      reclassIngestaConfirm.messageId,
+                    )
+                    setReclassIngestaConfirm(null)
+                  } finally {
+                    setReclassifyingIngesta(false)
+                  }
+                }}
+              >
+                {reclassifyingIngesta ? 'Convirtiendo...' : 'Convertir'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={reclassifyingIngesta}
+                onClick={async () => {
+                  await descartarReclasificarIngesta(reclassIngestaConfirm.messageId)
+                  setReclassIngestaConfirm(null)
+                }}
+              >
+                Cancelar
+              </Button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Confirmar conversion de una actividad a error de bitacora (respondiendo su mensaje
+          con "es un error"/"pasala a error"). Crea el error y elimina la actividad original si
+          funciona; no se cierra tocando afuera, exige elegir. */}
+      {reclassErrorConfirm && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60">
+          <div className="bg-panel rounded-xl border border-sky-500/30 p-5 max-w-xs w-full mx-4">
+            <p className="text-sm font-medium text-sky-400 mb-1">¿Convertir en error?</p>
+            <p className="text-xs text-slate-400 mb-4 leading-snug">
+              "{reclassErrorConfirm.title}". Se elimina la actividad y se crea el error en la
+              bitacora en su lugar.
+            </p>
+            <div className="flex gap-2">
+              <Button
+                size="sm"
+                variant="primary"
+                disabled={reclassifyingError}
+                onClick={async () => {
+                  setReclassifyingError(true)
+                  try {
+                    await confirmarReclasificarError(
+                      reclassErrorConfirm.activityId,
+                      reclassErrorConfirm.title,
+                      reclassErrorConfirm.comentarios,
+                      reclassErrorConfirm.senderId,
+                      reclassErrorConfirm.messageId,
+                    )
+                    setReclassErrorConfirm(null)
+                  } finally {
+                    setReclassifyingError(false)
+                  }
+                }}
+              >
+                {reclassifyingError ? 'Convirtiendo...' : 'Convertir'}
+              </Button>
+              <Button
+                size="sm"
+                variant="ghost"
+                disabled={reclassifyingError}
+                onClick={async () => {
+                  await descartarReclasificarError(reclassErrorConfirm.messageId)
+                  setReclassErrorConfirm(null)
                 }}
               >
                 Cancelar

@@ -1,9 +1,10 @@
 # Plan: mejoras UX/administración de Lumix (nombres, permisos, módulos, proyectos, mobile, tema claro)
 
-**Estado general:** Fases 1-5, 7, 8 completas y probadas contra la base real. Fase 6 (tema claro)
-con una primera pasada completa en TODA la app (infraestructura, primitivos, shell, Chat, y las
-18 páginas restantes) — falta la revisión visual fina de detalle. Fase 9 (evaluar depender menos
-de regex) anotada para evaluar a futuro.
+**Estado general:** Fases 1-8 completas, probadas contra la base real y confirmadas visualmente
+por Sebastián (mobile y tema claro, ambos "OK"). Fase 13 (Ingesta), la reclasificación por chat
+(proyecto/ingesta/error), la separación automática de minutas pegadas, y el rediseño de la
+Bitácora de Errores también confirmados por Sebastián. Fase 9 (evaluar depender menos de regex)
+anotada para evaluar a futuro. Versión publicada: **1.3** (08-09-2026).
 
 ## Contexto
 
@@ -249,7 +250,7 @@ aparte, no mezclado con esta feature.
 
 ---
 
-## Fase 5 — Bug móvil: chat pierde el botón enviar ✅ HECHO (falta confirmación en celular real)
+## Fase 5 — Bug móvil: chat pierde el botón enviar ✅ HECHO Y CONFIRMADO EN CELULAR REAL
 
 Causa raíz: `BottomNav` se renderizaba siempre, como hermano fijo de `<main>`, en todas las rutas
 incluida `/chat` — restándole ~50-60px permanentes al chat, justo donde vive su propio input+botón
@@ -257,12 +258,13 @@ enviar, empeorado con el teclado abierto. Se ocultó `BottomNav` específicament
 (`AppLayout.tsx`, vía `useLocation()`) y se agregó `interactive-widget=resizes-content` al viewport
 (`index.html`) para mejor comportamiento del teclado en Android/iOS.
 
-**Pendiente:** confirmación de Sebastián en un teléfono real — no hay forma de probar esto sin
-navegador/dispositivo en esta sesión.
+**Confirmado por Sebastián en celular real:** "los puntos del telefono quedaron OK" — esto,
+sumado a todos los fixes posteriores de esta misma fase (zoom por font-size, offsetTop al cerrar
+el teclado, buenas prácticas de touch-target) probados en conjunto contra un dispositivo real.
 
 ---
 
-## Fase 6 — Tema claro configurable 🟡 EN PROGRESO (infraestructura y pantalla principal hechas)
+## Fase 6 — Tema claro configurable ✅ HECHO Y CONFIRMADO ("el tema claro igual esta ok")
 
 Cero componentes usaban tokens de color al empezar — todo son clases Tailwind fijas
 (`bg-slate-900`, etc.) repetidas en ~20 archivos de página. Sebastián pidió explícitamente que
@@ -1303,6 +1305,68 @@ nunca puede scrollear — todo el scroll real sigue pasando por los contenedores
 `npm run build`/`tsc --noEmit`/`eslint` limpios. **Pendiente:** confirmación de Sebastián en el
 celular real.
 
+### El escribir ya no salta el botón, pero al CERRAR el teclado se pierde la parte de arriba
+
+Sebastián probó de nuevo: escribir ya no tapa el botón (los fixes de arriba funcionaron), pero
+al cerrar el teclado la parte de arriba de la pantalla queda fuera de la vista — "no ocupa la
+mitad que deja el teclado", como si el espacio que el teclado dejaba libre no se recuperara
+del todo. Se buscó en foros/documentación externa para confirmar la causa antes de tocar nada:
+es un **bug conocido de iOS 26** donde `visualViewport.offsetTop` no vuelve a 0 al cerrar el
+teclado — el viewport VISUAL queda corrido hacia abajo respecto de donde arranca nuestro
+layout (que sigue creyendo que está en la posición 0), así que el tramo de arriba del layout
+cae fuera de lo que se alcanza a ver, aunque el layout en sí esté armado bien.
+
+**Corregido** (`useAppHeight.ts` + `AppLayout.tsx`): en vez de vivir en el flujo normal del
+documento (que es lo que deja este bug en evidencia), el contenedor raíz de la app pasa a
+`position: fixed` con su `top` Y su `height` tomados en vivo de `visualViewport` (antes solo
+se usaba el alto). Así el layout siempre pinta exactamente donde el navegador dice que está lo
+visible, sea o no ese número "correcto" según la especificación — no hace falta esperar a que
+Apple lo arregle (hay reportes de que iOS 26.1 ya lo corrige del lado del sistema, pero no se
+puede depender de que todos tengan esa versión). De paso, un segundo chequeo con ~120ms de
+demora después de cada evento de resize/scroll del teclado, porque en iOS 26 el primer valor a
+veces llega todavía sin asentar del todo.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **No publicado a pedido explícito de
+Sebastián** ("no publicar nada en git hasta que lo diga yo") — queda en el árbol de trabajo
+local, sin commit. **Pendiente:** confirmación de Sebastián en el celular real donde encontró
+el bug.
+
+Fuentes consultadas: [VisualViewport.offsetTop not reset after keyboard dismissal (iOS 26) — MicrosoftDocs/edge-developer#3828](https://github.com/MicrosoftDocs/edge-developer/issues/3828), [Debugging iOS 26: Fixed Positioning Post-Keyboard Interaction](https://iifx.dev/en/articles/460201403/debugging-ios-26-how-to-correct-fixed-positioning-post-keyboard-interaction), [Fixing the Safari Mobile Resizing Bug](https://medium.com/@krutilin.sergey.ks/fixing-the-safari-mobile-resizing-bug-a-developers-guide-6568f933cde0).
+
+### Pasada de buenas prácticas generales de diseño responsivo
+
+Sebastián pidió aplicar buenas prácticas de diseño responsivo en general, no solo seguir
+apagando incendios puntuales. Con todos los bugs de mobile ya resueltos, se hizo una pasada de
+mejoras preventivas (`src/index.css` + los puntos táctiles más usados de toda la app):
+
+- **`-webkit-text-size-adjust: 100%`**: sin esto, Safari/iOS puede agrandar el texto solo al
+  rotar la pantalla — reset estándar de mobile, no un bug encontrado esta vez puntual.
+- **`-webkit-tap-highlight-color`**: reemplaza el flash gris por defecto al tocar un
+  botón/link por uno sutil del color de acento de la app, consistente en toda la app en vez
+  de depender de que cada componente resuelva su propio estado `:active`.
+- **`touch-action: manipulation`** en `button`/`a`/`input`/`select`/`textarea`: evita el
+  "doble tap = zoom" con ~300ms de demora que varios navegadores móviles aplican por
+  default a lo tocable — distinto del fix de tamaño de letra (que evita el zoom al ENFOCAR
+  un campo), este es sobre botones/tarjetas en general.
+- **Objetivos táctiles más grandes** en los 3 controles más usados de toda la app en mobile
+  (antes bien por debajo de los ~44px que recomiendan Apple/Material):
+  - El botón hamburguesa del header mobile (`AppLayout.tsx`): de ~32px a ~40px.
+  - El botón cerrar (✕) de `Modal.tsx`, usado en todos los modales de la app: de ~28px a ~40px.
+  - El botón enviar del chat (`ChatPage.tsx`) — el más tocado de todo Lumix, uno por cada
+    mensaje: de ~28px a ~40px de alto.
+
+No se tocó el tamaño por defecto compartido de `Button` (`sizeClasses.sm` en `Button.tsx`):
+cambiarlo ahí afecta a decenas de botones en toda la app con distintos layouts, con riesgo real
+de romper algo en un lugar no probado; los 3 puntos de arriba se resolvieron con una clase
+puntual en el lugar de uso (`!` de Tailwind para asegurar que gane sobre el tamaño por
+defecto), no tocando el componente compartido.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. **No publicado a pedido explícito de
+Sebastián** ("no publicar nada en git hasta que lo diga yo"). **Pendiente:** confirmación
+visual en el celular real, y decidir si vale la pena auditar objetivos táctiles en el resto de
+la app (hay botones de ícono más chicos en headers de página — Excel, filtros — de menor uso,
+no tocados en esta pasada).
+
 ### El chip "Proyecto" del chat quedaba fuera de vista
 
 El selector de tipo de mensaje (Auto/Actividad/.../Proyecto, hasta 7 chips) ya tenía scroll
@@ -1365,7 +1429,7 @@ abajo). `npm run build`/`tsc --noEmit` limpios.
 
 ---
 
-## Bug real: no se pueden agregar subtareas a un Proyecto respondiendo por chat (sin ejecutar)
+## Bug real: no se pueden agregar subtareas a un Proyecto respondiendo por chat ✅ HECHO
 
 Sebastián preguntó si desde el chat se puede crear un proyecto con muchas subtareas de una
 sola vez. Investigando el código (sin tocar nada) se confirmó que **no** — hoy el chat solo
@@ -1384,15 +1448,26 @@ y lo trata como un mensaje suelto cualquiera.
 **Hoy, para varias subtareas, la única forma confiable es entrar a Proyectos** y agregarlas
 ahí una por una (sin límite, ya probado y funcionando).
 
-**Rumbo de arreglo (a confirmar con Sebastián antes de construir):** que el mensaje de
-confirmación del proyecto SÍ lleve el id del proyecto en su `metadata` (mismo patrón que ya
-usa `emitActivityCard`/`resolveRepliedActivityId` para actividades), y que `classifyAndAct`
-reconozca una respuesta a ESE mensaje como "agregar subtarea a este proyecto" en vez de
-clasificarlo como un mensaje nuevo — reusando el mismo `minutesService.create(...,
-parent_item_id: <id del proyecto>)` que ya usa el "primer punto".
+**Corregido:** el mensaje de confirmación del proyecto ahora sí lleva
+`metadata: { type: 'proyecto_confirm', proyectoId }` (`createMinutaTopic`). Nueva función
+`resolveRepliedProyectoId` (mismo patrón que `resolveRepliedActivityId`) la lee cuando alguien
+responde ese mensaje, y `classifyAndAct` la revisa ANTES que la rama de actividades (una
+respuesta a un proyecto nunca cita una actividad, así que no hay ambigüedad): si hay
+`proyectoId`, cuelga una subtarea nueva bajo ese proyecto
+(`minutesService.create(..., parent_item_id: proyectoId)`, sin responsable asignado — mismo
+criterio que ya usaba el "primer punto") y confirma. Se excluyen acuses de recibo ("gracias",
+"ok") y el atajo de deshacer (`ACUSE_RE`/`DESHACER_RE`) para no crear una subtarea con ese
+texto por error.
 
-**Estado: solo anotado, sin ejecutar** — Sebastián pidió dejarlo registrado, falta que confirme
-si quiere que se construya.
+**Sigue siendo UNA subtarea por respuesta** (no una lista) — para varias, cada respuesta
+agrega una, o se puede seguir usando Proyectos directamente. No se intentó parsear "primero...,
+segundo..., tercero..." en una sola respuesta: es ambiguo en lenguaje natural y arriesgaba
+partir mal una frase con comas que no eran una lista.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios. Verificado contra Equipo Prueba: creado un
+proyecto y colgada una subtarea con `parent_item_id` apuntando a él, tal cual haría esta rama
+nueva; datos de prueba limpiados. **Pendiente:** confirmación de Sebastián probándolo de
+verdad desde el chat (esto solo verificó la forma de los datos, no el flujo completo de la IA).
 
 ---
 
@@ -1402,3 +1477,479 @@ si quiere que se construya.
 - Los cambios de datos reales se hacen con el token de gestión de Supabase, con confirmación
   explícita cuando el caso es ambiguo (ej. "SebaDiaz" → "Sebastian Diaz").
 - Nada se commitea ni se publica hasta que Sebastián lo pida explícito.
+
+---
+
+## Fase 13 — Reformular la Hoja de Ingesta ✅ HECHO
+
+Sebastián pidió replantear el propósito y los campos de la Hoja de Ingesta. Definición que
+dio, en sus palabras (registrada tal cual para no perder matices al implementar):
+
+**Propósito:** gestionar y hacer seguimiento de solicitudes hechas a **otros equipos**
+(externos) — no requerimientos internos. Funciona parecido a una minuta, pero el foco es
+"lo que le pedimos a otro equipo", no "lo que discutimos en nuestra reunión". Ahí se registra
+cualquier solicitud de inyección de información, carga de datos, o cualquier otro
+requerimiento que deba resolver otro equipo.
+
+**Cadencia:** una reunión semanal de seguimiento propia, donde se revisan y actualizan las
+solicitudes — mismo patrón semanal que ya usan Minuta/Compromisos.
+
+**Campos que debería tener cada solicitud (mínimo):**
+
+- **Solicitud / objetivo**: descripción de lo que se necesita.
+- **Fecha de solicitud.**
+- **Fecha de compromiso**: la fecha acordada para resolver o entregar.
+- **Responsable**: quien gestiona la solicitud — **explícitamente NO limitado a la lista de
+  miembros del equipo activo**, porque el responsable real suele ser de OTRO equipo (un
+  campo de texto libre, no un selector cerrado de `team_members`).
+- **Comentarios**: observaciones, avances, información adicional.
+- **Estatus**, con estos valores: No iniciado / En proceso / Completado / Cerrado /
+  No resuelto / Cancelado.
+
+**Comportamiento pedido:** una vez completada o cerrada, la solicitud debe quedar registrada
+(trazabilidad), pero **dejar de contar como pendiente activo** — sale de la vista de
+seguimiento aunque no se borre.
+
+**Chat:** la hoja debería poder consultarse y operarse desde el chat — ver solicitudes,
+revisar pendientes, actualizar estados, y eventualmente crear requerimientos nuevos
+directamente conversando (mismo principio que ya rige toda la app: "el chat es la puerta de
+entrada").
+
+### Cómo choca esto con lo que existe hoy (a resolver antes de construir)
+
+La Hoja de Ingesta HOY es literalmente `minute_items` con `tipo='ingesta'` — comparte tabla,
+campos y motor con Minuta/Proyectos (`estado: pendiente/en_desarrollo/resuelto/definir`,
+`responsables: string[]` de IDs de `team_members`, sin `fecha_solicitud` propia, sin
+`fecha_compromiso` separada de `plazo`). El pedido nuevo no encaja en ese molde sin fricción:
+
+- **Responsable externo**: todo el resto de la app asume `responsables` = IDs de gente DENTRO
+  del equipo (para asignar, notificar, filtrar por grupo de trabajo, etc.). Un responsable de
+  OTRO equipo (o de fuera de Lumix directamente) rompe ese supuesto — probablemente necesita
+  un campo de texto libre nuevo (`responsable_externo`), separado de `responsables`.
+- **Estados nuevos**: los 6 estados pedidos (No iniciado/En proceso/Completado/Cerrado/No
+  resuelto/Cancelado) no calzan con el enum actual de `minute_items.estado` (4 valores, con
+  otro significado: `definir` = "para discutir en la reunión", no aplica acá).
+  Ampliar el `CHECK` de la base es viable (ya se hizo para sumar `'proyecto'` a `tipo`,
+  migración 042), pero cambiar los VALORES del estado (no solo agregar tipos) es más
+  delicado: hay que revisar todo el código que lee `estado`/`effectiveEstado` para Ingesta
+  específicamente (`deriveEstado`, badges de color, filtros de vista) para no romper
+  Minuta/Proyectos, que siguen usando los 4 valores de siempre.
+- **Dos fechas, no una**: hoy `minute_items.plazo` es una sola fecha. El pedido distingue
+  "fecha de solicitud" (cuándo se pidió) de "fecha de compromiso" (cuándo se resuelve) — la
+  primera ya existe como `created_at`, pero la segunda es conceptualmente lo mismo que
+  `plazo` hoy, solo que quizás conviene renombrar/aclarar en la UI de Ingesta que es "fecha de
+  compromiso" y no "plazo" a secas.
+- **"Deja de ser pendiente activo pero queda trazable"**: esto YA es, en esencia, cómo
+  funciona `estado` en Minuta/Proyectos (un resuelto no se borra, solo sale de la pestaña
+  "Por asignar"/"Pendientes") — el patrón existe, solo hay que confirmar que los nuevos
+  estados "Cerrado"/"No resuelto"/"Cancelado" también cuenten como "ya no está activo" en los
+  contadores/filtros de vista.
+- **Chat**: crear/consultar/actualizar Ingesta por chat en gran parte YA funciona (Ingesta ya
+  es un `tipo` más de `createMinutaTopic`, y las actividades vinculadas ya se actualizan por
+  chat) — lo que faltaría es que el clasificador entienda el vocabulario nuevo (estados,
+  "responsable externo") y that las consultas ("¿qué solicitudes tenemos pendientes con el
+  equipo de X?") sepan filtrar por esta hoja específicamente.
+
+### Preguntas para resolver con Sebastián antes de construir
+
+1. ¿El responsable externo es texto libre (nombre + quizás equipo/empresa), o hace falta
+   poder elegirlo de alguna lista (aunque sea informal, tipeada una vez y reusada)?
+2. ¿Los 6 estados nuevos REEMPLAZAN los 4 actuales de Ingesta (serían un `estado` distinto al
+   de Minuta/Proyectos, ya que comparten la misma columna en la tabla) o conviven?
+3. ¿"Cerrado" y "Cancelado" son casos distintos de verdad (uno se resolvió y se cerró
+   administrativamente, el otro se abandonó sin resolver), o alcanza con menos estados?
+4. ¿Vale la pena, dado cuánto cambia el modelo, que Ingesta pase a tener su synthesizer/tabla
+   propia en vez de seguir siendo `minute_items` con `tipo='ingesta'` — mismo tipo de
+   decisión que ya se tomó para Proyectos en su momento (Fase 4), cuando se concluyó que
+   forzar algo distinto dentro del molde de Minuta generaba más fricción que crear un tipo
+   nuevo?
+
+### Respuestas de Sebastián y qué se construyó
+
+1. **Responsable**: texto libre — confirmado.
+2. **Estados**: reemplazan a los 4 actuales, no conviven.
+3. **"Cerrado" se saca** (redundante con "Completado" — un cerrado ya está completado); queda
+   "Cancelado" como su propio estado (se decidió NO continuar, sin haber concluido). Estados
+   finales: No iniciado, En proceso, Completado, No resuelto, Cancelado (5, no 6).
+4. **Sin tabla nueva**: recomendación mía, confirmada por Sebastián — seguir con
+   `minute_items` (reusa motor de chat/notificaciones/RLS ya probado) en vez de un modelo
+   propio desde cero. La fricción real (estado nuevo, responsable externo) se resolvió sin
+   necesitar una tabla aparte:
+   - **Responsable externo**: no hizo falta columna nueva — `responsables_text` ya existía
+     en la tabla (pensado originalmente como fallback de texto libre) y es EXACTAMENTE lo que
+     pedía este caso. Ingesta lo usa como su campo principal de responsable en vez de
+     `MemberMultiSelect` (que sigue intacto para Minuta/Proyecto).
+   - **Estado nuevo**: **migración 045**, columna nueva `estado_ingesta` (no se reusó/amplió
+     `estado`, para no mezclar dos vocabularios en la misma columna) — Minuta/Proyecto siguen
+     con `estado` exactamente igual que siempre.
+
+**Implementado:**
+
+- `shared/types/index.ts`: `EstadoIngesta` + `estado_ingesta?: EstadoIngesta | null` en
+  `MinuteItem`.
+- `useMinuta.ts`: `estadoIngestaLabels`, `esActivaIngesta()` (no_iniciado/en_proceso =
+  activa; completado/no_resuelto/cancelado = trazable pero fuera de pendientes, sin
+  borrarse — mismo criterio que ya usa Minuta con `resuelto`). Las vistas/contadores de
+  Ingesta se calculan aparte de las de Minuta/Proyecto (que no tocan). `addItem` inicializa
+  `estado_ingesta: 'no_iniciado'` para tipo='ingesta'. `updateItem` no necesitó cambios: ya
+  acepta cualquier campo de `MinuteItem`, incluido `estado_ingesta`/`responsables_text`.
+- `MinutaPage.tsx`: cuando `tipo==='ingesta'` (móvil y escritorio) — el campo Responsable pasa
+  a un input de texto libre; el campo Estado usa el select de 5 valores nuevos
+  (`estadoIngestaColors` para los badges); el campo Plazo se relabela "Fecha de compromiso";
+  se agrega "Solicitado: {fecha}" (usa `created_at`, ya existía, solo faltaba mostrarlo); las
+  pestañas de vista pasan a "Activas/Resueltas/Todas" (se saca "Asignados", no aplica); la
+  exportación a Excel usa las columnas y el vocabulario de Ingesta. Minuta y Proyectos no se
+  tocaron en nada de esto — todo el código nuevo está gateado por `esIngesta`.
+- **Chat**: no se tocó en esta pasada — crear/consultar Ingesta por chat con el vocabulario
+  nuevo (estados, responsable externo) queda pendiente para después, tal como Sebastián lo
+  planteó como "eventualmente" en su especificación original. **Actualización:** ver sección
+  "Chat: creación e Ingesta pasaban por el modelo viejo" más abajo — esto sí se corrigió
+  (era un problema más urgente de lo que parecía).
+
+**Probado contra Equipo Prueba:** creada una solicitud con responsable en texto libre
+(`"Pedro Soto (Equipo Analitica)"`), estado `en_proceso` y fecha de compromiso — se guardó y
+leyó tal cual; dato de prueba limpiado. `npm run build`/`tsc --noEmit`/`eslint` limpios.
+
+### Chat: creación e Ingesta pasaban por el modelo viejo (y faltaba reclasificar)
+
+Caso real reportado: Sebastián creó por chat la actividad "Revisar la KSBC 1", y en un mensaje
+aparte respondió "es una ingesta" para corregirla. Lumix contestó "Anotado. No vi ningun cambio
+que aplicar" — no hizo nada.
+
+Investigando se encontraron DOS problemas, no uno:
+
+1. **No existía forma de reclasificar una actividad a Ingesta por chat.** Ya existía el
+   mecanismo para "es un proyecto" (`RECLASIFICAR_PROYECTO_RE` → popout de confirmación →
+   elimina la actividad y crea el tema en su lugar), pero no había equivalente para Ingesta:
+   el mensaje caía al flujo genérico de "actualizar campos" (`ai-update`, que solo sabe tocar
+   estado/fecha/responsable/prioridad/descripción/título, nunca el tipo), y como ningún campo
+   de esos aplicaba, contestaba el "no vi ningún cambio" de siempre.
+2. **Más de fondo: cuando el chat SÍ crea una Ingesta** (di­ciendo "es una ingesta" en un
+   mensaje nuevo, o eligiéndolo en el popout de categoría ambigua "actividad o ingesta"), la
+   seguía creando con el modelo viejo — una fila en `activities` con el título prefijado
+   `[Ingesta]` — el mismo mecanismo que generó las 12 actividades fantasma que se borraron en
+   la limpieza de arriba. Desde que `/ingestas` lee `minute_items` (Fase 13), esas creaciones
+   quedaban invisibles ahí: solo aparecían en Actividades con ese prefijo raro.
+
+**Arreglado (los dos juntos, a pedido de Sebastián):**
+
+- `createActivityOrIngesta` ahora, para Ingesta, no pasa por `persistActivity` (piensa en
+  términos de responsable-miembro-del-equipo, que no aplica) — crea directo una fila
+  `minute_items` (`tipo:'ingesta'`, `estado_ingesta:'no_iniciado'`) vía `createMinutaTopic`,
+  igual que hace la pantalla `/ingestas`. El responsable que haya dictado el mensaje (si lo
+  hay) se guarda tal cual como texto libre en `responsables_text` — no se intenta hacer
+  matching contra miembros del equipo, porque Ingesta puede ser de alguien externo.
+- `createMinutaTopic` ganó un parámetro opcional `responsableTextoLibre` (solo lo usa Ingesta)
+  y su mensaje de confirmación distingue Ingesta ("✅ Solicitud de ingesta creada...", "Fecha
+  de compromiso" en vez de "Plazo", sin el aviso de "revisa que sea miembro del equipo" que sí
+  aplica a Minuta/Proyecto).
+- Nueva reclasificación **"es una ingesta"** respondiendo a una actividad
+  (`RECLASIFICAR_INGESTA_RE`, mismo patrón que proyecto): pide confirmar, y si se acepta
+  elimina la actividad y crea la solicitud en `minute_items`. Popout nuevo
+  `reclass_ingesta_confirm` en `ChatPage.tsx`, con su "Cancelar" marcando la pregunta como
+  resuelta (mismo criterio que el resto).
+- `aiDecisionsService.linkEntity` amplió su tipo de tabla para aceptar `'minute_items'` (antes
+  solo `'activities' | 'errors'`) — así las creaciones de Ingesta también quedan ligadas a la
+  decisión de la IA que las originó, para la telemetría de corrección.
+
+**Pendiente, no se tocó:** responder por chat a una Ingesta ya creada (para actualizar su
+estado, fecha de compromiso, etc.) todavía no funciona — el "responder a un mensaje" del chat
+solo sabe buscar en `activities`. Sigue siendo, como ya estaba anotado, el "eventualmente" de
+enseñarle al chat el vocabulario completo de Ingesta.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+preexistentes de siempre). No probado aún contra Equipo Prueba en vivo ni en el celular.
+
+### Bug real encontrado probando la reclasificación a Ingesta: pérdida de datos si falla el permiso
+
+Sebastián probó "es una ingesta" en un equipo real (Analítica y BI). La actividad se eliminó
+("✓ Convertido a ingesta") pero la solicitud NUNCA se creó — Lumix contestó "No pude agregar el
+tema a la minuta (revisa tus permisos)". Se perdió la actividad.
+
+**Causa investigada:** `confirmarReclasificarProyecto`/`confirmarReclasificarIngesta` borraban
+la actividad ANTES de crear lo nuevo. Si la creación fallaba (en este caso porque el usuario
+tenía "Gestionar minuta" concedido pero no "Gestionar ingestas" — son permisos separados a
+propósito desde la migración 033, y nunca se le concedió el segundo), ya no quedaba nada: ni la
+actividad original ni la conversión.
+
+**Arreglado:** se invirtió el orden en ambas funciones — ahora se crea primero (proyecto o
+ingesta) y la actividad original recién se borra si la creación tuvo éxito. Si falla la
+creación, la actividad queda intacta. Si la creación funciona pero falla el borrado (caso raro,
+mismo tipo de problema de permisos pero al revés), se avisa que quedaron las dos en vez de fallar
+en silencio.
+
+**No recuperado:** la actividad real perdida en la prueba ("Planificar actividad KSB1 para el 21
+de septiembre") — Sebastián decidió no recrearla ni conceder el permiso todavía, lo resuelve él.
+
+**Confirmado por Sebastián:** "las ingestas ahora esta ok" — probado de nuevo contra Equipo
+Prueba, la creación/reclasificación de Ingesta por chat funciona sin perder datos.
+
+### Reclasificación a Error, mismo patrón que Proyecto/Ingesta
+
+A pedido de Sebastián ("apliquemos la misma lógica para los errores"): agregada la
+reclasificación **"es un error"/"pasala a error"** respondiendo a una actividad ya creada
+(`RECLASIFICAR_ERROR_RE`), con el mismo popout de confirmación y el mismo orden
+crear-primero-borrar-después ya corregido arriba (crea el error en la bitácora; si funciona,
+recién ahí borra la actividad original). Nuevo tipo de metadata `reclass_error_confirm` en
+`ChatPage.tsx`, mismo criterio de auto-apertura y de "Cancelar" que resuelve la pregunta sin
+dejarla colgada.
+
+Los tres (proyecto/ingesta/error) comparten ahora exactamente el mismo patrón de conversión.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre). No probado aún en vivo.
+
+### Rediseño de la Bitácora de Errores (mismo espíritu que Fase 13 de Ingesta)
+
+Sebastián pidió igualar el layout de Errores al de Ingesta: "Transacción o query" en vez de
+título, "comentarios" como la descripción del error, responsable como categoría (Planta/TI/Otro
+con texto libre), creación directa en "en proceso" (salta "Abierto"), y una fecha de cierre.
+
+**Decisiones acordadas antes de construir** (preguntadas porque cambiaban el modelo):
+
+1. Se agrega un formulario "+ Nuevo error" en la Bitácora — hoy no existía ninguno, los errores
+   solo se creaban por chat.
+2. Se mantienen los 4 estados actuales (no se copia el set de 5 de Ingesta): "En revisión" pasa
+   a mostrarse como "En proceso"; "Abierto" se deja en el enum por datos viejos pero ya no se
+   usa ni al crear ni al reabrir (reabrir ahora vuelve a "En proceso", no a "Abierto" — si no,
+   un error reabierto quedaría en un estado distinto al de uno recién creado).
+3. La fecha de cierre es automática (se sella sola al marcar Cerrado), no un campo editable a
+   mano.
+
+**Encontrado en el camino:** `resolved_at` (la columna que la UI ya mostraba como "Cerrado") en
+realidad se sella la PRIMERA vez que el estado entra a "Resuelto" o "Cerrado" — si un error pasa
+Resuelto→Cerrado, no se vuelve a actualizar en el segundo paso. O sea, media "cuándo se
+resolvió", no "cuándo se cerró". Se agregó una columna nueva y distinta para no seguir
+arrastrando esa imprecisión.
+
+**Implementado — migración 046** (aplicada a la base real):
+
+- `responsable_area TEXT` — texto libre (Planta/TI/o lo que se tipee en "Otro"), sin CHECK,
+  mismo patrón que `responsables_text` de Ingesta. `responsible_id` (el FK a profiles) se deja
+  intacta para no romper nada existente, pero ya no se usa como "Responsable" en la UI.
+- `closed_at TIMESTAMPTZ` — se sella específicamente al entrar a `cerrado` (venga de donde
+  venga), vía un trigger nuevo que reemplaza al de la migración 010. Reabrir (sale de
+  resuelto/cerrado) limpia `closed_at` — si no, un error reabierto mostraría una fecha de
+  cierre vieja de cuando estuvo cerrado la vez anterior.
+
+**Implementado — código:**
+
+- `useErrors.ts`: `createError()` nuevo (title/comentarios/responsableArea → crea directo en
+  `en_revision`); `filterMember` (por miembro) reemplazado por `filterArea` (Planta/TI/Otras,
+  ya que filtrar por un id de miembro no tiene sentido para una categoría de texto libre);
+  `dateType==='cerradas'` ahora compara contra `closed_at` en vez de `resolved_at`; búsqueda
+  también matchea `responsable_area`; `changeStatus` detecta "reabrir" por el estado ANTERIOR
+  (ya no por `newStatus==='abierto'`, que dejó de usarse) para seguir avisando al equipo.
+- `ErrorsPage.tsx`: botón "+ Nuevo error" con modal simple (3 campos); tabla y modal de detalle
+  muestran/editan `responsable_area` (select Planta/TI + input libre si "Otro"); columna
+  "Cerrado" pasa a "Fecha de cierre" leyendo `closed_at`; el bloque "Descripción" (fijo,
+  no editable) y el bloque viejo "Comentarios" (`observations`, editable) se fusionaron en un
+  solo "Comentarios" editable sobre `description` — `observations` queda sin usar, columna
+  intacta; Excel export actualizado a las columnas nuevas.
+- `useChatMessages.ts`: `createErrorFromMessage` (creación por chat) también arranca en
+  `en_revision` ahora — unificado con el formulario nuevo, un solo vocabulario de estados sin
+  importar por dónde se cree el error.
+
+**Probado contra Equipo Prueba:** insertado un error de prueba, transición
+en_revision→resuelto→cerrado→en_revision verificada contra la base real: `resolved_at` se sella
+solo en el primer paso, `closed_at` solo al cerrar, y se limpia al reabrir. Dato de prueba
+borrado.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre). No probado aún visualmente en el celular/navegador.
+
+### Errores: segunda pasada — sin modal, todo en pantalla (mismo criterio que Ingesta)
+
+Sebastián probó el rediseño anterior y aclaró: seguía siendo el mismo layout con modal — la
+idea es que **todo esté en pantalla**, editable inline, simple, con columnas exactas:
+Transacción o query, Comentario, Quién lo levantó, Fecha de creación, Estado (arranca "En
+proceso"), Fecha de cierre. Se confirmó explícitamente que "Responsable" (Planta/TI/Otro,
+agregado en la pasada anterior) y Severidad **se sacan de esta pantalla** (las columnas siguen
+en la base, sin usarse acá — mismo criterio que columnas legado de Ingesta/Proyecto).
+
+**Reescrito `ErrorsPage.tsx`:** se sacó el modal de detalle por completo. La tabla ahora es
+editable en el lugar:
+
+- Transacción o query / Comentario: `EditableText` (lápiz para editar, mismo componente que
+  usa Ingesta para tema/comentarios) sobre `title`/`description`.
+- Quién lo levantó: texto, nombre resuelto por `created_by` (ya existía en el modal viejo como
+  "Reportado por", ahora es columna).
+- Fecha de creación: `date`, solo lectura.
+- Estado: `<select>` inline con los 4 valores (incluye "Abierto" porque hay 3 filas viejas así
+  en la base real — nunca se ofrece al crear, pero tiene que poder mostrarse/corregirse).
+  Elegir "En proceso" sobre un error resuelto/cerrado lo reabre (reemplaza al botón "Reabrir"
+  que tenía el modal).
+- Fecha de cierre: `closed_at`, solo lectura, automática.
+- "+ Nuevo error": crea una fila en blanco directo en la tabla (`createError('')`, mismo patrón
+  que `addItem('')` de Ingesta) — sin formulario ni modal; se completa tocando el lápiz de cada
+  celda.
+
+**`useErrors.ts`:** se sacaron `filterSeverity`/`filterArea` (código de la pasada anterior, sin
+UI que lo usara ya); `createError` se simplificó a un solo argumento (título, como `addItem`);
+nuevo `updateField()` genérico para las ediciones inline (título/comentario) sin recargar toda
+la lista.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre). No probado aún visualmente.
+
+**Ajuste inmediato:** Sebastián pidió que el Estado siga "la misma lógica que las demás
+pantallas... en botones" — el `<select>` que había puesto no encajaba con el patrón real del
+resto de la app (Actividades: `Badge` de solo lectura + columna "Accion" con el/los botones de
+siguiente paso según el estado actual, ver `ActivitiesPage.tsx`). Se reemplazó: Estado vuelve a
+ser un `Badge`, y se agregó de nuevo la columna "Accion" (Revisar/Resolver/Cerrar/Reabrir según
+corresponda), igual que tenía el ErrorsPage original antes de todo este rediseño — la única
+diferencia real es que ya no abre un modal, todo pasa en la fila de la tabla.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Tercer ajuste:** dos columnas (Estado + Accion) no le gustó — pidió una sola columna,
+"moderna", y explícitamente que se buscara en la web. Investigado: el patrón real usado por
+Linear/Jira para esto es una "pastilla" (pill) coloreada que ES el control — se toca/despliega
+directo, sin una columna de botones aparte (fuente:
+[setproduct.com/blog/badge-ui-design](https://www.setproduct.com/blog/badge-ui-design)).
+Implementado como un `<select>` nativo restyleado para verse como esa pastilla
+(`appearance-none`, `rounded-full`, color de fondo/texto según el estado, flecha propia vía
+SVG inline) en vez de un `<select>` con apariencia de formulario — un solo control, un solo
+click, sin botones sueltos. Cuando no se puede gestionar, se ve como una pastilla de solo
+lectura (`<span>`, mismos colores).
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+### Limpieza: se sacó la pestaña "Actividades" (legado) de Ingestas
+
+Sebastián notó que `/ingestas` mostraba dos pestañas ("Hoja" y "Actividades") y preguntó por
+qué. La pestaña "Actividades" era la vista legado documentada arriba en `IngestasTabs.tsx`:
+mostraba 12 actividades viejas con prefijo `[Ingesta]` en el título (de antes de que existiera
+la Hoja), del equipo **Analítica y BI** — Sebastián confirmó que pertenece a ese equipo, que
+esas 12 eran reales pero que el equipo todavía no había empezado a usar la Hoja de forma
+formal, y que se podían borrar.
+
+**Borradas las 12 actividades** (verificado antes de borrar: título, equipo, estado — no eran
+de Equipo Prueba). Con eso, se cumplió exactamente la condición que el propio código ya tenía
+documentada para sacar la pestaña ("cuando ya no quede ninguna abierta, se puede sacar sin
+tocar nada más"): `IngestasTabs.tsx` se simplificó a renderizar directo `<MinutaPage
+tipo="ingesta" />`, sin selector de pestañas. `IngestasPage.tsx` (la vista legado en sí) quedó
+sin ninguna referencia en el código — se borró en vez de dejarla como código muerto.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios (el bundle de `IngestasPage` ya no se genera).
+
+### Título "Hoja de Ingesta" → "Solicitudes de Ingesta"
+
+Sebastián pidió un título más profesional, investigando buenas prácticas de UX writing.
+Confirmado (Nielsen Norman Group y otras fuentes): el título tiene que decir claramente qué
+hay adentro ("information scent") — "Hoja" es jerga de planilla de cálculo, no describe nada.
+Se revisaron los demás títulos de la app para no romper consistencia: el patrón ya establecido
+(Bitácora de Errores, Minuta Semanal, Planificación Semanal) es "sustantivo + complemento", sin
+la palabra "hoja" en ningún otro lado — solo Ingesta rompía el patrón.
+
+**Corregido:** "Solicitudes de Ingesta" (mantiene "Ingesta", que el equipo ya conoce, pero dice
+qué hay adentro). Se actualizaron también los mensajes relacionados (estado vacío, confirmación
+de borrado) que decían "la hoja de ingesta". `npm run build`/`tsc --noEmit`/`eslint` limpios.
+
+Fuentes: [UX Writing Guide for Better Labels, CTAs, and Navigation](https://lettercrafted.com/ux-writing-guide-for-better-labels/), [Nielsen Norman Group — The 3 I's of Microcopy](https://www.nngroup.com/articles/3-is-of-microcopy/), [3 Common IA Mistakes (Information Scent) — NN/G](https://www.nngroup.com/articles/3-ia-mistakes/).
+
+### Filtro de fechas propio para Ingesta
+
+El único filtro de fecha que existía en la hoja (Minuta/Ingesta compartidas) era "📅 Por
+semana" (`weekMode`) — pensado para Minuta ("¿qué tuvo actividad esta semana?"), no encaja con
+Ingesta, que ahora tiene dos fechas propias (Solicitud y Compromiso, Fase 13) y necesita un
+rango elegido a mano, no una semana fija.
+
+**Agregado** (`useMinuta.ts` + `MinutaPage.tsx`): `dateType` ('solicitud'/'compromiso') +
+`dateFrom`/`dateTo`, mismo patrón que ya usan Actividades/Errores. Solo se usa/muestra para
+Ingesta — Minuta sigue exactamente igual con su navegador de semana de siempre, sin tocar
+nada. Un item de Ingesta sin la fecha elegida (ej. sin fecha de compromiso todavía) no
+matchea el filtro por esa fecha — no hay como saber si cae en el rango, así que no se
+incluye a ciegas.
+
+`npm run build`/`tsc --noEmit`/`eslint` limpios.
+
+**No publicado a pedido explícito de Sebastián** ("no publicar nada en git hasta que lo diga
+yo") — la migración 045 sí corrió contra la base real (igual que siempre en este proyecto), el
+código queda en el árbol de trabajo local. **Pendiente:** confirmación visual de Sebastián, y
+decidir a futuro si vale la pena que el chat entienda el vocabulario nuevo de Ingesta.
+
+---
+
+## Minuta pegada ya estructurada (acta de reunión) se aplastaba en un solo tema ✅ HECHO
+
+Sebastián mostró un caso real: gente que graba sus reuniones y pega el acta completa (título +
+varias secciones numeradas, cada una con viñetas) en el chat, en modo Minuta/Proyecto. Lumix
+metía TODO el documento como el `tema` de una sola fila — perdía completamente la estructura.
+
+**Decisiones acordadas antes de construir:**
+
+1. Se dispara automático (no un modo nuevo aparte) cuando el mensaje en modo Minuta/Proyecto
+   tiene varias viñetas — sin pedir nada extra.
+2. Cada viñeta se crea como su propio tema suelto, **sin agrupar por sección ni usar
+   subtareas** (más simple; se asigna responsable después si hace falta).
+3. Se crea directo, sin vista previa (a diferencia del modo "masivo" de actividades, que sí
+   muestra preview antes de confirmar).
+
+**Implementado** (`useChatMessages.ts`): `contarVinetas()` cuenta líneas que empiezan con
+`*`/`-`/`•` (viñetas son la señal universal — los encabezados de sección varían demasiado entre
+personas: números, emojis, mayúsculas) — con 4 o más, se activa el camino nuevo ANTES del
+camino normal de un solo tema. Reusa `classifyBulk` (el mismo parseo AI que ya usa el modo
+"masivo" de actividades — `ai-bulk`, sin Edge Function nueva ni deploy) para separar el texto en
+items con título/descripción; cada uno se inserta como una fila de `minute_items` (`tipo` =
+minuta o proyecto según el modo activo) vía `minutesService.create` en un loop secuencial (el
+`orden` se calcula una vez y se incrementa a mano — un loop en paralelo lo hubiera desordenado).
+Al final, UN solo mensaje resumen ("Detecté una minuta con varios puntos y la separé: N temas
+agregados..."), no una confirmación por cada tema (a diferencia de `createMinutaTopic`, que sí
+confirma uno por uno — aquí seria ruido para 10-20 items). Si el parseo falla o detecta menos de
+2 items, cae al camino normal de siempre (un solo tema con todo el texto).
+
+Verificado el heurístico de conteo contra el texto real que mandó Sebastián: detecta 14 viñetas
+(umbral es 4) — dispara correctamente. `npx tsc --noEmit`, `npm run build` y `npx eslint .`
+limpios (0 errores, mismas 10 advertencias de siempre). No probado aún en vivo (el parseo real
+depende de una llamada a `ai-bulk`, no se puede probar sin la app corriendo).
+
+### Bug real encontrado al probar: en modo Auto ni siquiera llegaba a este código
+
+Sebastián probó el acta real en Equipo Prueba (sin forzar el selector a "Minuta") y Lumix la
+clasificó como una **actividad** normal ("✅ Actividad 'Revisión de minuta de acuerdos y
+avances...' creada") — todo el trabajo de la pasada anterior nunca se ejecutó.
+
+**Causa:** la detección de viñetas vivía DENTRO del bloque `if (forcedType === 'minuta' ||
+forcedType === 'proyecto' || proyectoAuto)` — en modo Auto, sin la frase explícita "crea un
+proyecto" que dispara `proyectoAuto`, el mensaje nunca entraba a ese bloque en absoluto y caía
+derecho al clasificador de actividades, igual que cualquier texto suelto.
+
+**Corregido:** nueva señal `minutaEstructuradaAuto` (mismo criterio que ya existe para
+`proyectoAuto`: puente desde modo Auto hacia un tipo de hoja específico) — en Auto, si el texto
+tiene 4+ viñetas y no matcheó ya como proyecto explícito, entra al bloque de Minuta/Proyecto con
+`tipoHoja` por defecto `'minuta'` (default más seguro: la mayoría de las actas de reunión son
+minuta, no proyecto). `proyectoAuto` sigue teniendo prioridad si el texto además dice
+explícitamente "crea un proyecto...".
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre). **Confirmado por Sebastián en Equipo Prueba:** "pruebo lo de la minuta... ahora
+esta ok" — separa correctamente los temas en modo Auto.
+
+---
+
+## Bug real: Lumix respondía preguntas totalmente fuera de su alcance (código, etc.) ✅ HECHO
+
+Sebastián mostró una conversación real: alguien le preguntó a Lumix "como imprimo un dataframe
+de Spark" y "dame el script para imprimir hola en spark", y Lumix respondió como un asistente
+de programación genérico, con código PySpark completo en markdown — nada que ver con
+actividades/equipo, que es para lo único que existe Lumix.
+
+**Causa encontrada:** el prompt del sistema de la Edge Function `ai-ask` (la que responde
+cualquier pregunta libre en el chat, distinta de crear/actualizar cosas) nunca tuvo **ninguna**
+instrucción de límite/alcance — es un prompt largo y cuidado sobre CÓMO responder preguntas del
+equipo (separar compromisos de trabajo propio, no mencionar Asana/Trello, etc.), pero en
+ningún lado le decía qué hacer si la pregunta no tiene nada que ver con eso. Sin ese freno, el
+modelo (un GPT genérico) contesta literalmente cualquier cosa que le llegue.
+
+**Corregido** (`supabase/functions/ai-ask/index.ts`): se agregó una instrucción de ALCANCE al
+principio del prompt (antes que el resto de reglas, para que tenga prioridad): si le piden
+código, ayuda de programación, conocimiento general sin relación con los datos del equipo, o
+cualquier tarea que no se responda con la información que Lumix maneja, tiene que rehusar en
+1-2 líneas explicando amablemente que es el asistente de gestión de actividades del equipo y
+eso se escapa de lo que puede ayudar — sin intentar responder la pregunta de todas formas.
+
+**Desplegado a Supabase** (Sebastián lo confirmó explícito, aparte de los fixes de mobile que
+siguen sin publicar): `supabase functions deploy ai-ask`. Ya está activo en producción.

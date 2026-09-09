@@ -63,6 +63,11 @@ export interface AppError {
   resolved_at: string | null
   error_type: string
   observations: string
+  // Area responsable en texto libre (Planta/TI/Otro), migracion 046. Reemplaza a
+  // responsible_id como "Responsable" visible; responsible_id se deja intacta (sin uso en UI).
+  responsable_area?: string | null
+  // Fecha real de cierre (entra a 'cerrado'), distinta de resolved_at (fecha de 'resuelto').
+  closed_at?: string | null
 }
 
 export type MinuteEstado = 'pendiente' | 'en_desarrollo' | 'resuelto' | 'definir'
@@ -100,7 +105,17 @@ export interface MinuteItem {
   // en un tema raiz. Sigue el mismo ciclo de vida que cualquier tema: se asigna y se
   // transforma en actividad igual que uno de nivel superior.
   parent_item_id: string | null
+  // Estado propio de la Hoja de Ingesta (migracion 045) — Minuta/Proyecto NO lo usan, siguen
+  // con `estado` de siempre. Null salvo en items con tipo='ingesta'.
+  estado_ingesta?: EstadoIngesta | null
 }
+
+export type EstadoIngesta =
+  | 'no_iniciado'
+  | 'en_proceso'
+  | 'completado'
+  | 'no_resuelto'
+  | 'cancelado'
 
 export interface Message {
   id: string

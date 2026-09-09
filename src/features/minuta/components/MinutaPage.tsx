@@ -5,7 +5,12 @@ import { Modal } from '@shared/components/ui/Modal'
 import { DatePicker } from '@shared/components/ui/DatePicker'
 import { MemberMultiSelect } from '@shared/components/ui/MemberMultiSelect'
 import { EditableText } from '@shared/components/ui/EditableText'
-import { useMinuta, estadoLabels, type DecoratedItem } from '@features/minuta/hooks/useMinuta'
+import {
+  useMinuta,
+  estadoLabels,
+  estadoIngestaLabels,
+  type DecoratedItem,
+} from '@features/minuta/hooks/useMinuta'
 import { plazoEfectivo } from '@features/minuta/utils/subtareas'
 import { AsignarActividadModal } from '@features/minuta/components/AsignarActividadModal'
 import { exportToCSV } from '@shared/utils/export'
@@ -14,13 +19,21 @@ import { useToast } from '@shared/components/ui/Toast'
 import { SkeletonRows } from '@shared/components/ui/Skeleton'
 import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 import type { BadgeVariant } from '@shared/components/ui/Badge'
-import type { HojaTipo, MinuteEstado, Profile } from '@shared/types'
+import type { EstadoIngesta, HojaTipo, MinuteEstado, Profile } from '@shared/types'
 
 const estadoColors: Record<MinuteEstado, BadgeVariant> = {
   pendiente: 'warning',
   en_desarrollo: 'info',
   resuelto: 'success',
   definir: 'default',
+}
+
+const estadoIngestaColors: Record<EstadoIngesta, BadgeVariant> = {
+  no_iniciado: 'default',
+  en_proceso: 'info',
+  completado: 'success',
+  no_resuelto: 'warning',
+  cancelado: 'danger',
 }
 
 /**
@@ -345,7 +358,11 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
   // Proyectos-: un solo responsable por tema/subtarea, para que no se acumulen varias
   // actividades detras de un mismo tema (caso real reportado).
   const esMinuta = tipo === 'minuta'
-  const titulo = esIngesta ? 'Hoja de Ingesta' : 'Minuta Semanal'
+  // "Solicitudes de Ingesta", no "Hoja de Ingesta": "hoja" es jerga de planilla de calculo,
+  // no dice que hay adentro. Mismo patron que ya usa el resto de la app para pantallas de
+  // seguimiento (Bitacora de Errores, Minuta Semanal, Planificacion Semanal) -sustantivo que
+  // nombra lo que se sigue, sin la palabra "hoja".
+  const titulo = esIngesta ? 'Solicitudes de Ingesta' : 'Minuta Semanal'
   const {
     items,
     allItems,
@@ -366,6 +383,12 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
     weekOffset,
     setWeekOffset,
     weekLabel,
+    dateType,
+    setDateType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
     canManage,
     canDelete,
     canAssign,
@@ -404,13 +427,18 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
 
   // Que decir cuando no hay nada. "Por asignar" vacio es una BUENA noticia -no queda nada
   // que conversar-, no un error, y el mensaje tiene que reflejarlo.
-  const hoja = esIngesta ? 'la hoja de ingesta' : 'la minuta'
   const textoVacio = () => {
     if (weekMode) return 'No hubo temas con actividad en esa semana'
+    if (dateFrom && dateTo) return 'No hay solicitudes en ese rango de fechas'
     if (search || filterMember !== 'todas') return 'No hay temas que coincidan con el filtro'
+    if (esIngesta) {
+      if (view === 'resueltos') return 'No hay solicitudes resueltas'
+      if (view === 'todos') return 'No hay solicitudes registradas todavía'
+      return 'No hay solicitudes activas. Todo al día.'
+    }
     if (view === 'resueltos') return 'No hay temas resueltos'
     if (view === 'asignados') return 'No hay temas asignados todavia'
-    if (view === 'todos') return `No hay temas en ${hoja}`
+    if (view === 'todos') return 'No hay temas en la minuta'
     return 'Todo asignado. No queda nada por conversar.'
   }
 
@@ -481,14 +509,25 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
           <button
             onClick={() =>
               exportToCSV(
-                items.map((it) => ({
-                  Tema: it.tema,
-                  Responsables: responsablesLabel(it),
-                  Estado: estadoLabels[it.effectiveEstado],
-                  Plazo: it.plazo ? formatDateLocal(it.plazo) : '-',
-                  'Cambios de plazo': it.plazo_change_count,
-                  Comentarios: it.comentarios,
-                })),
+                items.map((it) =>
+                  esIngesta
+                    ? {
+                        Solicitud: it.tema,
+                        Responsable: it.responsables_text || 'Sin asignar',
+                        'Fecha de solicitud': formatDateLocal(it.created_at),
+                        'Fecha de compromiso': it.plazo ? formatDateLocal(it.plazo) : '-',
+                        Estado: estadoIngestaLabels[it.estado_ingesta ?? 'no_iniciado'],
+                        Comentarios: it.comentarios,
+                      }
+                    : {
+                        Tema: it.tema,
+                        Responsables: responsablesLabel(it),
+                        Estado: estadoLabels[it.effectiveEstado],
+                        Plazo: it.plazo ? formatDateLocal(it.plazo) : '-',
+                        'Cambios de plazo': it.plazo_change_count,
+                        Comentarios: it.comentarios,
+                      },
+                ),
                 esIngesta ? 'ingesta' : 'minuta',
               )
             }
@@ -506,7 +545,9 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
               Carga masiva
             </button>
           )}
-          <span className="text-xs text-slate-500">{counts.pendientes} por asignar</span>
+          <span className="text-xs text-slate-500">
+            {counts.pendientes} {esIngesta ? 'activas' : 'por asignar'}
+          </span>
         </div>
       </div>
 
@@ -514,13 +555,18 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
       <div className="flex flex-wrap items-center gap-2 px-2 sm:px-4 py-2 border-b border-border bg-panel flex-shrink-0">
         {/* Control segmentado de estado */}
         <div className="inline-flex rounded-lg bg-surface p-0.5">
-          {(
-            [
-              { v: 'pendientes', label: 'Por asignar', n: counts.pendientes },
-              { v: 'asignados', label: 'Asignados', n: counts.asignados },
-              { v: 'resueltos', label: 'Resueltos', n: counts.resueltos },
-              { v: 'todos', label: 'Todos', n: counts.todos },
-            ] as const
+          {(esIngesta
+            ? ([
+                { v: 'pendientes', label: 'Activas', n: counts.pendientes },
+                { v: 'resueltos', label: 'Resueltas', n: counts.resueltos },
+                { v: 'todos', label: 'Todas', n: counts.todos },
+              ] as const)
+            : ([
+                { v: 'pendientes', label: 'Por asignar', n: counts.pendientes },
+                { v: 'asignados', label: 'Asignados', n: counts.asignados },
+                { v: 'resueltos', label: 'Resueltos', n: counts.resueltos },
+                { v: 'todos', label: 'Todos', n: counts.todos },
+              ] as const)
           ).map((f) => (
             <button
               key={f.v}
@@ -599,8 +645,45 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
           )}
         </div>
 
-        {/* Navegador de semana */}
-        {weekMode ? (
+        {/* Filtro de fechas: Ingesta tiene dos fechas propias (solicitud/compromiso) y un
+            rango elegido a mano tiene mas sentido que "actividad esta semana" -eso es un
+            concepto de Minuta (se conversa/avanza en la reunion), no de un log de
+            solicitudes-. Minuta sigue con el navegador de semana de siempre. */}
+        {esIngesta ? (
+          <>
+            <select
+              value={dateType}
+              onChange={(e) => setDateType(e.target.value as typeof dateType)}
+              className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
+            >
+              <option value="compromiso">Fecha de compromiso</option>
+              <option value="solicitud">Fecha de solicitud</option>
+            </select>
+            <input
+              type="date"
+              value={dateFrom}
+              onChange={(e) => setDateFrom(e.target.value)}
+              className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[130px]"
+            />
+            <input
+              type="date"
+              value={dateTo}
+              onChange={(e) => setDateTo(e.target.value)}
+              className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50 w-[130px]"
+            />
+            {(dateFrom || dateTo) && (
+              <button
+                onClick={() => {
+                  setDateFrom('')
+                  setDateTo('')
+                }}
+                className="px-2 py-1.5 rounded-lg text-xs text-fg-faint hover:text-fg-body hover:bg-surface"
+              >
+                Limpiar
+              </button>
+            )}
+          </>
+        ) : weekMode ? (
           <div className="flex items-center gap-1 rounded-lg bg-surface px-1 py-0.5">
             <button
               onClick={() => setWeekOffset(weekOffset - 1)}
@@ -681,12 +764,34 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                       {it.linkedActivities.length} actividades
                     </span>
                   )}
+                  {esIngesta && (
+                    <span className="block text-[10px] text-slate-500 px-1 -mt-1">
+                      Solicitado: {formatDateLocal(it.created_at)}
+                    </span>
+                  )}
 
                   <div className="grid grid-cols-2 gap-3">
-                    {/* Responsable */}
+                    {/* Responsable: en Ingesta puede ser de OTRO equipo, texto libre
+                        (responsables_text) en vez del selector de miembros del equipo activo. */}
                     <div>
-                      <p className="text-[10px] text-slate-500 mb-1">Responsable(s)</p>
-                      {canManage ? (
+                      <p className="text-[10px] text-slate-500 mb-1">Responsable</p>
+                      {esIngesta ? (
+                        canManage ? (
+                          <input
+                            defaultValue={it.responsables_text}
+                            onBlur={(e) => {
+                              if (e.target.value !== it.responsables_text)
+                                guardar(it.id, { responsables_text: e.target.value })
+                            }}
+                            placeholder="Nombre (y equipo)"
+                            className="w-full rounded border border-border-strong bg-field px-1.5 py-1 text-base sm:text-[11px] text-fg-body placeholder:text-slate-500"
+                          />
+                        ) : (
+                          <span className="text-xs text-fg-faint">
+                            {it.responsables_text || 'Sin asignar'}
+                          </span>
+                        )
+                      ) : canManage ? (
                         <MemberMultiSelect
                           members={members}
                           selected={it.responsables}
@@ -698,10 +803,33 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                         <span className="text-xs text-fg-faint">{responsablesLabel(it)}</span>
                       )}
                     </div>
-                    {/* Estado */}
+                    {/* Estado: Ingesta tiene su propio vocabulario (estado_ingesta), no el de
+                        Minuta/Proyecto -no aplica el sincronizado con actividades vinculadas. */}
                     <div>
                       <p className="text-[10px] text-slate-500 mb-1">Estado</p>
-                      {it.linkedActivities.length > 0 ? (
+                      {esIngesta ? (
+                        canManage ? (
+                          <select
+                            value={it.estado_ingesta ?? 'no_iniciado'}
+                            onChange={(e) =>
+                              guardar(it.id, {
+                                estado_ingesta: e.target.value as EstadoIngesta,
+                              })
+                            }
+                            className="w-full rounded border border-border-strong bg-surface px-1.5 py-1 text-[11px] text-fg-body"
+                          >
+                            {(Object.keys(estadoIngestaLabels) as EstadoIngesta[]).map((s) => (
+                              <option key={s} value={s}>
+                                {estadoIngestaLabels[s]}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Badge variant={estadoIngestaColors[it.estado_ingesta ?? 'no_iniciado']}>
+                            {estadoIngestaLabels[it.estado_ingesta ?? 'no_iniciado']}
+                          </Badge>
+                        )
+                      ) : it.linkedActivities.length > 0 ? (
                         <Badge variant={estadoColors[it.effectiveEstado]}>
                           {estadoLabels[it.effectiveEstado]}
                         </Badge>
@@ -725,9 +853,11 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                         </Badge>
                       )}
                     </div>
-                    {/* Plazo */}
+                    {/* Plazo (Ingesta: "Fecha de compromiso") */}
                     <div>
-                      <p className="text-[10px] text-slate-500 mb-1">Plazo</p>
+                      <p className="text-[10px] text-slate-500 mb-1">
+                        {esIngesta ? 'Fecha de compromiso' : 'Plazo'}
+                      </p>
                       {canManage ? (
                         <DatePicker
                           value={it.plazo}
@@ -869,11 +999,15 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
               <thead>
                 <tr className="text-fg-faint align-bottom [&>th]:sticky [&>th]:top-0 [&>th]:z-10 [&>th]:bg-panel [&>th]:border-b [&>th]:border-border-strong [&>th]:shadow-[0_2px_4px_-2px_rgba(0,0,0,0.5)]">
                   <th className="text-left py-2 px-2 font-medium min-w-[220px] sm:w-[38%] sm:min-w-[340px]">
-                    Tema
+                    {esIngesta ? 'Solicitud' : 'Tema'}
                   </th>
-                  <th className="text-left py-2 px-2 font-medium min-w-[150px]">Responsable(s)</th>
+                  <th className="text-left py-2 px-2 font-medium min-w-[150px]">
+                    {esIngesta ? 'Responsable' : 'Responsable(s)'}
+                  </th>
                   <th className="text-left py-2 px-2 font-medium min-w-[130px]">Estado</th>
-                  <th className="text-left py-2 px-2 font-medium min-w-[110px]">Plazo</th>
+                  <th className="text-left py-2 px-2 font-medium min-w-[110px]">
+                    {esIngesta ? 'Fecha de compromiso' : 'Plazo'}
+                  </th>
                   <th className="text-left py-2 px-2 font-medium min-w-[140px] sm:min-w-[180px]">
                     Comentarios
                   </th>
@@ -917,9 +1051,25 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                       />
                     </td>
 
-                    {/* Responsable(s): selector multiple */}
+                    {/* Responsable: en Ingesta puede ser de OTRO equipo, texto libre. */}
                     <td className="py-2 px-2">
-                      {canManage ? (
+                      {esIngesta ? (
+                        canManage ? (
+                          <input
+                            defaultValue={it.responsables_text}
+                            onBlur={(e) => {
+                              if (e.target.value !== it.responsables_text)
+                                guardar(it.id, { responsables_text: e.target.value })
+                            }}
+                            placeholder="Nombre (y equipo)"
+                            className="w-full rounded border border-border-strong bg-field px-1.5 py-1 text-base sm:text-xs text-fg-body placeholder:text-slate-500"
+                          />
+                        ) : (
+                          <span className="text-fg-faint">
+                            {it.responsables_text || 'Sin asignar'}
+                          </span>
+                        )
+                      ) : canManage ? (
                         <MemberMultiSelect
                           members={members}
                           selected={it.responsables}
@@ -930,11 +1080,38 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                       ) : (
                         <span className="text-fg-faint">{responsablesLabel(it)}</span>
                       )}
+                      {esIngesta && (
+                        <span className="block text-[10px] text-slate-500 mt-0.5">
+                          Solicitado: {formatDateLocal(it.created_at)}
+                        </span>
+                      )}
                     </td>
 
-                    {/* Estado */}
+                    {/* Estado: Ingesta usa su propio vocabulario (estado_ingesta). */}
                     <td className="py-2 px-2">
-                      {it.linkedActivities.length > 0 ? (
+                      {esIngesta ? (
+                        canManage ? (
+                          <select
+                            value={it.estado_ingesta ?? 'no_iniciado'}
+                            onChange={(e) =>
+                              guardar(it.id, {
+                                estado_ingesta: e.target.value as EstadoIngesta,
+                              })
+                            }
+                            className="rounded border border-border-strong bg-surface px-1.5 py-1 text-[11px] text-fg-body"
+                          >
+                            {(Object.keys(estadoIngestaLabels) as EstadoIngesta[]).map((s) => (
+                              <option key={s} value={s}>
+                                {estadoIngestaLabels[s]}
+                              </option>
+                            ))}
+                          </select>
+                        ) : (
+                          <Badge variant={estadoIngestaColors[it.estado_ingesta ?? 'no_iniciado']}>
+                            {estadoIngestaLabels[it.estado_ingesta ?? 'no_iniciado']}
+                          </Badge>
+                        )
+                      ) : it.linkedActivities.length > 0 ? (
                         <span title="Sincronizado con actividades">
                           <Badge variant={estadoColors[it.effectiveEstado]}>
                             {estadoLabels[it.effectiveEstado]}
@@ -961,7 +1138,7 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                       )}
                     </td>
 
-                    {/* Plazo + trazabilidad */}
+                    {/* Plazo + trazabilidad (Ingesta: "Fecha de compromiso") */}
                     <td className="py-2 px-2">
                       {canManage ? (
                         <DatePicker
@@ -1117,7 +1294,9 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
                 <p className="text-sm text-fg-body">
                   {deleteItem.parent_item_id
                     ? '¿Seguro que quieres eliminar esta subtarea?'
-                    : `¿Seguro que quieres eliminar este tema de ${esIngesta ? 'la hoja de ingesta' : 'la minuta'}?`}
+                    : esIngesta
+                      ? '¿Seguro que quieres eliminar esta solicitud de Solicitudes de Ingesta?'
+                      : '¿Seguro que quieres eliminar este tema de la minuta?'}
                 </p>
                 <p className="text-sm text-fg-faint leading-snug">"{deleteItem.tema}"</p>
                 <p className="text-[11px] text-slate-500">

@@ -51,7 +51,13 @@ export const errorsService = {
   async create(
     error: Omit<
       AppError,
-      'id' | 'created_at' | 'updated_at' | 'resolved_at' | 'error_type' | 'observations'
+      | 'id'
+      | 'created_at'
+      | 'updated_at'
+      | 'resolved_at'
+      | 'error_type'
+      | 'observations'
+      | 'closed_at'
     >,
   ): Promise<AppError> {
     const { data, error: err } = await supabase.from('errors').insert(error).select().single()

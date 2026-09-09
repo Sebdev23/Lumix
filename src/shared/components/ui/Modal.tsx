@@ -49,7 +49,10 @@ export function Modal({ open, onClose, title, children, size = 'md' }: ModalProp
             <h3 className="text-lg font-semibold text-fg">{title}</h3>
             <button
               onClick={onClose}
-              className="p-1 rounded-lg hover:bg-surface text-fg-faint hover:text-fg-body transition-colors"
+              aria-label="Cerrar"
+              // p-2.5 (no p-1): objetivo tactil de ~40px -este boton se usa en TODOS los
+              // modales de la app, vale la pena que sea facil de tocar en el celular.
+              className="p-2.5 -mr-2.5 rounded-lg hover:bg-surface text-fg-faint hover:text-fg-body transition-colors"
             >
               <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
                 <path

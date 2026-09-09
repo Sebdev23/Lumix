@@ -16,7 +16,21 @@ export function AppLayout() {
   useAppHeight()
 
   return (
-    <div className="flex bg-shell text-fg" style={{ height: 'var(--app-height, 100dvh)' }}>
+    <div
+      className="flex bg-shell text-fg"
+      // position: fixed + top/height tomados en vivo de visualViewport (useAppHeight): asi
+      // el layout SIEMPRE pinta donde el navegador dice que esta lo visible, en vez de vivir
+      // en el flujo normal del documento -eso es lo que dejaba la parte de arriba fuera de
+      // la vista al cerrar el teclado en iOS (offsetTop que no vuelve a 0, bug real
+      // reportado por Sebastian; ver el docblock de useAppHeight.ts para el detalle).
+      style={{
+        position: 'fixed',
+        top: 'var(--app-top, 0px)',
+        left: 0,
+        width: '100%',
+        height: 'var(--app-height, 100dvh)',
+      }}
+    >
       <NovedadesModal />
       {/* Mobile overlay */}
       {sidebarOpen && (
@@ -52,7 +66,9 @@ export function AppLayout() {
           <button
             onClick={() => setSidebarOpen(true)}
             aria-label="Abrir menu"
-            className="p-1.5 -ml-1 rounded-lg hover:bg-surface text-fg-faint"
+            // p-2.5 (no p-1.5): objetivo tactil de ~40px, mas cerca de los 44px que
+            // recomiendan Apple/Material para el boton principal de navegacion en mobile.
+            className="p-2.5 -ml-2 rounded-lg hover:bg-surface text-fg-faint"
           >
             <svg className="w-5 h-5" fill="none" viewBox="0 0 24 24" stroke="currentColor">
               <path

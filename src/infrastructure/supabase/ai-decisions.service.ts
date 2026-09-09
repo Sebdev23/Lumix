@@ -113,7 +113,11 @@ export const aiDecisionsService = {
   },
 
   // A que fila (activities/errors) termino apuntando la decision.
-  async linkEntity(id: string | null, table: 'activities' | 'errors', entityId: string) {
+  async linkEntity(
+    id: string | null,
+    table: 'activities' | 'errors' | 'minute_items',
+    entityId: string,
+  ) {
     if (!id) return
     try {
       await supabase

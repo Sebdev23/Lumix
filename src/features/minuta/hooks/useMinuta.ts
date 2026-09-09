@@ -6,9 +6,16 @@ import { notificationsService } from '@infrastructure/supabase/notifications.ser
 import { teamsService, type GrupoTrabajo } from '@infrastructure/supabase/teams.service'
 import { useAuth } from '@core/auth/hooks/useAuth'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
-import { formatDateLocal } from '@shared/utils/date'
+import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
 import { deriveEstado } from '@shared/utils/compromisos'
-import type { Activity, HojaTipo, MinuteEstado, MinuteItem, Profile } from '@shared/types'
+import type {
+  Activity,
+  EstadoIngesta,
+  HojaTipo,
+  MinuteEstado,
+  MinuteItem,
+  Profile,
+} from '@shared/types'
 
 const MESES_ABBR = [
   'ene',
@@ -31,6 +38,24 @@ export const estadoLabels: Record<MinuteEstado, string> = {
   resuelto: 'Resuelto',
   definir: 'Definir en reunion',
 }
+
+// Estado propio de Ingesta (migracion 045, reformulacion pedida por Sebastian): una solicitud
+// a otro equipo no se "conversa en la reunion" ni se "asigna" como un tema de minuta, se
+// resuelve o no. Se descarto un sexto valor "cerrado" -Sebastian lo considero redundante con
+// "completado"-.
+export const estadoIngestaLabels: Record<EstadoIngesta, string> = {
+  no_iniciado: 'No iniciado',
+  en_proceso: 'En proceso',
+  completado: 'Completado',
+  no_resuelto: 'No resuelto',
+  cancelado: 'Cancelado',
+}
+
+// "Activa" = todavia hay algo que hacer/seguir; el resto queda trazable pero fuera de los
+// pendientes activos (mismo criterio que pidio Sebastian: completado/no resuelto/cancelado
+// no cuentan como pendiente, pero no se borran).
+export const esActivaIngesta = (estado?: EstadoIngesta | null): boolean =>
+  estado === 'en_proceso' || !estado || estado === 'no_iniciado'
 
 export interface DecoratedItem extends MinuteItem {
   effectiveEstado: MinuteEstado
@@ -67,6 +92,12 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
   const [search, setSearch] = useState('')
   const [weekMode, setWeekMode] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0) // 0 = semana actual, -1 = anterior, etc.
+  // Filtro de rango de fechas: solo lo usa Ingesta (dos fechas propias, ver Fase 13 del
+  // plan) -Minuta sigue con weekMode/"Por semana", que es otro concepto (actividad esa
+  // semana, no un rango elegido a mano). 'solicitud' = created_at, 'compromiso' = plazo.
+  const [dateType, setDateType] = useState<'solicitud' | 'compromiso'>('compromiso')
+  const [dateFrom, setDateFrom] = useState('')
+  const [dateTo, setDateTo] = useState('')
   const { user, profile } = useAuth()
   const { canManageMinuta, canDeleteMinuta, canAssignMinuta, canManageIngestas } = useCapabilities()
   const teamId = profile?.team_id ?? ''
@@ -194,12 +225,25 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
   // -ver SubtareasPanel en MinutaPage-, si no la lista principal se duplica con cada
   // descomposicion en sub-tareas, que es justo el ruido que esta pantalla evita.
   const q = search.trim().toLowerCase()
+  // Rango de fechas (Ingesta): 'solicitud' mira created_at, 'compromiso' mira plazo. Un item
+  // sin plazo no matchea un filtro por compromiso -no tiene sentido "incluirlo igual", si no
+  // hay fecha no hay como saber si cae en el rango.
+  const enRangoFecha = (it: MinuteItem) => {
+    if (!dateFrom || !dateTo) return true
+    const campo = dateType === 'solicitud' ? it.created_at : it.plazo
+    if (!campo) return false
+    const d = parseDateLocal(campo)
+    const from = parseDateLocal(dateFrom + 'T00:00:00')
+    const to = parseDateLocal(dateTo + 'T23:59:59')
+    return d >= from && d <= to
+  }
   const base = decorated.filter((it) => {
     if (it.parent_item_id) return false
     if (filterMember !== 'todas' && !it.responsables.includes(filterMember)) return false
     if (filterGrupo !== 'todas' && !perteneceAlGrupo(it)) return false
     if (q && !`${it.tema} ${it.comentarios}`.toLowerCase().includes(q)) return false
     if (weekMode && !hadActivityInWeek(it)) return false
+    if (esIngesta && !enRangoFecha(it)) return false
     return true
   })
 
@@ -224,19 +268,37 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
   const paraConversar = (it: DecoratedItem) =>
     it.linked_activity_ids.length === 0 || it.estado === 'definir'
 
+  // Ingesta tiene su propio criterio de vistas (estado_ingesta), nada que ver con
+  // paraConversar/resuelto -esos son conceptos de Minuta/Proyecto (se conversa en la
+  // reunion, se asigna una actividad). Se reusan los mismos NOMBRES de vista
+  // ('pendientes'/'resueltos'/'todos') para no duplicar el tipo de `view`, pero el
+  // significado para Ingesta es "Activas"/"Resueltas"/"Todas" (MinutaPage decide las
+  // etiquetas y oculta la pestaña "asignados", que no aplica aca).
   const visible = base.filter((it) => {
+    if (esIngesta) {
+      if (view === 'todos') return true
+      if (view === 'resueltos') return !esActivaIngesta(it.estado_ingesta)
+      return esActivaIngesta(it.estado_ingesta)
+    }
     if (view === 'todos') return true
     if (view === 'resueltos') return resuelto(it)
     if (view === 'asignados') return !paraConversar(it) && !resuelto(it)
     return paraConversar(it) && !resuelto(it)
   })
 
-  const counts = {
-    pendientes: base.filter((it) => paraConversar(it) && !resuelto(it)).length,
-    asignados: base.filter((it) => !paraConversar(it) && !resuelto(it)).length,
-    resueltos: base.filter(resuelto).length,
-    todos: base.length,
-  }
+  const counts = esIngesta
+    ? {
+        pendientes: base.filter((it) => esActivaIngesta(it.estado_ingesta)).length,
+        asignados: 0,
+        resueltos: base.filter((it) => !esActivaIngesta(it.estado_ingesta)).length,
+        todos: base.length,
+      }
+    : {
+        pendientes: base.filter((it) => paraConversar(it) && !resuelto(it)).length,
+        asignados: base.filter((it) => !paraConversar(it) && !resuelto(it)).length,
+        resueltos: base.filter(resuelto).length,
+        todos: base.length,
+      }
 
   const addItem = async (
     tema: string,
@@ -251,7 +313,10 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
       para_todos: false,
       responsables: [],
       responsables_text: '',
+      // `estado` no se usa para Ingesta (columna NOT NULL, se llena igual); estado_ingesta
+      // es el que de verdad importa para esa hoja.
       estado: 'pendiente',
+      estado_ingesta: esIngesta ? 'no_iniciado' : null,
       plazo: null,
       comentarios: '',
       linked_activity_ids: [],
@@ -468,6 +533,12 @@ export function useMinuta(tipo: HojaTipo = 'minuta') {
     weekOffset,
     setWeekOffset,
     weekLabel,
+    dateType,
+    setDateType,
+    dateFrom,
+    setDateFrom,
+    dateTo,
+    setDateTo,
     tipo,
     canManage: puedeGestionar,
     canDelete: puedeEliminar,

@@ -111,6 +111,14 @@ body {
   overscroll-behavior: none;
 }
 
+html {
+  /* Sin esto, Safari/iOS puede agrandar el texto solo al rotar la pantalla (piensa que hay
+     que "ajustar" el tamano para que siga siendo legible) -practica estandar de reset movil,
+     no un bug puntual encontrado esta vez. */
+  -webkit-text-size-adjust: 100%;
+  text-size-adjust: 100%;
+}
+
 body {
   margin: 0;
   background-color: rgb(var(--shell));
@@ -122,6 +130,24 @@ body {
     sans-serif;
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* Flash gris por defecto al tocar un boton/link en mobile, reemplazado por uno sutil del
+     color de acento -mismo criterio en toda la app en vez de que cada componente resuelva
+     su propio :active. */
+  -webkit-tap-highlight-color: rgba(99, 102, 241, 0.15);
+}
+
+/* touch-action: manipulation en todo lo tocable: sea el DOBLE TAP GENERA ZOOM por
+   defecto en varios navegadores moviles (con ~300ms de demora esperando a ver si es un
+   doble tap) -en una app que se usa a los toques todo el dia, esa demora se nota. No
+   reemplaza el fix del tamano de letra (Ronda anterior): ese evita el zoom AL ENFOCAR un
+   campo, esto evita el zoom por doble-tap en botones/tarjetas. */
+button,
+a,
+[role='button'],
+input,
+select,
+textarea {
+  touch-action: manipulation;
 }
 
 #root {

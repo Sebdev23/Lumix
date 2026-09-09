@@ -1,62 +1,35 @@
-import { useState } from 'react'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
-import { Modal } from '@shared/components/ui/Modal'
-import { useErrors, severityLabels, errorStatusLabels } from '@features/errors/hooks/useErrors'
+import { EditableText } from '@shared/components/ui/EditableText'
+import { useErrors, errorStatusLabels } from '@features/errors/hooks/useErrors'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
-import { errorsService } from '@infrastructure/supabase/errors.service'
 import { exportToCSV } from '@shared/utils/export'
-import { formatDateLocal, parseDateLocal } from '@shared/utils/date'
-import type { AppError, ErrorSeverity, ErrorStatus } from '@shared/types'
-import type { BadgeVariant } from '@shared/components/ui/Badge'
+import { formatDateLocal } from '@shared/utils/date'
+import type { ErrorStatus } from '@shared/types'
 
 const statusFilters: { value: ErrorStatus | 'todas' | 'activos'; label: string }[] = [
   { value: 'todas', label: 'Todos' },
   { value: 'activos', label: 'Activos' },
   { value: 'abierto', label: 'Abiertos' },
-  { value: 'en_revision', label: 'En revision' },
+  { value: 'en_revision', label: 'En proceso' },
   { value: 'resuelto', label: 'Resueltos' },
   { value: 'cerrado', label: 'Cerrados' },
 ]
 
-const severityOptions: (ErrorSeverity | 'todas')[] = ['todas', 'critica', 'alta', 'media', 'baja']
-
-const severityColors: Record<ErrorSeverity, BadgeVariant> = {
-  baja: 'info',
-  media: 'warning',
-  alta: 'danger',
-  critica: 'danger',
+// Estado como "pill" coloreada y clickeable -un solo control que ES el estado, en vez de un
+// badge de solo lectura + una columna de botones aparte. Mismo patron que Linear/Jira: la
+// pastilla coloreada abre directo las opciones, sin un control separado para cambiarla.
+const statusPillClasses: Record<ErrorStatus, string> = {
+  abierto: 'bg-red-600/20 text-red-400',
+  en_revision: 'bg-amber-600/20 text-amber-400',
+  resuelto: 'bg-emerald-600/20 text-emerald-400',
+  cerrado: 'bg-slate-600/30 text-slate-400',
 }
 
-const severityBarColors: Record<ErrorSeverity, string> = {
-  baja: 'bg-blue-500',
-  media: 'bg-amber-500',
-  alta: 'bg-red-500',
-  critica: 'bg-red-600',
-}
-
-const statusColors: Record<ErrorStatus, BadgeVariant> = {
-  abierto: 'danger',
-  en_revision: 'warning',
-  resuelto: 'success',
-  cerrado: 'default',
-}
-
-function SeverityIcon({ severity }: { severity: ErrorSeverity }) {
-  if (severity === 'critica') {
-    return (
-      <svg className="w-4 h-4 text-red-500" fill="currentColor" viewBox="0 0 20 20">
-        <path
-          fillRule="evenodd"
-          d="M8.257 3.099c.765-1.36 2.722-1.36 3.486 0l5.58 9.92c.75 1.334-.213 2.98-1.742 2.98H4.42c-1.53 0-2.493-1.646-1.743-2.98l5.58-9.92zM11 13a1 1 0 11-2 0 1 1 0 012 0zm-1-8a1 1 0 00-1 1v3a1 1 0 002 0V6a1 1 0 00-1-1z"
-          clipRule="evenodd"
-        />
-      </svg>
-    )
-  }
-  return <div className={`w-2.5 h-2.5 rounded-full ${severityBarColors[severity]}`} />
-}
-
+// Pantalla simplificada a pedido de Sebastian: todo en pantalla, sin modal, columnas exactas
+// (Transaccion o query / Comentario / Quien lo levanto / Fecha de creacion / Estado / Fecha de
+// cierre) -mismo espiritu que Ingesta. Severidad y "Responsable" por area quedaron fuera de
+// esta vista (las columnas siguen en la base, sin usarse aca).
 export function ErrorsPage() {
   const {
     errors,
@@ -64,10 +37,6 @@ export function ErrorsPage() {
     loading,
     filterStatus,
     setFilterStatus,
-    filterSeverity,
-    setFilterSeverity,
-    filterMember,
-    setFilterMember,
     dateType,
     setDateType,
     dateFrom,
@@ -77,12 +46,14 @@ export function ErrorsPage() {
     search,
     setSearch,
     changeStatus,
+    createError,
+    updateField,
     counts,
     isInvitado,
-    reload,
   } = useErrors()
   const { canManageErrors } = useCapabilities()
-  const [selectedError, setSelectedError] = useState<AppError | null>(null)
+
+  const memberName = (id: string) => members.find((m) => m.id === id)?.full_name || 'Desconocido'
 
   return (
     <div className="flex flex-col h-full">
@@ -99,20 +70,12 @@ export function ErrorsPage() {
             onClick={() =>
               exportToCSV(
                 errors.map((e) => ({
-                  Titulo: e.title,
-                  Descripcion: e.description,
-                  Severidad: severityLabels[e.severity],
+                  'Transaccion o query': e.title,
+                  Comentario: e.description,
+                  'Quien lo levanto': memberName(e.created_by),
+                  'Fecha de creacion': e.date,
                   Estado: errorStatusLabels[e.status],
-                  Fecha: e.date,
-                  Hora: e.time.slice(0, 5),
-                  Cerrado: e.resolved_at ? formatDateLocal(e.resolved_at) : '-',
-                  'Dias para resolver': e.resolved_at
-                    ? Math.ceil(
-                        (parseDateLocal(e.resolved_at).getTime() -
-                          parseDateLocal(e.date).getTime()) /
-                          86400000,
-                      )
-                    : '-',
+                  'Fecha de cierre': e.closed_at ? formatDateLocal(e.closed_at) : '-',
                 })),
                 'errores',
               )
@@ -135,13 +98,16 @@ export function ErrorsPage() {
             </svg>
             Excel
           </button>
+          {canManageErrors && (
+            <Button size="sm" onClick={() => createError('')}>
+              + Nuevo error
+            </Button>
+          )}
           <span className="text-xs text-slate-500">{counts.todas} total</span>
         </div>
       </div>
 
-      {/* Filters: los tabs de estado van en su propia fila con scroll horizontal (pueden ser
-          muchos y no siempre caben en una pantalla angosta); el resto de filtros/busqueda va en
-          una fila aparte que puede pasar a 2 lineas en vez de desbordar. */}
+      {/* Filters */}
       <div className="flex gap-1 px-2 sm:px-4 pt-2 border-b-0 bg-surface-soft/50 overflow-x-auto flex-shrink-0 flex-nowrap">
         {statusFilters.map((f) => (
           <button
@@ -158,35 +124,7 @@ export function ErrorsPage() {
           </button>
         ))}
       </div>
-      {/* Sin flex-wrap: en un celular angosto con tantos filtros (severidad, responsable,
-          tipo de fecha, 2 fechas, buscador) se acomodaba en 3-4 lineas, empujando el
-          encabezado a ocupar la mayoria de la pantalla (bug real reportado por Sebastian).
-          Mismo patron de scroll horizontal que ya usa Actividades para el mismo problema. */}
       <div className="flex items-center gap-1 px-2 sm:px-4 pb-2 border-b border-border bg-surface-soft/50 overflow-x-auto flex-nowrap flex-shrink-0">
-        <select
-          value={filterSeverity}
-          onChange={(e) => setFilterSeverity(e.target.value as ErrorSeverity | 'todas')}
-          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
-        >
-          {severityOptions.map((s) => (
-            <option key={s} value={s}>
-              {s === 'todas' ? 'Toda severidad' : severityLabels[s]}
-            </option>
-          ))}
-        </select>
-        <select
-          value={filterMember}
-          onChange={(e) => setFilterMember(e.target.value)}
-          className="px-2 py-1.5 rounded-lg text-xs bg-surface border border-border-strong text-fg-muted focus:outline-none focus:ring-1 focus:ring-indigo-500/50"
-        >
-          <option value="todas">Todo el equipo</option>
-          {members.map((m) => (
-            <option key={m.id} value={m.id}>
-              {m.full_name}
-            </option>
-          ))}
-        </select>
-        <div className="w-px bg-surface-2 mx-1" />
         <select
           value={dateType}
           onChange={(e) => setDateType(e.target.value as typeof dateType)}
@@ -251,8 +189,8 @@ export function ErrorsPage() {
         </div>
       </div>
 
-      {/* Error list */}
-      <div className="flex-1 overflow-y-auto p-3 sm:p-4 space-y-3">
+      {/* Tabla editable inline (sin modal, mismo criterio que Ingesta) */}
+      <div className="flex-1 overflow-auto p-3 sm:p-4">
         {loading ? (
           <div className="flex items-center justify-center py-12">
             <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
@@ -273,25 +211,28 @@ export function ErrorsPage() {
               />
             </svg>
             <p className="text-sm text-fg-faint">No hay errores registrados</p>
-            <p className="text-xs text-slate-600 mt-1">Reporta un error en el chat</p>
+            {canManageErrors && (
+              <p className="text-xs text-slate-600 mt-1">Toca "+ Nuevo error" para empezar</p>
+            )}
           </div>
         ) : (
           <div className="overflow-x-auto">
             <table className="w-full text-xs">
               <thead>
                 <tr className="border-b border-border-strong text-slate-500">
-                  <th className="text-left py-2 px-3 font-medium">Error</th>
-                  <th className="text-left py-2 px-3 font-medium hidden md:table-cell">
-                    Responsable
+                  <th className="text-left py-2 px-3 font-medium min-w-[160px]">
+                    Transaccion o query
                   </th>
+                  <th className="text-left py-2 px-3 font-medium min-w-[180px]">Comentario</th>
                   <th className="text-left py-2 px-3 font-medium hidden md:table-cell">
-                    Severidad
+                    Quien lo levanto
+                  </th>
+                  <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">
+                    Fecha de creacion
                   </th>
                   <th className="text-left py-2 px-3 font-medium">Estado</th>
-                  <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">Fecha</th>
-                  <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">Cerrado</th>
-                  <th className="text-right py-2 px-2 sm:px-3 font-medium whitespace-nowrap">
-                    Accion
+                  <th className="text-left py-2 px-3 font-medium hidden sm:table-cell">
+                    Fecha de cierre
                   </th>
                 </tr>
               </thead>
@@ -299,77 +240,62 @@ export function ErrorsPage() {
                 {errors.map((error) => (
                   <tr
                     key={error.id}
-                    onClick={() => setSelectedError(error)}
-                    className="border-b border-border hover:bg-surface/30 cursor-pointer transition-colors"
+                    className="border-b border-border hover:bg-surface/30 transition-colors align-top"
                   >
                     <td className="py-2.5 px-3">
-                      <div className="flex items-center gap-2">
-                        <SeverityIcon severity={error.severity} />
-                        <span className="text-fg-body truncate max-w-[220px]">{error.title}</span>
-                      </div>
-                    </td>
-                    <td className="py-2.5 px-3 hidden md:table-cell">
-                      <span className="text-xs text-fg-faint truncate max-w-[100px] block">
-                        {members.find((m) => m.id === error.responsible_id)?.full_name ||
-                          'Sin asignar'}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-3 hidden md:table-cell">
-                      <Badge variant={severityColors[error.severity]}>
-                        {severityLabels[error.severity]}
-                      </Badge>
+                      <EditableText
+                        value={error.title}
+                        canEdit={canManageErrors}
+                        onSave={(next) => updateField(error.id, { title: next })}
+                        textClassName="text-xs text-fg-body"
+                        preventEmpty
+                      />
                     </td>
                     <td className="py-2.5 px-3">
-                      <Badge variant={statusColors[error.status]}>
-                        {errorStatusLabels[error.status]}
-                      </Badge>
+                      <EditableText
+                        value={error.description}
+                        canEdit={canManageErrors}
+                        onSave={(next) => updateField(error.id, { description: next })}
+                        placeholder="Descripcion del error..."
+                        emptyLabel="Sin comentario"
+                        textClassName="text-xs text-fg-muted"
+                      />
                     </td>
-                    <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
-                      {error.date}
+                    <td className="py-2.5 px-3 hidden md:table-cell text-fg-faint">
+                      {memberName(error.created_by)}
                     </td>
-                    <td className="py-2.5 px-3 text-slate-500 hidden sm:table-cell">
-                      {error.resolved_at ? formatDateLocal(error.resolved_at, 'short') : '-'}
+                    <td className="py-2.5 px-3 hidden sm:table-cell text-slate-500">
+                      {formatDateLocal(error.date, 'short')}
                     </td>
-                    <td className="py-2.5 px-3 text-right" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex gap-1 justify-end">
-                        {canManageErrors && error.status === 'abierto' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => changeStatus(error.id, 'en_revision')}
-                          >
-                            Revisar
-                          </Button>
-                        )}
-                        {canManageErrors && error.status === 'en_revision' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => changeStatus(error.id, 'resuelto')}
-                          >
-                            Resolver
-                          </Button>
-                        )}
-                        {canManageErrors && error.status === 'resuelto' && (
-                          <Button
-                            size="sm"
-                            variant="ghost"
-                            onClick={() => changeStatus(error.id, 'cerrado')}
-                          >
-                            Cerrar
-                          </Button>
-                        )}
-                        {canManageErrors &&
-                          (error.status === 'cerrado' || error.status === 'resuelto') && (
-                            <Button
-                              size="sm"
-                              variant="ghost"
-                              onClick={() => changeStatus(error.id, 'abierto')}
-                            >
-                              Reabrir
-                            </Button>
+                    <td className="py-2.5 px-3">
+                      {canManageErrors ? (
+                        <select
+                          value={error.status}
+                          onChange={(e) => changeStatus(error.id, e.target.value as ErrorStatus)}
+                          className={`appearance-none rounded-full pl-3 pr-6 py-1 text-xs font-medium border-none cursor-pointer focus:outline-none focus:ring-2 focus:ring-indigo-500/50 bg-[length:10px] bg-[right_8px_center] bg-no-repeat ${statusPillClasses[error.status]}`}
+                          style={{
+                            backgroundImage:
+                              "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none' stroke='%2394a3b8' stroke-width='2'%3E%3Cpath d='M6 8l4 4 4-4'/%3E%3C/svg%3E\")",
+                          }}
+                        >
+                          {(['abierto', 'en_revision', 'resuelto', 'cerrado'] as ErrorStatus[]).map(
+                            (s) => (
+                              <option key={s} value={s} className="bg-surface text-fg-body">
+                                {errorStatusLabels[s]}
+                              </option>
+                            ),
                           )}
-                      </div>
+                        </select>
+                      ) : (
+                        <span
+                          className={`inline-block rounded-full px-3 py-1 text-xs font-medium ${statusPillClasses[error.status]}`}
+                        >
+                          {errorStatusLabels[error.status]}
+                        </span>
+                      )}
+                    </td>
+                    <td className="py-2.5 px-3 hidden sm:table-cell text-slate-500">
+                      {error.closed_at ? formatDateLocal(error.closed_at, 'short') : '-'}
                     </td>
                   </tr>
                 ))}
@@ -378,224 +304,6 @@ export function ErrorsPage() {
           </div>
         )}
       </div>
-
-      {/* Detail modal */}
-      <Modal
-        open={!!selectedError}
-        onClose={() => setSelectedError(null)}
-        title={selectedError?.title}
-        size="md"
-      >
-        {selectedError && (
-          <div className="space-y-4 max-h-[70vh] overflow-y-auto pr-1">
-            <div className="flex items-center gap-3">
-              <Badge variant={severityColors[selectedError.severity]}>
-                {severityLabels[selectedError.severity]}
-              </Badge>
-              <Badge variant={statusColors[selectedError.status]}>
-                {errorStatusLabels[selectedError.status]}
-              </Badge>
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-500 mb-1">Descripcion</p>
-              <p className="text-sm text-fg-muted">
-                {selectedError.description || 'Sin descripcion'}
-              </p>
-            </div>
-
-            <div className="flex items-center gap-2 p-2 rounded-lg bg-surface/50">
-              <p className="text-xs text-slate-500">Reportado por:</p>
-              <p className="text-xs text-fg-muted font-medium">
-                {members.find((m) => m.id === selectedError.created_by)?.full_name || 'Desconocido'}
-              </p>
-              {members.find((m) => m.id === selectedError.created_by)?.email && (
-                <a
-                  href={`mailto:${members.find((m) => m.id === selectedError.created_by)!.email}`}
-                  className="text-[10px] text-indigo-400 hover:text-indigo-300"
-                >
-                  Contactar
-                </a>
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-500 mb-1">Tipo de error</p>
-              {canManageErrors ? (
-                <select
-                  value={selectedError.error_type || 'funcional'}
-                  onChange={async (e) => {
-                    await errorsService.update(selectedError.id, { error_type: e.target.value })
-                    setSelectedError({ ...selectedError, error_type: e.target.value })
-                    reload()
-                  }}
-                  className="w-full rounded border border-border-strong bg-surface px-2 py-1 text-xs text-fg-body"
-                >
-                  <option value="funcional">Funcional</option>
-                  <option value="tecnico">Tecnico</option>
-                  <option value="datos">Datos</option>
-                  <option value="integracion">Integracion</option>
-                  <option value="rendimiento">Rendimiento</option>
-                  <option value="seguridad">Seguridad</option>
-                  <option value="otro">Otro</option>
-                </select>
-              ) : (
-                <p className="text-sm text-fg-muted capitalize">
-                  {selectedError.error_type || 'funcional'}
-                </p>
-              )}
-            </div>
-
-            <div>
-              <p className="text-xs text-slate-500 mb-1">Comentarios</p>
-              {canManageErrors ? (
-                <textarea
-                  defaultValue={selectedError.observations || ''}
-                  onBlur={async (e) => {
-                    if (e.target.value !== (selectedError.observations || '')) {
-                      await errorsService.update(selectedError.id, { observations: e.target.value })
-                      reload()
-                    }
-                  }}
-                  rows={2}
-                  placeholder="Agregar comentario..."
-                  className="w-full rounded-lg border border-border-strong bg-surface px-3 py-2 text-xs text-fg-body placeholder:text-slate-500 focus:outline-none focus:ring-2 focus:ring-indigo-500/50 resize-none"
-                />
-              ) : (
-                <p className="text-sm text-fg-muted whitespace-pre-wrap">
-                  {selectedError.observations || 'Sin comentarios'}
-                </p>
-              )}
-            </div>
-
-            <div className="grid grid-cols-2 gap-4">
-              <div>
-                <p className="text-xs text-slate-500 mb-1">Fecha</p>
-                <p className="text-sm text-fg-muted">{selectedError.date}</p>
-              </div>
-              <div>
-                <p className="text-xs text-slate-500 mb-1">Hora</p>
-                <p className="text-sm text-fg-muted">{selectedError.time.slice(0, 5)}</p>
-              </div>
-            </div>
-
-            {/* Timeline */}
-            <div>
-              <p className="text-xs text-slate-500 mb-3">Historial</p>
-              <div className="space-y-3">
-                {[
-                  {
-                    label: 'Reportado',
-                    date: selectedError.date,
-                    time: selectedError.time,
-                    active: true,
-                  },
-                  {
-                    label: 'En revision',
-                    date: selectedError.status === 'abierto' ? null : selectedError.date,
-                    time: null,
-                    active: selectedError.status !== 'abierto',
-                  },
-                  {
-                    label: 'Resuelto',
-                    date:
-                      selectedError.status === 'resuelto' || selectedError.status === 'cerrado'
-                        ? selectedError.date
-                        : null,
-                    time: null,
-                    active:
-                      selectedError.status === 'resuelto' || selectedError.status === 'cerrado',
-                  },
-                  {
-                    label: 'Cerrado',
-                    date: selectedError.status === 'cerrado' ? selectedError.date : null,
-                    time: null,
-                    active: selectedError.status === 'cerrado',
-                  },
-                ].map((step, i) => (
-                  <div key={step.label} className="flex items-start gap-3">
-                    <div className="flex flex-col items-center">
-                      <div
-                        className={`w-3 h-3 rounded-full border-2 flex-shrink-0 ${
-                          step.active
-                            ? 'bg-indigo-500 border-indigo-500'
-                            : 'bg-surface border-slate-600'
-                        }`}
-                      />
-                      {i < 3 && (
-                        <div
-                          className={`w-0.5 h-6 ${step.active ? 'bg-indigo-500' : 'bg-surface-2'}`}
-                        />
-                      )}
-                    </div>
-                    <div className="pb-4">
-                      <p className={`text-sm ${step.active ? 'text-fg-body' : 'text-slate-500'}`}>
-                        {step.label}
-                      </p>
-                      {step.date && <p className="text-[10px] text-slate-600">{step.date}</p>}
-                    </div>
-                  </div>
-                ))}
-              </div>
-            </div>
-
-            {/* Status actions */}
-            {canManageErrors && (
-              <div className="flex gap-2 pt-2 border-t border-border-strong">
-                {selectedError.status === 'abierto' && (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      changeStatus(selectedError.id, 'en_revision')
-                      reload()
-                      setSelectedError(null)
-                    }}
-                  >
-                    Poner en revision
-                  </Button>
-                )}
-                {selectedError.status === 'en_revision' && (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      changeStatus(selectedError.id, 'resuelto')
-                      reload()
-                      setSelectedError(null)
-                    }}
-                  >
-                    Marcar como resuelto
-                  </Button>
-                )}
-                {selectedError.status === 'resuelto' && (
-                  <Button
-                    size="sm"
-                    onClick={() => {
-                      changeStatus(selectedError.id, 'cerrado')
-                      reload()
-                      setSelectedError(null)
-                    }}
-                  >
-                    Cerrar error
-                  </Button>
-                )}
-                {(selectedError.status === 'cerrado' || selectedError.status === 'resuelto') && (
-                  <Button
-                    size="sm"
-                    variant="danger"
-                    onClick={() => {
-                      changeStatus(selectedError.id, 'abierto')
-                      reload()
-                      setSelectedError(null)
-                    }}
-                  >
-                    Reabrir
-                  </Button>
-                )}
-              </div>
-            )}
-          </div>
-        )}
-      </Modal>
     </div>
   )
 }
