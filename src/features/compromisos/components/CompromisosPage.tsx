@@ -14,6 +14,7 @@
 import { useState } from 'react'
 import { Avatar } from '@shared/components/ui/Avatar'
 import { SkeletonRows } from '@shared/components/ui/Skeleton'
+import { ComentarioLibre } from '@shared/components/ui/ComentarioLibre'
 import { useToast } from '@shared/components/ui/Toast'
 import { useCapabilities } from '@core/auth/hooks/useCapabilities'
 import {
@@ -36,6 +37,7 @@ export function CompromisosPage() {
     marcar,
     moverUnaSemana,
     llevarAMinuta,
+    guardarComentario,
     reload,
   } = useCompromisos()
   const { canViewAllActivities, isGlobalAdmin } = useCapabilities()
@@ -104,6 +106,11 @@ export function CompromisosPage() {
     llevarAMinuta(c)
       .then(() => toast.success('Agregado a la minuta para conversarlo'))
       .catch(() => toast.error('No se pudo agregar a la minuta'))
+
+  const alGuardarComentario = (c: Compromiso, next: string) => {
+    if (!c.temaId) return
+    guardarComentario(c.temaId, next).catch(() => toast.error('No se pudo guardar el comentario'))
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -266,6 +273,7 @@ export function CompromisosPage() {
                               alMarcar={alMarcar}
                               alMover={alMover}
                               alDiscutir={alDiscutir}
+                              alGuardarComentario={alGuardarComentario}
                             />
                           ))}
                         </div>
@@ -286,6 +294,7 @@ export function CompromisosPage() {
                     alMarcar={alMarcar}
                     alMover={alMover}
                     alDiscutir={alDiscutir}
+                    alGuardarComentario={alGuardarComentario}
                   />
                 ))}
 
@@ -315,6 +324,7 @@ function PersonaCard({
   alMarcar,
   alMover,
   alDiscutir,
+  alGuardarComentario,
 }: {
   g: GrupoPersona
   abierta: boolean
@@ -326,6 +336,7 @@ function PersonaCard({
   alMarcar: (c: Compromiso) => void
   alMover: (c: Compromiso) => void
   alDiscutir: (c: Compromiso) => void
+  alGuardarComentario: (c: Compromiso, next: string) => void
 }) {
   return (
     <div className="rounded-xl border border-border bg-surface-soft/60">
@@ -383,92 +394,121 @@ function PersonaCard({
         {g.compromisos.map((c) => {
           const hecha = c.status === 'completado'
           return (
-            <li key={c.id} className="flex items-start gap-3 px-3 py-2.5">
-              {/* Casilla grande: el gesto principal de la reunion */}
-              <button
-                onClick={() => alMarcar(c)}
-                aria-label={hecha ? 'Marcar como no hecha' : 'Marcar como hecha'}
-                className={`mt-0.5 w-5 h-5 rounded-md border flex-shrink-0 flex items-center justify-center transition-colors ${
-                  hecha
-                    ? 'bg-emerald-500 border-emerald-500 text-white'
-                    : 'border-slate-600 hover:border-emerald-500 hover:bg-emerald-500/10'
-                }`}
-              >
-                {hecha && (
-                  <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
-                    <path
-                      fillRule="evenodd"
-                      d="M16.7 5.3a1 1 0 010 1.4l-7.5 7.5a1 1 0 01-1.4 0L3.3 9.7a1 1 0 111.4-1.4l3.8 3.8 6.8-6.8a1 1 0 011.4 0z"
-                      clipRule="evenodd"
-                    />
-                  </svg>
-                )}
-              </button>
-
-              <div className="min-w-0 flex-1">
-                <p
-                  className={`text-xs leading-snug ${
-                    hecha ? 'text-slate-500 light:text-slate-400 line-through' : 'text-fg-body'
+            <li
+              key={c.id}
+              className="flex flex-col sm:flex-row sm:items-start gap-2 sm:gap-3 px-3 py-2.5"
+            >
+              <div className="flex items-start gap-3 flex-1 min-w-0">
+                {/* Casilla grande: el gesto principal de la reunion */}
+                <button
+                  onClick={() => alMarcar(c)}
+                  aria-label={hecha ? 'Marcar como no hecha' : 'Marcar como hecha'}
+                  className={`mt-0.5 w-5 h-5 rounded-md border flex-shrink-0 flex items-center justify-center transition-colors ${
+                    hecha
+                      ? 'bg-emerald-500 border-emerald-500 text-white'
+                      : 'border-slate-600 hover:border-emerald-500 hover:bg-emerald-500/10'
                   }`}
                 >
-                  {c.title}
-                </p>
-                <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px]">
-                  <span className="text-slate-500">{formatDateLocal(c.due_date)}</span>
-                  {/* Solo se marca cuando viene de un PROYECTO (subtarea): el caso comun es un
-                      tema suelto de minuta y no hace falta etiquetarlo. */}
-                  {c.origen === 'proyecto' && (
-                    <span className="text-amber-400" title="Compromiso de una subtarea de proyecto">
-                      📁 {c.origenProyecto}
-                    </span>
+                  {hecha && (
+                    <svg className="w-3 h-3" viewBox="0 0 20 20" fill="currentColor">
+                      <path
+                        fillRule="evenodd"
+                        d="M16.7 5.3a1 1 0 010 1.4l-7.5 7.5a1 1 0 01-1.4 0L3.3 9.7a1 1 0 111.4-1.4l3.8 3.8 6.8-6.8a1 1 0 011.4 0z"
+                        clipRule="evenodd"
+                      />
+                    </svg>
                   )}
-                  {/* Cuantas veces se movio la fecha (migracion 035, trigger en la base). Un
+                </button>
+
+                <div className="min-w-0 flex-1">
+                  <p
+                    className={`text-xs leading-snug ${
+                      hecha ? 'text-slate-500 light:text-slate-400 line-through' : 'text-fg-body'
+                    }`}
+                  >
+                    {c.title}
+                  </p>
+                  <div className="flex flex-wrap items-center gap-2 mt-1 text-[10px]">
+                    <span className="text-slate-500">{formatDateLocal(c.due_date)}</span>
+                    {/* Solo se marca cuando viene de un PROYECTO (subtarea): el caso comun es un
+                      tema suelto de minuta y no hace falta etiquetarlo. */}
+                    {c.origen === 'proyecto' && (
+                      <span
+                        className="text-amber-400"
+                        title="Compromiso de una subtarea de proyecto"
+                      >
+                        📁 {c.origenProyecto}
+                      </span>
+                    )}
+                    {/* Cuantas veces se movio la fecha (migracion 035, trigger en la base). Un
                       compromiso movido varias veces no es un atraso mas: es señal de que hay
                       otra conversacion pendiente. */}
-                  {(c.plazo_change_count ?? 0) > 0 && (
-                    <span
-                      className="text-amber-400"
-                      title="Veces que se movio la fecha de entrega desde que se creo"
-                    >
-                      movida {c.plazo_change_count}x
-                    </span>
-                  )}
-                  {hecha && c.aTiempo && <span className="text-emerald-500">a tiempo</span>}
-                  {hecha && !c.aTiempo && <span className="text-amber-500">fuera de plazo</span>}
-                  {!hecha && c.diasVencida > 0 && (
-                    <span className="text-red-400">
-                      vencida hace {c.diasVencida} día{c.diasVencida === 1 ? '' : 's'}
-                    </span>
-                  )}
-
-                  {/* Solo en lo no cumplido, y solo para quien conduce: arrastrar o discutir. */}
-                  {!hecha && conduce && (
-                    <>
-                      <button
-                        onClick={() => alMover(c)}
-                        className="text-slate-500 hover:text-fg-muted underline"
+                    {(c.plazo_change_count ?? 0) > 0 && (
+                      <span
+                        className="text-amber-400"
+                        title="Veces que se movio la fecha de entrega desde que se creo"
                       >
-                        mover 1 semana
-                      </button>
-                      {/* Una vez escalado, la fila lo dice y el boton desaparece. Antes no
-                          cambiaba nada al apretarlo y se creaban temas repetidos. */}
-                      {c.enMinuta ? (
-                        <span className="text-amber-400" title="Queda para conversar en la minuta">
-                          ↑ en minuta
-                        </span>
-                      ) : (
+                        movida {c.plazo_change_count}x
+                      </span>
+                    )}
+                    {hecha && c.aTiempo && <span className="text-emerald-500">a tiempo</span>}
+                    {hecha && !c.aTiempo && <span className="text-amber-500">fuera de plazo</span>}
+                    {!hecha && c.diasVencida > 0 && (
+                      <span className="text-red-400">
+                        vencida hace {c.diasVencida} día{c.diasVencida === 1 ? '' : 's'}
+                      </span>
+                    )}
+
+                    {/* Solo en lo no cumplido, y solo para quien conduce: arrastrar o discutir. */}
+                    {!hecha && conduce && (
+                      <>
                         <button
-                          onClick={() => alDiscutir(c)}
-                          className="text-slate-500 hover:text-amber-400 underline"
-                          title="Si hay un bloqueo de fondo, va a la minuta para conversarlo"
+                          onClick={() => alMover(c)}
+                          className="text-slate-500 hover:text-fg-muted underline"
                         >
-                          llevar a minuta
+                          mover 1 semana
                         </button>
-                      )}
-                    </>
-                  )}
+                        {/* Una vez escalado, la fila lo dice y el boton desaparece. Antes no
+                          cambiaba nada al apretarlo y se creaban temas repetidos. */}
+                        {c.enMinuta ? (
+                          <span
+                            className="text-amber-400"
+                            title="Queda para conversar en la minuta"
+                          >
+                            ↑ en minuta
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => alDiscutir(c)}
+                            className="text-slate-500 hover:text-amber-400 underline"
+                            title="Si hay un bloqueo de fondo, va a la minuta para conversarlo"
+                          >
+                            llevar a minuta
+                          </button>
+                        )}
+                      </>
+                    )}
+                  </div>
                 </div>
               </div>
+              {/* Comentarios: antes no se mostraban en esta hoja en absoluto (a pedido de
+                Sebastian se agrega, editable solo para quien conduce). Al costado en pantallas
+                grandes (con un divisor sutil), abajo en mobile -no entra al lado en un celular
+                angosto-. Se oculta si esta vacio y nadie puede editarlo, para no ensuciar la
+                vista rapida de la reunion cuando no hay nada que decir.
+                Textarea SIEMPRE editable (no lapiz): Sebastian reporto que el toque-y-agranda
+                de EditableText (pasa a 16px al entrar en modo edicion, para evitar el zoom
+                automatico de iOS) se sentia como un salto raro. Manteniendo el mismo tamaño
+                SIEMPRE (nunca cambia entre ver y editar) no hay salto que notar. */}
+              {!!c.temaId && (conduce || c.comentariosTema) && (
+                <div className="pl-8 sm:pl-3 sm:border-l sm:border-border sm:w-1/2 sm:flex-shrink-0">
+                  <ComentarioLibre
+                    value={c.comentariosTema}
+                    canEdit={conduce}
+                    onSave={(next) => alGuardarComentario(c, next)}
+                  />
+                </div>
+              )}
             </li>
           )
         })}

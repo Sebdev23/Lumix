@@ -46,6 +46,7 @@ function getWeekLabel(days: { date: string; label: string }[]): string {
 export function useGantt() {
   const [rows, setRows] = useState<GanttRow[]>([])
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
   const [weekOffset, setWeekOffset] = useState(0)
   const [refreshKey, setRefreshKey] = useState(0)
   const { user, profile } = useAuth()
@@ -65,10 +66,22 @@ export function useGantt() {
 
     async function load() {
       setLoading(true)
-      const [activities, members] = await Promise.all([
-        activitiesService.getByTeam(teamId),
-        profilesService.getByTeam(teamId),
-      ])
+      setError(false)
+      let activities: Activity[]
+      let members: Profile[]
+      try {
+        ;[activities, members] = await Promise.all([
+          activitiesService.getByTeam(teamId),
+          profilesService.getByTeam(teamId),
+        ])
+      } catch (err) {
+        console.error('Gantt load failed:', err)
+        if (!cancelled) {
+          setError(true)
+          setLoading(false)
+        }
+        return
+      }
 
       if (cancelled) return
 
@@ -127,7 +140,18 @@ export function useGantt() {
   const currentWeek = () => setWeekOffset(0)
   const reload = () => setRefreshKey((k) => k + 1)
 
-  return { rows, loading, days, weekLabel, prevWeek, nextWeek, currentWeek, weekOffset, reload }
+  return {
+    rows,
+    loading,
+    error,
+    days,
+    weekLabel,
+    prevWeek,
+    nextWeek,
+    currentWeek,
+    weekOffset,
+    reload,
+  }
 }
 
 export function getLoadColor(percentage: number): string {

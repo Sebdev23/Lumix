@@ -1,4 +1,15 @@
-import { useState, useCallback } from 'react'
+import { useState } from 'react'
+import {
+  DndContext,
+  DragOverlay,
+  PointerSensor,
+  useDraggable,
+  useDroppable,
+  useSensor,
+  useSensors,
+  type DragEndEvent,
+  type DragStartEvent,
+} from '@dnd-kit/core'
 import { Badge } from '@shared/components/ui/Badge'
 import { Modal } from '@shared/components/ui/Modal'
 import { useGantt, getLoadColor, getLoadTextColor } from '@features/gantt/hooks/useGantt'
@@ -33,69 +44,55 @@ function getLoadLabel(pct: number): string {
 const dayNames = ['Lun', 'Mar', 'Mie', 'Jue', 'Vie', 'Sab', 'Dom']
 
 export function GanttPage() {
-  const { rows, loading, days, weekLabel, prevWeek, nextWeek, currentWeek, weekOffset, reload } =
-    useGantt()
+  const {
+    rows,
+    loading,
+    error,
+    days,
+    weekLabel,
+    prevWeek,
+    nextWeek,
+    currentWeek,
+    weekOffset,
+    reload,
+  } = useGantt()
   const [selectedActivity, setSelectedActivity] = useState<Activity | null>(null)
-  const [dragActivity, setDragActivity] = useState<Activity | null>(null)
-  const [dragOverDate, setDragOverDate] = useState<string | null>(null)
+  const [arrastrandoId, setArrastrandoId] = useState<string | null>(null)
   const [dropping, setDropping] = useState(false)
   const { profile } = useAuth()
   const { canEditAllActivities } = useCapabilities()
   const canEdit = canEditAllActivities || selectedActivity?.responsible_id === profile?.id
+  const sensors = useSensors(useSensor(PointerSensor, { activationConstraint: { distance: 8 } }))
 
-  const handleDragStart = useCallback((e: React.DragEvent, activity: Activity) => {
-    e.dataTransfer.effectAllowed = 'move'
-    e.dataTransfer.setData('text/plain', activity.id)
-    setDragActivity(activity)
-  }, [])
+  const arrastrandoActividad = rows
+    .flatMap((r) => r.days.flatMap((d) => d.activities))
+    .find((a) => a.id === arrastrandoId)
 
-  const handleDragEnd = useCallback(() => {
-    setDragActivity(null)
-    setDragOverDate(null)
-  }, [])
+  const alSoltar = async (e: DragEndEvent) => {
+    setArrastrandoId(null)
+    const activityId = e.active.id as string
+    const date = e.over?.id as string | undefined
+    if (!date || dropping) return
 
-  const handleDragOver = useCallback((e: React.DragEvent, date: string) => {
-    e.preventDefault()
-    e.dataTransfer.dropEffect = 'move'
-    setDragOverDate(date)
-  }, [])
+    const activity = rows
+      .flatMap((r) => r.days.flatMap((d) => d.activities))
+      .find((a) => a.id === activityId)
+    if (!activity) return
 
-  const handleDragLeave = useCallback((e: React.DragEvent) => {
-    const target = e.currentTarget as HTMLElement
-    const rect = target.getBoundingClientRect()
-    const x = e.clientX - rect.left
-    const y = e.clientY - rect.top
-    if (x < 0 || y < 0 || x > rect.width || y > rect.height) {
-      setDragOverDate(null)
+    const newDueDate = new Date(date)
+    const oldDueDate = new Date(activity.due_date)
+    if (newDueDate.toDateString() === oldDueDate.toDateString()) return
+
+    setDropping(true)
+    try {
+      await activitiesService.update(activity.id, { due_date: newDueDate.toISOString() })
+      reload()
+    } catch {
+      /* ignore */
+    } finally {
+      setDropping(false)
     }
-  }, [])
-
-  const handleDrop = useCallback(
-    async (e: React.DragEvent, date: string) => {
-      e.preventDefault()
-      setDragOverDate(null)
-      if (!dragActivity || dropping) return
-
-      const newDueDate = new Date(date)
-      const oldDueDate = new Date(dragActivity.due_date)
-      if (newDueDate.toDateString() === oldDueDate.toDateString()) {
-        setDragActivity(null)
-        return
-      }
-
-      setDropping(true)
-      try {
-        await activitiesService.update(dragActivity.id, { due_date: newDueDate.toISOString() })
-        setDragActivity(null)
-        reload()
-      } catch {
-        /* ignore */
-      } finally {
-        setDropping(false)
-      }
-    },
-    [dragActivity, dropping, reload],
-  )
+  }
 
   return (
     <div className="flex flex-col h-full">
@@ -145,6 +142,16 @@ export function GanttPage() {
           <div className="flex items-center justify-center py-12">
             <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
           </div>
+        ) : error ? (
+          <div className="flex flex-col items-center justify-center gap-3 py-12 text-center px-4">
+            <p className="text-sm text-fg-faint">No se pudo cargar la planificacion</p>
+            <button
+              onClick={reload}
+              className="text-xs font-medium text-indigo-400 hover:text-indigo-300 rounded-lg border border-border-strong px-3 py-1.5"
+            >
+              Reintentar
+            </button>
+          </div>
         ) : (
           <div className="min-w-[600px] p-4">
             {/* Day headers */}
@@ -178,118 +185,66 @@ export function GanttPage() {
                 <p className="text-sm text-fg-faint">Sin miembros en el equipo</p>
               </div>
             ) : (
-              rows.map((row) => (
-                <div key={row.member.id} className="flex items-stretch mb-3">
-                  {/* Member info */}
-                  <div className="w-32 flex-shrink-0 flex flex-col justify-center pr-2 py-1">
-                    <p className="text-xs text-fg-muted truncate font-medium">
-                      {row.member.full_name}
-                    </p>
-                    <div className="mt-1 space-y-1">
-                      <div className="flex items-center gap-1.5">
-                        <div
-                          className={`w-2 h-2 rounded-full flex-shrink-0 ${getLoadColor(row.loadPercentage)}`}
-                        />
-                        <span className={`text-[10px] ${getLoadTextColor(row.loadPercentage)}`}>
-                          {row.loadPercentage}%
-                        </span>
-                        <Badge
-                          variant={getLoadBadgeVariant(row.loadPercentage)}
-                          className="text-[9px] px-1"
-                        >
-                          {getLoadLabel(row.loadPercentage)}
-                        </Badge>
-                      </div>
-                      <div className="flex items-center gap-1.5">
-                        <div className="flex-1 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+              <DndContext
+                sensors={sensors}
+                onDragStart={(e: DragStartEvent) => setArrastrandoId(e.active.id as string)}
+                onDragEnd={alSoltar}
+                onDragCancel={() => setArrastrandoId(null)}
+              >
+                {rows.map((row) => (
+                  <div key={row.member.id} className="flex items-stretch mb-3">
+                    {/* Member info */}
+                    <div className="w-32 flex-shrink-0 flex flex-col justify-center pr-2 py-1">
+                      <p className="text-xs text-fg-muted truncate font-medium">
+                        {row.member.full_name}
+                      </p>
+                      <div className="mt-1 space-y-1">
+                        <div className="flex items-center gap-1.5">
                           <div
-                            className={`h-full rounded-full transition-all ${getLoadColor(row.loadPercentage)}`}
-                            style={{ width: `${Math.min(row.loadPercentage, 100)}%` }}
+                            className={`w-2 h-2 rounded-full flex-shrink-0 ${getLoadColor(row.loadPercentage)}`}
                           />
+                          <span className={`text-[10px] ${getLoadTextColor(row.loadPercentage)}`}>
+                            {row.loadPercentage}%
+                          </span>
+                          <Badge
+                            variant={getLoadBadgeVariant(row.loadPercentage)}
+                            className="text-[9px] px-1"
+                          >
+                            {getLoadLabel(row.loadPercentage)}
+                          </Badge>
                         </div>
-                        <span className="text-[9px] text-slate-500 flex-shrink-0">
-                          {row.totalHours}/42h
-                        </span>
+                        <div className="flex items-center gap-1.5">
+                          <div className="flex-1 h-1.5 rounded-full bg-surface-2 overflow-hidden">
+                            <div
+                              className={`h-full rounded-full transition-all ${getLoadColor(row.loadPercentage)}`}
+                              style={{ width: `${Math.min(row.loadPercentage, 100)}%` }}
+                            />
+                          </div>
+                          <span className="text-[9px] text-slate-500 flex-shrink-0">
+                            {row.totalHours}/42h
+                          </span>
+                        </div>
                       </div>
                     </div>
-                  </div>
 
-                  {/* Day cells */}
-                  <div className="flex-1 flex gap-1 min-w-0">
-                    {row.days.map((cell, j) => {
-                      const isToday = cell.date === new Date().toISOString().split('T')[0]
-                      const isWeekend = j >= 5
-                      const hasActivities = cell.count > 0
-
-                      return (
-                        <div
+                    {/* Day cells */}
+                    <div className="flex-1 flex gap-1 min-w-0">
+                      {row.days.map((cell, j) => (
+                        <CeldaDia
                           key={cell.date}
-                          onDragOver={(e) => handleDragOver(e, cell.date)}
-                          onDragLeave={handleDragLeave}
-                          onDrop={(e) => handleDrop(e, cell.date)}
-                          className={`flex-1 min-w-0 min-h-[40px] max-h-[80px] overflow-hidden rounded-lg border p-1 transition-colors ${
-                            dragOverDate === cell.date
-                              ? 'border-indigo-400 bg-indigo-500/10'
-                              : isToday
-                                ? 'border-indigo-500/30 bg-indigo-500/5'
-                                : isWeekend
-                                  ? 'border-border/50 bg-surface-soft/30'
-                                  : 'border-border bg-surface-soft/50'
-                          }`}
-                        >
-                          {hasActivities ? (
-                            <div className="space-y-0.5 overflow-y-auto max-h-full">
-                              {cell.activities.map((activity) => {
-                                const isCompleted = activity.status === 'completado'
-                                return (
-                                  <div
-                                    key={activity.id}
-                                    draggable={!isCompleted}
-                                    onDragStart={(e) => {
-                                      if (isCompleted) return
-                                      e.stopPropagation()
-                                      handleDragStart(e, activity)
-                                    }}
-                                    onDragEnd={handleDragEnd}
-                                    onClick={(e) => {
-                                      e.stopPropagation()
-                                      setSelectedActivity(activity)
-                                    }}
-                                    className={`text-[9px] px-1 py-0.5 rounded border truncate transition-opacity ${
-                                      dragActivity?.id === activity.id
-                                        ? 'opacity-40'
-                                        : 'cursor-pointer hover:brightness-110'
-                                    } ${
-                                      isCompleted
-                                        ? 'bg-emerald-600/30 border-emerald-500/20 text-emerald-400 light:text-emerald-700'
-                                        : activity.priority === 1
-                                          ? 'bg-red-500/40 border-red-400/20 text-red-300 light:text-red-700'
-                                          : activity.priority === 2
-                                            ? 'bg-amber-500/40 border-amber-400/20 text-amber-300 light:text-amber-700'
-                                            : 'bg-indigo-600/40 border-indigo-500/20 text-indigo-300 light:text-indigo-700'
-                                    }`}
-                                    title={
-                                      isCompleted
-                                        ? `${activity.title} (completado)`
-                                        : `Arrastrar para cambiar fecha - ${activity.title}`
-                                    }
-                                  >
-                                    {activity.title}
-                                  </div>
-                                )
-                              })}
-                            </div>
-                          ) : (
-                            <div className="flex items-center justify-center h-full">
-                              <span className="text-[10px] text-slate-700">-</span>
-                            </div>
-                          )}
-                        </div>
-                      )
-                    })}
+                          date={cell.date}
+                          isWeekend={j >= 5}
+                          activities={cell.activities}
+                          onSelect={setSelectedActivity}
+                        />
+                      ))}
+                    </div>
                   </div>
-                </div>
-              ))
+                ))}
+                <DragOverlay>
+                  {arrastrandoActividad && <ChipActividadVisual activity={arrastrandoActividad} />}
+                </DragOverlay>
+              </DndContext>
             )}
           </div>
         )}
@@ -339,7 +294,7 @@ export function GanttPage() {
                           await activitiesService.update(selectedActivity.id, { priority: p })
                           setSelectedActivity({ ...selectedActivity, priority: p })
                         }}
-                        className={`w-6 h-6 rounded text-xs font-bold text-white ${
+                        className={`w-10 h-10 rounded text-sm font-bold text-white ${
                           p === 1 ? 'bg-red-700' : p === 2 ? 'bg-amber-700' : 'bg-emerald-700'
                         }`}
                       >
@@ -397,7 +352,7 @@ export function GanttPage() {
                         setSelectedActivity({ ...selectedActivity, estimated_hours: h })
                         reload()
                       }}
-                      className={`w-7 h-7 rounded text-xs font-medium transition-colors ${
+                      className={`w-10 h-10 rounded text-xs font-medium transition-colors ${
                         (selectedActivity.estimated_hours ?? 3) === h
                           ? 'bg-indigo-600 text-white'
                           : 'bg-surface-2 text-fg-muted hover:bg-slate-600'
@@ -412,6 +367,113 @@ export function GanttPage() {
           </div>
         )}
       </Modal>
+    </div>
+  )
+}
+
+function chipClases(activity: Activity): string {
+  const isCompleted = activity.status === 'completado'
+  if (isCompleted)
+    return 'bg-emerald-600/30 border-emerald-500/20 text-emerald-400 light:text-emerald-700'
+  if (activity.priority === 1)
+    return 'bg-red-500/40 border-red-400/20 text-red-300 light:text-red-700'
+  if (activity.priority === 2)
+    return 'bg-amber-500/40 border-amber-400/20 text-amber-300 light:text-amber-700'
+  return 'bg-indigo-600/40 border-indigo-500/20 text-indigo-300 light:text-indigo-700'
+}
+
+/** Celda de un dia para un miembro: area donde soltar una actividad (useDroppable, dnd-kit). */
+function CeldaDia({
+  date,
+  isWeekend,
+  activities,
+  onSelect,
+}: {
+  date: string
+  isWeekend: boolean
+  activities: Activity[]
+  onSelect: (a: Activity) => void
+}) {
+  const { setNodeRef, isOver } = useDroppable({ id: date })
+  const isToday = date === new Date().toISOString().split('T')[0]
+
+  return (
+    <div
+      ref={setNodeRef}
+      className={`flex-1 min-w-0 min-h-[40px] max-h-[80px] overflow-hidden rounded-lg border p-1 transition-colors ${
+        isOver
+          ? 'border-indigo-400 bg-indigo-500/10'
+          : isToday
+            ? 'border-indigo-500/30 bg-indigo-500/5'
+            : isWeekend
+              ? 'border-border/50 bg-surface-soft/30'
+              : 'border-border bg-surface-soft/50'
+      }`}
+    >
+      {activities.length > 0 ? (
+        <div className="space-y-0.5 overflow-y-auto max-h-full">
+          {activities.map((activity) => (
+            <ChipActividad key={activity.id} activity={activity} onSelect={onSelect} />
+          ))}
+        </div>
+      ) : (
+        <div className="flex items-center justify-center h-full">
+          <span className="text-[10px] text-slate-700">-</span>
+        </div>
+      )}
+    </div>
+  )
+}
+
+/** Chip de actividad dentro de una celda: arrastrable con dnd-kit (Pointer Events, funciona
+ * igual con mouse que con touch -antes era HTML5 drag nativo, invisible en celular-). */
+function ChipActividad({
+  activity,
+  onSelect,
+}: {
+  activity: Activity
+  onSelect: (a: Activity) => void
+}) {
+  const isCompleted = activity.status === 'completado'
+  const { attributes, listeners, setNodeRef, isDragging } = useDraggable({
+    id: activity.id,
+    disabled: isCompleted,
+  })
+
+  return (
+    <div
+      ref={setNodeRef}
+      {...(isCompleted ? {} : attributes)}
+      {...(isCompleted ? {} : listeners)}
+      onClick={(e) => {
+        e.stopPropagation()
+        onSelect(activity)
+      }}
+      className={`text-[9px] px-1 py-0.5 rounded border truncate transition-opacity touch-none ${
+        isDragging
+          ? 'opacity-40'
+          : isCompleted
+            ? ''
+            : 'cursor-grab active:cursor-grabbing hover:brightness-110'
+      } ${chipClases(activity)}`}
+      title={
+        isCompleted
+          ? `${activity.title} (completado)`
+          : `Arrastrar para cambiar fecha - ${activity.title}`
+      }
+    >
+      {activity.title}
+    </div>
+  )
+}
+
+/** Version de solo lectura del chip, para el DragOverlay (la que sigue al dedo/cursor). */
+function ChipActividadVisual({ activity }: { activity: Activity }) {
+  return (
+    <div
+      className={`text-[9px] px-1 py-0.5 rounded border truncate shadow-lg ${chipClases(activity)}`}
+    >
+      {activity.title}
     </div>
   )
 }

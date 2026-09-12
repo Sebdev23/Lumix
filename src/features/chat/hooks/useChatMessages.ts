@@ -1356,19 +1356,22 @@ export function useChatMessages() {
     // Decision de la IA que produjo esta actividad, para cerrar el circuito de telemetria.
     decisionId?: string | null
   }) {
-    const isIngesta = opts.category === 'ingesta'
-    const cleanTitle = opts.title.replace(/^\[Ingesta\]\s*/, '')
-    const title = isIngesta ? `[Ingesta] ${cleanTitle}` : opts.title
+    // `opts.category` nunca llega aca como 'ingesta': createActivityOrIngesta la intercepta y
+    // resuelve por createMinutaTopic antes de siquiera considerar persistActivity (desde la
+    // Fase 13, Ingesta es su propio tipo de minute_items, no una actividad con prefijo
+    // "[Ingesta]" en el titulo -eso era el modelo viejo-). El parametro se mantiene solo por
+    // consistencia de tipos con PendingActivity (name_confirm/overload reusan el mismo shape).
+    const cleanTitle = opts.title
 
     const activity = await activitiesService.create({
-      title,
+      title: cleanTitle,
       description: opts.description,
       responsible_id: opts.responsibleId,
       priority: opts.priority,
       status: 'pendiente',
       due_date: opts.dueDate,
       dependencies: [],
-      observations: isIngesta ? 'Tipo: Ingesta de datos' : '',
+      observations: '',
       team_id: teamId,
       created_by: opts.senderId,
     })
@@ -1409,9 +1412,7 @@ export function useChatMessages() {
       const when = formatDateLocal(opts.dueDate)
       const reply = assignedToOther
         ? `✅ Actividad "${cleanTitle}" creada y asignada a ${opts.responsibleName}. Entrega: ${when}.`
-        : isIngesta
-          ? `✅ Ingesta "${cleanTitle}" registrada. Entrega: ${when}.`
-          : `✅ Actividad "${cleanTitle}" creada. Entrega: ${when}.`
+        : `✅ Actividad "${cleanTitle}" creada. Entrega: ${when}.`
       // Confirmacion simple en texto (se persiste igual que se ve, sin discrepancia al recargar).
       //
       // Lleva el id de la actividad: este es el mensaje al que la gente le responde ("cambiala

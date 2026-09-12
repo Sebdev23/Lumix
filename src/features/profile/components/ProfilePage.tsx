@@ -12,6 +12,7 @@ import { supabase } from '@infrastructure/supabase/client'
 import { profilesService } from '@infrastructure/supabase/profiles.service'
 import { normalizeFullName } from '@shared/utils/name'
 import { APP_VERSION, APP_VERSION_DATE } from '@shared/changelog'
+import { useToast } from '@shared/components/ui/Toast'
 
 const EMOJI_OPTIONS = [
   '😀',
@@ -68,6 +69,7 @@ export function ProfilePage() {
   const { profile, user, signOut } = useAuth()
   const { theme, setTheme } = useTheme()
   const navigate = useNavigate()
+  const toast = useToast()
   const [fullName, setFullName] = useState(profile?.full_name ?? '')
   const [avatarUrl, setAvatarUrl] = useState(profile?.avatar_url ?? '')
   const [showEmoji, setShowEmoji] = useState(false)
@@ -86,6 +88,9 @@ export function ProfilePage() {
         full_name: normalizeFullName(fullName),
         avatar_url: avatarUrl || null,
       })
+      toast.success('Perfil actualizado')
+    } catch {
+      toast.error('No se pudo guardar el perfil')
     } finally {
       setSaving(false)
     }

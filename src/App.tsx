@@ -6,6 +6,7 @@ import { NotificationProvider } from '@core/notifications/NotificationContext'
 import { AppLayout } from '@shared/components/layout/AppLayout'
 import { ErrorBoundary } from '@shared/components/ErrorBoundary'
 import { ToastProvider } from '@shared/components/ui/Toast'
+import { AuthGuard } from '@core/auth/components/AuthGuard'
 
 const ChatPage = lazy(() =>
   import('@features/chat/components/ChatPage').then((m) => ({ default: m.ChatPage })),
@@ -68,9 +69,6 @@ const ChangePasswordPage = lazy(() =>
   import('@core/auth/components/ChangePasswordPage').then((m) => ({
     default: m.ChangePasswordPage,
   })),
-)
-const AuthGuard = lazy(() =>
-  import('@core/auth/components/AuthGuard').then((m) => ({ default: m.AuthGuard })),
 )
 const ProfilePage = lazy(() =>
   import('@features/profile/components/ProfilePage').then((m) => ({ default: m.ProfilePage })),

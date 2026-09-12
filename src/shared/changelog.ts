@@ -3,12 +3,12 @@
 // cambios: subir CHANGELOG_VERSION en 1, actualizar APP_VERSION_DATE a la fecha de esa tanda, y
 // reemplazar CHANGELOG_ITEMS por los cambios de esa tanda (no se acumulan versiones viejas en la
 // lista, cada version muestra solo lo suyo).
-export const CHANGELOG_VERSION = 3
+export const CHANGELOG_VERSION = 4
 
 // Se muestra en Perfil (footer de "Sobre Lumix") para que cualquiera pueda confirmar, mirando
 // la pantalla, que version tiene cargada -util para saber si ya le llego una actualizacion.
 export const APP_VERSION = `1.${CHANGELOG_VERSION}`
-export const APP_VERSION_DATE = '08-09-2026' // DD-MM-AAAA, se actualiza junto con la version
+export const APP_VERSION_DATE = '11-09-2026' // DD-MM-AAAA, se actualiza junto con la version
 
 export interface ChangelogItem {
   icon: string
@@ -18,23 +18,23 @@ export interface ChangelogItem {
 
 export const CHANGELOG_ITEMS: ChangelogItem[] = [
   {
-    icon: '📅',
-    title: 'Filtro de fechas en Ingesta',
-    desc: 'Elegis el rango (fecha de solicitud o de compromiso) en vez del viejo "por semana".',
+    icon: '📁',
+    title: 'Proyectos, rediseñado',
+    desc: 'Lista, Tablero y Cronograma con el mismo look: arrastrar tarjetas, prioridad, fecha de inicio, avance y alertas de vencidas/bloqueadas.',
   },
   {
-    icon: '🔄',
-    title: 'Reclasificar por chat',
-    desc: 'Respondiendo un mensaje podes decir "es un proyecto/ingesta/error" para convertirlo, sin perder datos si algo falla.',
+    icon: '💬',
+    title: 'Comentarios mas simples',
+    desc: 'En Compromisos y Proyectos el campo de comentario ya no tiene boton de editar: se escribe directo.',
   },
   {
-    icon: '📝',
-    title: 'Pegar una minuta ya la separa sola',
-    desc: 'Si pegas un acta con varios puntos, Lumix la divide en temas automaticamente en vez de meterla toda junta.',
+    icon: '🛡️',
+    title: 'Confirmacion antes de borrar',
+    desc: 'Remover a alguien de un equipo o borrar un grupo de trabajo ahora pide "¿Seguro?" antes de hacerlo.',
   },
   {
-    icon: '🐛',
-    title: 'Bitacora de Errores mas simple',
-    desc: 'Todo editable en la misma pantalla, sin ventanas: quien lo reporto, fecha de creacion y de cierre.',
+    icon: '⚡',
+    title: 'Carga mas rapida',
+    desc: 'Dashboard y Planificacion ya no se quedan pegados si falla la conexion, y la app arranca mas liviana.',
   },
 ]

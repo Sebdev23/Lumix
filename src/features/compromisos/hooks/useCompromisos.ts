@@ -70,6 +70,11 @@ export interface Compromiso extends Activity {
   origen: 'minuta' | 'proyecto'
   /** Titulo del tema raiz, solo si origen es 'proyecto' (da contexto: "de: Revisar capacidad"). */
   origenProyecto?: string
+  /** Id del tema de Minuta que originó este compromiso (via linked_activity_ids). Los
+   * comentarios de un compromiso SON los del tema, no los de la actividad -la nota real
+   * ("Situación: ... Accion: ...") vive ahi, no en `observations` (bug real reportado). */
+  temaId?: string
+  comentariosTema: string
 }
 
 export interface GrupoPersona {
@@ -201,6 +206,8 @@ export function useCompromisos() {
       enMinuta: escaladas.has(a.id),
       origen: esProyecto ? 'proyecto' : 'minuta',
       origenProyecto: esProyecto ? raizDe(origenTema!).tema : undefined,
+      temaId: origenTema?.id,
+      comentariosTema: origenTema?.comentarios ?? '',
     }
   }
 
@@ -277,8 +284,46 @@ export function useCompromisos() {
     setTodas((cur) => cur.map((x) => (x.id === a.id ? { ...x, due_date: iso } : x)))
     try {
       await activitiesService.update(a.id, { due_date: iso })
+      // Mismo mecanismo que `changePlazo` en useMinuta.ts, pero al reves: ese sincroniza
+      // Minuta -> actividades vinculadas; esto sincroniza Compromisos -> el tema que las
+      // originó. Sin esto, mover la fecha desde aca dejaba a Minuta mostrando el plazo
+      // viejo (bug real reportado: "en minuta plazo no cuadra con lo que se ve en
+      // compromisos"). Actividades ya completadas nunca llegan aca (moverUnaSemana solo se
+      // ofrece en lo no cumplido), asi que no hace falta ese filtro en este sentido.
+      const tema = temaDe(a.id)
+      if (tema) {
+        const nuevaFecha = iso.split('T')[0]
+        const hadPlazo = !!tema.plazo
+        const history = [
+          ...(tema.plazo_history ?? []),
+          { date: nuevaFecha, at: new Date().toISOString() },
+        ]
+        const patch = {
+          plazo: nuevaFecha,
+          plazo_change_count: (tema.plazo_change_count ?? 0) + (hadPlazo ? 1 : 0),
+          plazo_history: history,
+        }
+        setTemas((cur) => cur.map((t) => (t.id === tema.id ? { ...t, ...patch } : t)))
+        await minutesService.update(tema.id, patch)
+      }
     } catch (err) {
       setTodas(anterior)
+      throw err
+    }
+  }
+
+  /** Comentarios del compromiso: son los del TEMA de Minuta que lo originó
+   * (`minute_items.comentarios`), no los de la actividad -ahi vive la nota real ("Situación:
+   * ... Accion: ..."), no en `observations` (bug real reportado: primera version editaba el
+   * campo equivocado, que siempre estaba vacio). Hoy no se mostraba en absoluto en esta hoja,
+   * a pedido de Sebastian se agrega editable. */
+  const guardarComentario = async (temaId: string, next: string) => {
+    const anterior = temas
+    setTemas((cur) => cur.map((t) => (t.id === temaId ? { ...t, comentarios: next } : t)))
+    try {
+      await minutesService.update(temaId, { comentarios: next })
+    } catch (err) {
+      setTemas(anterior)
       throw err
     }
   }
@@ -309,7 +354,10 @@ export function useCompromisos() {
         responsables_text: '',
         estado: 'definir',
         plazo: a.due_date.split('T')[0],
-        comentarios: 'Vino de la hoja de compromisos: no se cumplio y necesita conversarse.',
+        // Antes traia un texto fijo ("Vino de la hoja de compromisos: ...") que quedaba dando
+        // vueltas en el campo de comentarios -a pedido de Sebastian se saca, queda en blanco
+        // para que la persona escriba su propia nota real.
+        comentarios: '',
         linked_activity_ids: [a.id],
         created_by: profile.id,
       })
@@ -335,6 +383,7 @@ export function useCompromisos() {
     marcar,
     moverUnaSemana,
     llevarAMinuta,
+    guardarComentario,
     reload: load,
   }
 }

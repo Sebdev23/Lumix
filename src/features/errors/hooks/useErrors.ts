@@ -162,16 +162,18 @@ export function useErrors() {
   /** Crea un error directo desde la Bitacora (antes solo se podia por chat), en pantalla y sin
    * modal: fila en blanco que se completa inline, mismo patron que addItem('') en Ingesta.
    * Arranca directo en 'en_revision' ("En proceso"), sin pasar por 'abierto' -a pedido de
-   * Sebastian. Severidad/responsable-por-area quedan sin usar en esta pantalla (columnas
-   * simplificadas a pedido: Transaccion o query, Comentario, Quien lo levanto, Fecha de
-   * creacion, Estado, Fecha de cierre); las columnas siguen existiendo en la base. */
+   * Sebastian. Responsable-por-area queda sin usar en esta pantalla (columnas simplificadas a
+   * pedido: Transaccion o query, Comentario, Quien lo levanto, Fecha de creacion, Estado, Fecha
+   * de cierre); la columna sigue existiendo en la base. Severidad arranca en 'alta' (no hay
+   * selector en pantalla) para que SI aparezca como alerta en el Dashboard hasta que alguien lo
+   * cierre -con 'media' quedaba invisible siempre, ya que el Dashboard solo alerta alta/critica. */
   const createError = async (title = ''): Promise<string | null> => {
     if (!user || !teamId) return null
     const now = new Date()
     const created = await errorsService.create({
       title: title || 'Nuevo error',
       description: '',
-      severity: 'media',
+      severity: 'alta',
       responsible_id: user.id,
       status: 'en_revision',
       date: now.toISOString().split('T')[0],

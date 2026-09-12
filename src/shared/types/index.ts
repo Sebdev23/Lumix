@@ -96,6 +96,9 @@ export interface MinuteItem {
   plazo: string | null // YYYY-MM-DD
   plazo_change_count: number
   plazo_history: PlazoHistoryEntry[]
+  // Fecha de inicio opcional (migracion 047): habilita barras reales (inicio-fin) en el
+  // Cronograma de Proyectos. Sin ella, se dibuja un punto en `plazo`, igual que antes.
+  fecha_inicio?: string | null
   comentarios: string
   linked_activity_ids: string[]
   created_by: string
@@ -108,6 +111,8 @@ export interface MinuteItem {
   // Estado propio de la Hoja de Ingesta (migracion 045) — Minuta/Proyecto NO lo usan, siguen
   // con `estado` de siempre. Null salvo en items con tipo='ingesta'.
   estado_ingesta?: EstadoIngesta | null
+  // Prioridad 1-3 (migracion 048), mismo criterio que Activity.priority. Solo Proyectos la usa.
+  prioridad?: number | null
 }
 
 export type EstadoIngesta =

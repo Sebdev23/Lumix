@@ -1,4 +1,4 @@
-import { useState } from 'react'
+import { useState, useRef } from 'react'
 import { Badge } from '@shared/components/ui/Badge'
 import { Button } from '@shared/components/ui/Button'
 import { Modal } from '@shared/components/ui/Modal'
@@ -11,7 +11,7 @@ import {
   estadoIngestaLabels,
   type DecoratedItem,
 } from '@features/minuta/hooks/useMinuta'
-import { plazoEfectivo } from '@features/minuta/utils/subtareas'
+import { plazoEfectivo, avanceDe } from '@features/minuta/utils/subtareas'
 import { AsignarActividadModal } from '@features/minuta/components/AsignarActividadModal'
 import { exportToCSV } from '@shared/utils/export'
 import { CargaMasivaModal } from '@features/minuta/components/CargaMasivaModal'
@@ -90,15 +90,32 @@ export function SubtareasPanel({
 }) {
   const [adding, setAdding] = useState(false)
   const [nuevo, setNuevo] = useState('')
-  // Expandido por defecto: colapsar es una accion explicita de "ya lo arme, ahora achica
-  // la pantalla", no algo que deba esconder subtareas recien creadas.
-  const [expanded, setExpanded] = useState(true)
+  const cancelandoRef = useRef(false)
+  // Colapsado por defecto (antes arrancaba expandido): con profundidad ilimitada en Proyectos,
+  // esta misma fila densa (texto, responsable, fecha, estado, borrar) se repetia en CADA nivel
+  // a la vez, mostrando todo de entrada -exactamente el patron que Todoist/Asana evitan
+  // (revelar bajo demanda, no todo junto) y que la investigacion de NN/G mide como una mejora
+  // real de tiempo de escaneo. Sigue siendo un click expandir, no se perdio ninguna funcion.
+  const [expanded, setExpanded] = useState(false)
   const subtemas = allItems.filter((d) => d.parent_item_id === parentId)
   const puedeAgregarAca = canAddSubtareas && (maxDepth === undefined || depth < maxDepth)
   const puedeAnidar = maxDepth === undefined || depth + 1 < maxDepth
 
   const confirmarNuevo = () => {
+    // Al cancelar con Escape, quitar el input (setAdding(false)) dispara un blur nativo antes
+    // de desmontar -sin esta bandera, ese blur llama a confirmarNuevo con el texto que ya
+    // habiamos descartado y termina creando la subtarea igual que si nunca se hubiera
+    // cancelado.
+    if (cancelandoRef.current) {
+      cancelandoRef.current = false
+      return
+    }
     if (nuevo.trim()) onAdd(nuevo.trim(), parentId)
+    setNuevo('')
+    setAdding(false)
+  }
+  const cancelarNuevo = () => {
+    cancelandoRef.current = true
     setNuevo('')
     setAdding(false)
   }
@@ -227,7 +244,7 @@ export function SubtareasPanel({
               onBlur={confirmarNuevo}
               onKeyDown={(e) => {
                 if (e.key === 'Enter') confirmarNuevo()
-                if (e.key === 'Escape') setAdding(false)
+                if (e.key === 'Escape') cancelarNuevo()
               }}
               placeholder="Nueva subtarea…"
               className="flex-1 rounded border border-border-strong bg-surface px-2 py-1 text-base sm:text-[11px] text-fg-body"
@@ -245,22 +262,51 @@ export function SubtareasPanel({
   )
 }
 
+// Colores del Cronograma por estado -mismo criterio que el Tablero de Proyectos
+// (COLUMNA_ESTILO en ProyectoDetailPage.tsx): pendiente=amber, en_desarrollo=blue,
+// resuelto=emerald, definir=slate. Antes solo distinguia raiz/subtarea/resuelto; ahora
+// coincide con el color que esa misma tarea ya tiene en el Tablero.
+const GANTT_COLOR: Record<MinuteEstado, string> = {
+  pendiente: 'bg-amber-500',
+  en_desarrollo: 'bg-blue-500',
+  resuelto: 'bg-emerald-500',
+  definir: 'bg-slate-500',
+}
+// Version tenue (25%) del mismo color, para el fondo de la barra -el color solido de arriba
+// pasa a ser el RELLENO de avance (`avanceDe`), no toda la barra. Sin esto, una tarea al 20%
+// se veia identica a una al 90%.
+const GANTT_COLOR_TENUE: Record<MinuteEstado, string> = {
+  pendiente: 'bg-amber-500/25',
+  en_desarrollo: 'bg-blue-500/25',
+  resuelto: 'bg-emerald-500/25',
+  definir: 'bg-slate-500/25',
+}
+
+type ZoomGantt = 'dia' | 'semana' | 'mes'
+
 /**
- * Linea de tiempo de un tema y todo su arbol de subtareas.
- *
- * No es un Gantt de barras con duracion -minute_items solo guarda UNA fecha (el plazo), no
- * un rango-, asi que se muestra honestamente como lo que es: un marcador por tarea sobre un
- * eje de fechas comun. Estirar esto a barras inventaria una fecha de inicio que no existe.
+ * Contenido del Cronograma (Gantt), sin el `Modal` que lo envolvia -Proyectos lo usa como
+ * pestaña de pantalla completa; `GanttModal` (mas abajo) lo envuelve para el uso puntual de
+ * Minuta. Barras reales (inicio-fin) cuando la tarea tiene `fecha_inicio` (migracion 047); si
+ * no la tiene, se muestra un punto en la entrega, honesto sobre el dato que existe. Cada barra
+ * ademas rellena su propio color segun el avance real (subtareas resueltas), y un zoom
+ * Dia/Semana/Mes cambia el tamaño de los tramos del eje.
  */
-export function GanttModal({
+export function GanttChart({
   root,
   allItems,
-  onClose,
+  memberName,
+  onOpen,
 }: {
   root: DecoratedItem
   allItems: DecoratedItem[]
-  onClose: () => void
+  memberName?: (id: string) => string
+  // Click en una barra/fila abre el mismo panel de detalle que Lista/Tablero (Proyectos). En
+  // Minuta (GanttModal) no se pasa: las barras quedan de solo lectura, como antes.
+  onOpen?: (itemId: string) => void
 }) {
+  const [zoom, setZoom] = useState<ZoomGantt>('semana')
+
   const nodes: { item: DecoratedItem; depth: number }[] = []
   const walk = (id: string, depth: number) => {
     const item = allItems.find((d) => d.id === id)
@@ -272,7 +318,7 @@ export function GanttModal({
 
   const toTime = (f: string) => parseDateLocal(f).getTime()
   const fechas = nodes
-    .map((n) => plazoEfectivo(n.item, allItems))
+    .flatMap((n) => [plazoEfectivo(n.item, allItems), n.item.fecha_inicio])
     .filter((f): f is string => !!f)
     .map(toTime)
   const hoy = new Date()
@@ -285,62 +331,177 @@ export function GanttModal({
 
   const pct = (f: string) => Math.min(100, Math.max(0, ((toTime(f) - min) / span) * 100))
 
+  // Cabecera del eje: tramos reales desde `min`, en columnas de ancho IGUAL (flex, como el
+  // mockup) -sin eso, una etiqueta cerca del borde derecho no tenia espacio propio y se
+  // salia/superponia (bug real reportado). El tamaño del tramo lo decide el zoom.
+  const tramoMs = zoom === 'dia' ? 86_400_000 : zoom === 'mes' ? 30 * 86_400_000 : 7 * 86_400_000
+  const tramos: { etiqueta: string }[] = []
+  for (let cursor = min; cursor < maxRaw; cursor += tramoMs) {
+    const ini = new Date(cursor)
+    const fin = new Date(Math.min(cursor + tramoMs - 86_400_000, maxRaw))
+    const mesIni = ini.toLocaleDateString('es-CL', { month: 'short' }).replace('.', '')
+    const etiqueta =
+      zoom === 'dia'
+        ? `${ini.getDate()} ${mesIni}`
+        : zoom === 'mes'
+          ? ini.toLocaleDateString('es-CL', { month: 'short', year: '2-digit' }).replace('.', '')
+          : `${ini.getDate()}–${fin.getDate()} ${fin.toLocaleDateString('es-CL', { month: 'short' }).replace('.', '')}`
+    tramos.push({ etiqueta })
+  }
+
   return (
-    <Modal open onClose={onClose} title={`Linea de tiempo: ${root.tema}`} size="lg">
-      <div className="space-y-3">
+    <div className="space-y-3">
+      <div className="flex items-center justify-between flex-wrap gap-2">
         <p className="text-[11px] text-slate-500">
-          Cada punto es el plazo de esa tarea (o el mas lejano entre sus subtareas, si no tiene uno
-          propio). La linea vertical marca hoy.
+          Con fecha de inicio, la barra va de inicio a entrega y se rellena segun el avance. Sin
+          fecha de inicio, se muestra un punto en la entrega. La linea roja marca hoy.
         </p>
-        <div className="space-y-2 max-h-[60vh] overflow-y-auto pr-1">
-          {nodes.map(({ item, depth }) => {
-            const fecha = plazoEfectivo(item, allItems)
-            const vencida =
-              !!fecha && item.effectiveEstado !== 'resuelto' && toTime(fecha) < hoy.getTime()
-            return (
-              <div key={item.id} className="flex items-start gap-2 text-[11px]">
-                <span
-                  className="text-fg-muted flex-shrink-0 whitespace-normal break-words leading-tight"
-                  style={{ width: 140, paddingLeft: depth * 12 }}
-                >
+        <div className="inline-flex rounded-lg bg-surface p-0.5 flex-shrink-0">
+          {(['dia', 'semana', 'mes'] as ZoomGantt[]).map((z) => (
+            <button
+              key={z}
+              onClick={() => setZoom(z)}
+              className={`px-2.5 py-1 rounded-md text-[10.5px] font-medium capitalize transition-colors ${
+                zoom === z ? 'bg-indigo-600 text-white' : 'text-fg-faint'
+              }`}
+            >
+              {z}
+            </button>
+          ))}
+        </div>
+      </div>
+      {/* Dos columnas independientes con alto FIJO (34px) -seguro porque cada etiqueta mide
+          maximo 2 lineas (tema + responsable): la fecha de inicio se edita desde el panel de
+          detalle, no aca, para no romper esta alineacion (bug real reportado antes). */}
+      <div className="overflow-x-auto">
+        <div
+          className="rounded-xl border border-border bg-panel p-4"
+          style={{ display: 'grid', gridTemplateColumns: '160px 1fr', minWidth: 600 }}
+        >
+          {/* Columna de nombres */}
+          <div className="flex flex-col gap-1.5 border-r border-border pr-3.5">
+            <div className="h-5" />
+            {nodes.map(({ item, depth }) => (
+              <div
+                key={item.id}
+                className={`h-[34px] flex flex-col justify-center min-w-0 ${onOpen ? 'cursor-pointer' : ''}`}
+                style={{ paddingLeft: depth * 10 }}
+                onClick={() => onOpen?.(item.id)}
+              >
+                <span className="text-[11.5px] font-medium text-fg-muted truncate">
                   {depth > 0 && '↳ '}
                   {item.tema}
                 </span>
-                <div className="flex-1 relative h-3 bg-surface/60 rounded mt-0.5">
-                  {fecha && (
-                    <div
-                      className={`absolute top-0 h-3 w-3 -mt-0 rounded-full ${
-                        item.effectiveEstado === 'resuelto'
-                          ? 'bg-emerald-500'
-                          : depth === 0
-                            ? 'bg-indigo-500'
-                            : 'bg-amber-500'
-                      }`}
-                      style={{ left: `calc(${pct(fecha)}% - 6px)` }}
-                      title={formatDateLocal(fecha)}
-                    />
-                  )}
-                </div>
+                {memberName && item.responsables.length > 0 && (
+                  <span className="text-[10px] text-fg-faint truncate">
+                    {item.responsables.map(memberName).join(', ')}
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+
+          {/* Columna de linea de tiempo */}
+          <div className="relative pl-3.5 min-w-0">
+            <div className="grid grid-flow-col auto-cols-fr pb-2 border-b border-border mb-1.5">
+              {tramos.map((t, i) => (
                 <span
-                  className={`w-16 text-right flex-shrink-0 mt-0.5 ${vencida ? 'text-red-400' : 'text-slate-500'}`}
+                  key={i}
+                  className="text-[10px] uppercase tracking-wide text-fg-faint truncate"
                 >
-                  {fecha ? formatDateLocal(fecha) : 'sin fecha'}
+                  {t.etiqueta}
+                </span>
+              ))}
+            </div>
+            <div className="relative flex flex-col gap-1.5">
+              {/* Una sola linea de "Hoy", como el mockup: se estira por arriba del bloque de
+                  filas (hacia la cabecera del eje) con top negativo, no una por fila. */}
+              <div
+                className="absolute w-0.5 bg-red-500 z-[3]"
+                style={{ left: `${pctDeHoy}%`, top: -30, bottom: -6 }}
+              >
+                <span className="absolute -top-[18px] left-1/2 -translate-x-1/2 text-[9.5px] font-bold text-red-500 whitespace-nowrap">
+                  Hoy
                 </span>
               </div>
-            )
-          })}
-          {/* Eje: hoy */}
-          <div className="flex items-center gap-2 text-[11px] pt-1 border-t border-border-strong/60">
-            <span className="w-[140px] flex-shrink-0" />
-            <div className="flex-1 relative h-0">
-              <div
-                className="absolute -top-2 bottom-0 w-px bg-red-500/60"
-                style={{ left: `${pctDeHoy}%` }}
-              />
+              {nodes.map(({ item }) => {
+                const fin = plazoEfectivo(item, allItems)
+                const inicio = item.fecha_inicio
+                const hayBarra = !!inicio && !!fin && toTime(inicio) <= toTime(fin)
+                const color = GANTT_COLOR[item.effectiveEstado]
+                const colorTenue = GANTT_COLOR_TENUE[item.effectiveEstado]
+                const anchoBarra = hayBarra
+                  ? Math.min(Math.max(pct(fin!) - pct(inicio!), 6), 100 - pct(inicio!))
+                  : 0
+                const avance = avanceDe(item, allItems)
+                return (
+                  <div key={item.id} className="h-[34px] relative">
+                    {hayBarra ? (
+                      <div
+                        className={`absolute top-[5px] h-6 rounded-md overflow-hidden shadow ${colorTenue} ${onOpen ? 'cursor-pointer' : ''}`}
+                        style={{ left: `${pct(inicio!)}%`, width: `${anchoBarra}%` }}
+                        title={`${formatDateLocal(inicio!)} → ${formatDateLocal(fin!)} · ${avance}%`}
+                        onClick={() => onOpen?.(item.id)}
+                      >
+                        <div
+                          className={`absolute inset-y-0 left-0 ${color}`}
+                          style={{ width: `${avance}%` }}
+                        />
+                        <span className="relative flex items-center h-full px-2.5 text-[10.5px] font-semibold text-white whitespace-nowrap">
+                          {item.tema}
+                        </span>
+                      </div>
+                    ) : (
+                      fin && (
+                        <div
+                          className={`absolute top-[13px] h-2.5 w-2.5 rounded-full ${color} ${onOpen ? 'cursor-pointer' : ''}`}
+                          style={{ left: `calc(${pct(fin)}% - 5px)` }}
+                          title={formatDateLocal(fin)}
+                          onClick={() => onOpen?.(item.id)}
+                        />
+                      )
+                    )}
+                  </div>
+                )
+              })}
             </div>
-            <span className="w-16 text-right flex-shrink-0 text-red-400">hoy</span>
           </div>
         </div>
+      </div>
+      <div className="flex flex-wrap gap-3 pt-1 text-[10px] text-fg-faint">
+        {(Object.keys(GANTT_COLOR) as MinuteEstado[]).map((s) => (
+          <span key={s} className="flex items-center gap-1.5">
+            <span className={`w-2 h-2 rounded-full ${GANTT_COLOR[s]}`} />
+            {estadoLabels[s]}
+          </span>
+        ))}
+        <span className="flex items-center gap-1.5">
+          <span className="w-2 h-2 rounded-full bg-red-500" />
+          Hoy
+        </span>
+      </div>
+    </div>
+  )
+}
+
+/** Envoltorio en `Modal` de `GanttChart`, para el "Ver Gantt" puntual de una subtarea (Minuta) —
+ * ahi si tiene sentido un popup chico, a diferencia del Cronograma de Proyectos, que ahora es
+ * una pestaña de pantalla completa (ver `ProyectoDetailPage.tsx`). */
+export function GanttModal({
+  root,
+  allItems,
+  onClose,
+  memberName,
+}: {
+  root: DecoratedItem
+  allItems: DecoratedItem[]
+  onClose: () => void
+  memberName?: (id: string) => string
+}) {
+  return (
+    <Modal open onClose={onClose} title={`Cronograma: ${root.tema}`} size="lg">
+      <div className="max-h-[60vh] overflow-y-auto pr-1">
+        <GanttChart root={root} allItems={allItems} memberName={memberName} />
       </div>
     </Modal>
   )
@@ -1342,7 +1503,12 @@ export function MinutaPage({ tipo = 'minuta' }: { tipo?: HojaTipo } = {}) {
       />
 
       {ganttItem && (
-        <GanttModal root={ganttItem} allItems={allItems} onClose={() => setGanttForId(null)} />
+        <GanttModal
+          root={ganttItem}
+          allItems={allItems}
+          onClose={() => setGanttForId(null)}
+          memberName={memberName}
+        />
       )}
     </div>
   )

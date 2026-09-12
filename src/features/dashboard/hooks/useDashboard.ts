@@ -63,6 +63,8 @@ export function useDashboard() {
     weeklyTrend: [],
   })
   const [loading, setLoading] = useState(true)
+  const [error, setError] = useState(false)
+  const [reloadKey, setReloadKey] = useState(0)
   const { user, profile } = useAuth()
   const { isColaborador } = useCapabilities()
   const teamId = profile?.team_id ?? ''
@@ -73,11 +75,25 @@ export function useDashboard() {
     let cancelled = false
 
     async function load() {
-      const [activities, errors, members] = await Promise.all([
-        activitiesService.getByTeam(teamId),
-        errorsService.getByTeam(teamId),
-        profilesService.getByTeam(teamId),
-      ])
+      setLoading(true)
+      setError(false)
+      let activities: Activity[]
+      let errors: Awaited<ReturnType<typeof errorsService.getByTeam>>
+      let members: Profile[]
+      try {
+        ;[activities, errors, members] = await Promise.all([
+          activitiesService.getByTeam(teamId),
+          errorsService.getByTeam(teamId),
+          profilesService.getByTeam(teamId),
+        ])
+      } catch (err) {
+        console.error('Dashboard load failed:', err)
+        if (!cancelled) {
+          setError(true)
+          setLoading(false)
+        }
+        return
+      }
 
       if (cancelled) return
 
@@ -161,9 +177,9 @@ export function useDashboard() {
     return () => {
       cancelled = true
     }
-  }, [user, teamId])
+  }, [user, teamId, reloadKey])
 
-  return { ...data, loading }
+  return { ...data, loading, error, reload: () => setReloadKey((k) => k + 1) }
 }
 
 function buildWorkloads(activities: Activity[], members: Profile[]): MemberWorkload[] {

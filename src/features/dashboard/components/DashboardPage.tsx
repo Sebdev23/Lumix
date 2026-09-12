@@ -40,6 +40,8 @@ export function DashboardPage() {
     priorityCounts,
     weeklyTrend,
     loading,
+    error,
+    reload,
   } = useDashboard()
 
   const statusSegments = [
@@ -58,6 +60,25 @@ export function DashboardPage() {
         </div>
         <div className="flex-1 flex items-center justify-center">
           <div className="w-6 h-6 border-2 border-indigo-500 border-t-transparent rounded-full animate-spin" />
+        </div>
+      </div>
+    )
+  }
+
+  if (error) {
+    return (
+      <div className="flex flex-col h-full">
+        <div className="flex items-center px-3 sm:px-4 h-12 sm:h-14 border-b border-border bg-panel">
+          <h2 className="text-sm font-semibold text-fg-body">Dashboard</h2>
+        </div>
+        <div className="flex-1 flex flex-col items-center justify-center gap-3 text-center px-4">
+          <p className="text-sm text-fg-faint">No se pudo cargar el dashboard</p>
+          <button
+            onClick={reload}
+            className="text-xs font-medium text-indigo-400 hover:text-indigo-300 rounded-lg border border-border-strong px-3 py-1.5"
+          >
+            Reintentar
+          </button>
         </div>
       </div>
     )

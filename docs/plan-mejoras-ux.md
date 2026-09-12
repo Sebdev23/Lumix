@@ -1953,3 +1953,527 @@ eso se escapa de lo que puede ayudar — sin intentar responder la pregunta de t
 
 **Desplegado a Supabase** (Sebastián lo confirmó explícito, aparte de los fixes de mobile que
 siguen sin publicar): `supabase functions deploy ai-ask`. Ya está activo en producción.
+
+---
+
+## Fase 14 (propuesta, sin construir) — Agendar reuniones por chat con Google/Outlook
+
+Sebastián preguntó si es posible integrar Lumix con el correo (Gmail/Outlook) para acceder a la
+agenda. Al precisar el pedido: la idea real es **mezclar la agenda con las actividades** —
+detectar cuando una reunión se cruza con la entrega de un compromiso — **o directamente agendar
+una reunión desde el chat de Lumix**.
+
+### Alcance de la v1 (decidido con Sebastián)
+
+- **Solo agendar** (crear reuniones por chat) — detectar choques de horario contra las fechas de
+  entrega de Actividades queda para una fase posterior, no entra en esta primera versión.
+- **Los dos proveedores desde el arranque**: Google Calendar y Outlook/Microsoft 365, con un
+  adaptador por proveedor detrás de una función interna genérica ("crear evento de calendario"),
+  para no duplicar el resto del código (persistencia de tokens, UI de conexión, llamado desde el
+  chat).
+- **Solo en el calendario propio** de quien agenda — no invita automáticamente a otros miembros
+  del equipo (eso requeriría que CADA invitado también tenga su cuenta conectada a Lumix, o
+  mandar la invitación por email aunque no la tenga conectada — se evalúa después si hace falta).
+
+### Limitaciones reales de cada proveedor (investigadas antes de decidir)
+
+- **Google Calendar**: hay que crear un proyecto en Google Cloud, habilitar la API y generar un
+  Client ID OAuth. Mientras la app no pase la verificación de Google (revisión que puede tardar
+  días, exige política de privacidad publicada), solo pueden conectarse hasta 100 "usuarios de
+  prueba" agregados a mano en la consola, y a esos usuarios Google les muestra una advertencia de
+  "app no verificada" al conectar. Para el uso interno de GSDM y unas pocas clínicas esto alcanza
+  sin verificar; si se ofrece a muchos clientes externos algún día, ahí sí conviene verificar.
+- **Outlook / Microsoft 365**: se registra la app en Azure AD (Entra ID), similar a Google. La
+  limitación más real: muchas organizaciones (sobre todo clínicas/empresas con IT propio)
+  configuran que un administrador debe **aprobar manualmente** cualquier app externa antes de que
+  sus empleados puedan conectar su calendario — no depende de Lumix, depende de la política de
+  IT de cada cliente. Activar Outlook para una clínica nueva podría necesitar que su IT diga que
+  sí primero, una traba que Google casi nunca tiene.
+- Ambos guardan un token de acceso (dura ~1 hora) + uno de refresco (larga duración) que hay que
+  guardar de forma segura (columna encriptada o vault) y renovar solos — mismo patrón para los
+  dos proveedores, pero es código separado para cada API (payloads distintos de crear evento).
+
+**Recomendación de secuencia:** construir Google primero (aunque sea unos días antes), no porque
+Outlook no sirva, sino porque la traba de aprobación de IT de Outlook es la que más puede frenar
+probarlo rápido con gente real. El diseño interno (adaptador genérico) queda armado desde el
+principio para que sumar Outlook después sea agregar el segundo adaptador, no rehacer nada.
+
+### Piezas que faltan diseñar antes de construir (para cuando se retome esta fase)
+
+- Tabla nueva para guardar la conexión de cada persona (proveedor, tokens, cuenta conectada) —
+  probablemente `calendar_connections` o similar, con RLS para que cada quien solo vea/gestione
+  la suya.
+- UI de conexión: botón "Conectar Google"/"Conectar Outlook" en Perfil (mismo lugar que ya tiene
+  el toggle de tema claro y el número de versión).
+- Edge Function(s) para el intercambio OAuth (callback) y para crear el evento en el calendario
+  del proveedor correspondiente.
+- En el chat: qué frases disparan "agendar una reunión" (nuevo regex/clasificador, mismo patrón
+  que ya existe para actividad/proyecto/ingesta/error), qué campos hacen falta extraer (título,
+  fecha, hora, duración) y qué pasa si la persona no tiene ningún calendario conectado todavía
+  (avisar y ofrecer conectar, no fallar en silencio).
+
+**Estado: solo anotado, sin construir.** Se retoma cuando Sebastián lo priorice.
+
+---
+
+## Compromisos: comentarios editables + plazo desincronizado con Minuta ✅ HECHO
+
+Dos pedidos de Sebastián sobre Compromisos:
+
+1. **Comentarios editables.** Investigado: hoy no se mostraba NINGÚN campo de comentarios en
+   Compromisos, ni de solo lectura — no era "hacer editable lo que ya había", era agregarlo. Un
+   compromiso es una actividad (`observations`), así que se agregó un `EditableText` (mismo
+   componente que ya usan Minuta/Errores) debajo de cada fila, editable solo para quien conduce
+   la reunión — oculto si está vacío y nadie puede editarlo, para no ensuciar la vista rápida
+   que necesita esta pantalla (5 minutos, EOS).
+
+2. **El plazo de Minuta no cuadra con la fecha de Compromisos.** Era un bug real, no confusión
+   de etiquetas: la sincronización era de una sola vía. `changePlazo` (`useMinuta.ts`) ya
+   empujaba el plazo de un tema hacia las actividades vinculadas (para que Compromisos no
+   quedara con la fecha vieja), pero `moverUnaSemana` (`useCompromisos.ts`, el único lugar
+   donde Compromisos cambia una fecha) nunca avisaba de vuelta al tema que la originó — moverla
+   desde Compromisos dejaba a Minuta mostrando el plazo viejo.
+
+   **Arreglado:** `moverUnaSemana` ahora, si la actividad nació de un tema de Minuta
+   (`temaDe(a.id)`), también actualiza el `plazo` de ese tema (con su `plazo_change_count`/
+   `plazo_history`, mismo criterio que `changePlazo`) — la sincronización queda en las dos
+   direcciones.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Confirmado por Sebastián:** "ambas cosas funcionan" — pero señaló dos ajustes:
+
+1. **Ubicación del comentario**: pidió que quede al costado derecho en vez de abajo. Corregido:
+   la fila pasó a `flex-col` en mobile (comentario abajo, no entra al lado en un celular
+   angosto) y `sm:flex-row` en pantallas más anchas (columna fija a la derecha, con un
+   divisor sutil).
+2. **Campo equivocado** (bug real): la primera versión editaba `observations` de la
+   ACTIVIDAD (que arrancaba vacío) en vez del `comentarios` del TEMA de Minuta que originó el
+   compromiso — ahí es donde vive la nota real que Sebastián esperaba ver ("Situación: ...
+   Acción: ..."). Corregido: `Compromiso` ahora lleva `temaId`/`comentariosTema` (resuelto vía
+   `temaDe(a.id)`, ya existente), y `guardarComentario` pasó a actualizar
+   `minutesService.update(temaId, {comentarios})` en vez de `activitiesService.update`. Como
+   Compromisos por diseño solo muestra actividades que nacieron de un tema de Minuta, todo
+   compromiso real tiene su `temaId`.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Ajuste de ubicación:** pidió que el comentario quede al costado derecho ocupando la mitad del
+ancho (`sm:w-1/2`) en vez de una franja angosta fija.
+
+**Ajuste de UX del campo:** reportó que tocar el lápiz para editar hacía "un aumento al
+escribir" — `EditableText` cambia de 10px (solo lectura) a 16px (edición, necesario para que
+iOS no haga zoom automático), y ese salto se sentía raro. Pidió además que el campo estuviera
+SIEMPRE editable (sin lápiz) y que se pudiera agregar puntos para separar varios temas dentro
+del mismo comentario.
+
+**Corregido:** nuevo componente local `ComentarioTema` (reemplaza `EditableText` para este único
+caso) — un `<textarea>` siempre visible, sin alternar entre ver/editar, con el mismo tamaño
+SIEMPRE (`text-base sm:text-[10px]`, nunca cambia entre enfocado y no enfocado, así no hay
+salto que notar). Auto-resize real (crece con el contenido). Se agregó un botón "+ agregar
+punto" que suma una línea nueva con guión (`\n- `) al final y guarda al toque.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Se sacó el botón "+ agregar punto":** Sebastián reportó que "comprime el texto" — prefiere el
+espacio libre para escribir el guión el mismo, sin que un botón le ocupe una línea aparte.
+Queda solo el textarea, sin ese agregado.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Bug real: el campo quedaba comprimido, no se veía el texto.** El auto-resize (`useEffect` +
+`scrollHeight`) medía la altura ANTES de que el layout final (la columna `sm:w-1/2`) estuviera
+estable, y encima el textarea tenía `overflow-hidden` — si la medida salía corta, el resto del
+texto quedaba oculto en silencio, sin scroll ni forma de verlo. Corregido: `useLayoutEffect` (se
+ejecuta antes de pintar, no después) más un reintento a los 50ms (mismo patrón que
+`useAppHeight.ts` para un problema de timing parecido); se sacó `overflow-hidden` y se sumó
+`resize-y` — si la medida automática igual quedara corta, el navegador muestra su scroll nativo
+en vez de cortar el contenido sin avisar. `rows` mínimo subió de 2 a 3.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Simplificado, a pedido de Sebastián:** en vez de auto-resize por `scrollHeight` (el origen
+del bug anterior), el campo ahora arranca del tamaño de lo que ya tiene escrito — cuenta los
+saltos de línea reales del texto guardado (no líneas envueltas por ancho), con un tope de 3 (si
+tiene más, arranca en 3 y no en 10, para no pisar otras filas de la lista) y un mínimo de 1 (si
+está vacío). Para ver más de lo que entra en 3 líneas, se agranda a mano con el tirador nativo
+del navegador (`resize-y`, ya estaba). Sin JS de por medio para el tamaño inicial — más simple y
+sin el problema de medir antes de que el layout se asiente.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Se sacó el texto fijo al escalar a Minuta.** Con los comentarios ahora visibles y editables
+en Compromisos, dos frases automáticas quedaban dando vueltas sin agregar nada real: "Vino de
+la hoja de compromisos: no se cumplió y necesita conversarse" (`llevarAMinuta`,
+`useCompromisos.ts`) y "Viene del proyecto '...': no se cumplió y necesita conversarse"
+(`escalarAMinuta`, `ProyectoDetailPage.tsx`). Las dos se sacaron — el campo queda en blanco para
+que la persona escriba su propia nota real.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+---
+
+## Proyectos: se siente complejo a la vista — investigado antes de tocar nada
+
+Sebastián pidió evaluar cómo simplificar Proyectos, investigando buenas prácticas, competencia
+(Todoist/Linear/Asana/Trello) y patrones de diseño antes de proponer nada.
+
+**Auditado el código actual** (sin tocar nada todavía): `ProyectosPage.tsx` (lista) ya es
+bastante minimalista — título + 2-3 datos condicionales + barra de progreso por tarjeta, en
+línea con lo que recomiendan Trello/Linear para tarjetas. **El problema real está en
+`SubtareasPanel`** (compartido con Minuta): cada fila de subtarea muestra 6 controles a la vez
+(texto editable, selector de responsable, selector de fecha, badge de estado o botón "Asignar",
+borrar, toggle de expandir) — y esa misma fila densa se repite en CADA nivel de anidamiento, sin
+límite de profundidad en Proyectos, **todo expandido por defecto**.
+
+**Investigado (buenas prácticas):** revelar detalle bajo demanda en vez de todo junto reduce el
+tiempo de escaneo ~40% (Nielsen Norman Group); anidar más de 3 niveles visibles a la vez sube la
+tasa de error al escanear un 41%. Todoist/Asana permiten profundidad ilimitada pero las
+subtareas **arrancan colapsadas** — se despliegan al tocar, no de entrada.
+
+**Implementado — primer paso, el de mayor impacto y menor riesgo:** `SubtareasPanel`
+(`MinutaPage.tsx`, usado por Minuta y Proyectos por igual) ahora arranca **colapsado** en vez de
+expandido (`useState(false)` en vez de `true`) — mismo criterio en los dos, ya que el cambio no
+saca ninguna función, solo cambia qué se ve al entrar. En Minuta el efecto es mínimo (ya tiene
+tope de un nivel y no se pueden agregar subtareas nuevas); en Proyectos es donde de verdad
+importa. Sigue siendo un click expandir cualquier nivel, profundidad ilimitada intacta.
+
+**Pendiente, evaluado pero no construido:** una segunda mejora más grande — que cada fila
+muestre responsable/fecha/estado de solo lectura por defecto, editables solo al tocar (mismo
+patrón que ya usa `EditableText` para texto) — más invasiva porque toca el mismo componente
+compartido con Minuta. Sebastián pidió arrancar solo con el colapso por ahora.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre). No probado aún visualmente.
+
+Fuentes: [Progressive disclosure — Wikipedia/NN·G](https://en.wikipedia.org/wiki/Progressive_disclosure),
+[Cognitive Load in UX Design](https://think.design/blog/cognitive-load-in-ux-design/),
+[Todoist — sub-tasks](https://todoist.com/help/articles/introduction-to-sub-tasks-kMamDo).
+
+### Rediseño completo del Tablero y el Cronograma (mockup aprobado)
+
+Sebastián pidió ir más allá del colapso: rediseñar Proyectos para que sea "bonita y llamativa
+y funcional", con el Tablero permitiendo arrastrar tarjetas entre columnas y agregar
+comentarios en las tarjetas, y el Cronograma con un esquema clásico de Gantt pero prolijo.
+Antes de tocar código se armó un **mockup visual** (artifact HTML, mismos tokens de color que
+ya usa Lumix) mostrando Tablero/Lista/Cronograma rediseñados — aprobado tal cual ("es justo lo
+que quería, diste en el clavo").
+
+**Decisiones acordadas antes de construir:**
+
+1. Una tarjeta con actividad vinculada no se puede arrastrar (su columna la calcula el estado
+   de esa actividad — `deriveEstado` —, no un campo propio; arrastrarla no tendría un
+   significado claro). Se ve con un candado 🔒 en vez de la manija de arrastre.
+2. Se agrega `@dnd-kit/core` + `@dnd-kit/utilities` (nueva dependencia; no había ninguna
+   librería de drag-and-drop) — es la que mejor soporta touch en celular, vía Pointer Events.
+3. Para barras reales en el Cronograma (inicio-fin, no un punto) hace falta agregar una fecha
+   de inicio a la subtarea — Sebastián confirmó agregarla.
+
+**Implementado — migración 047** (aplicada a la base real, verificada `information_schema`):
+`minute_items.fecha_inicio DATE`, nullable, sin historial (no tan sensible como `plazo` para
+justificar `plazo_change_count`/`plazo_history`). Sin ella, el Cronograma sigue mostrando un
+punto — no rompe nada para quien no la usa.
+
+**Implementado — código:**
+
+- **Componente compartido nuevo** `src/shared/components/ui/ComentarioLibre.tsx`: extraído del
+  `ComentarioTema` que se había creado dentro de `CompromisosPage.tsx` (mismo comportamiento:
+  textarea siempre editable, sin lápiz, arranca del tamaño de lo escrito con tope 3 líneas) —
+  ahora reusado también en las tarjetas del Tablero de Proyectos. `CompromisosPage.tsx` se
+  actualizó para importarlo en vez de tener su propia copia.
+- **Tablero rediseñado** (`ProyectoDetailPage.tsx`): tarjetas con borde de color por columna
+  (`COLUMNA_ESTILO`, mismo significado que ya usan los `Badge` de estado: amber/blue/emerald/
+  slate), avatar del responsable (`Avatar`, ya existía, reusado), comentario integrado
+  (`ComentarioLibre` sobre `comentarios` del item), y arrastrar-para-cambiar-de-columna con
+  `@dnd-kit` (`DndContext`/`useDraggable`/`useDroppable`/`DragOverlay`) — activación con 8px de
+  tolerancia para no confundir un toque de edición con un arrastre. Tarjetas con actividad
+  vinculada quedan fijas con 🔒, como se acordó.
+- **Cronograma rediseñado** (`GanttModal`, compartido por Minuta y Proyectos): dibuja una barra
+  real (inicio → entrega) cuando el item tiene `fecha_inicio`; si no la tiene, sigue mostrando
+  el punto de siempre (sin romper nada para Minuta, que no la usa). Colores unificados con el
+  Tablero (`GANTT_COLOR`, mismo mapa de significado). Nuevo `DatePicker` compacto de "+ inicio"
+  por fila (solo si `canManage`) para cargar la fecha de inicio ahí mismo. Leyenda de colores
+  agregada al pie.
+- **Lista**: sin cambios estructurales en esta pasada — se mantiene la decisión de antes de NO
+  tocar `SubtareasPanel` más allá del colapso por defecto (esa es la "segunda mejora" que sigue
+  aplazada). El mockup mostraba la Lista con un estilo más simple solo para ilustrar la
+  paleta de colores del conjunto, no como pedido de rehacer las filas.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre — nueva dependencia `@dnd-kit` sin vulnerabilidades propias, las 8 que reporta
+`npm audit` ya existían antes, en herramientas de build). Verificado contra la base real que
+`fecha_inicio` quedó creada como `date`. No probado aún visualmente ni el arrastre en un
+dispositivo táctil real.
+
+**Ajuste de fidelidad al mockup:** Sebastián marcó que no había quedado igual. Comparando
+elemento por elemento contra el HTML del mockup se encontraron 3 diferencias reales:
+
+1. La fecha de entrega usaba el formato largo (`17-09-2026`) en vez del corto del mockup
+   (`17 sep`) — `formatDateLocal(fecha, 'short')`, ya existía como opción, solo faltaba pasarla.
+2. El comentario se veía como un input común (borde sólido siempre) en vez del "globo" del
+   mockup — punteado + ícono 💬 cuando está vacío, sólido cuando ya tiene texto.
+   `ComentarioLibre` ganó un prop `className` opcional (se agrega a las clases base, no las
+   reemplaza) para que la tarjeta le saque su borde/fondo propio y lo envuelva en ese globo,
+   sin bifurcar el componente ni afectar a Compromisos (que lo sigue usando tal cual, sin este
+   wrapper).
+3. La manija de arrastre (⠿⠿) flotaba en la esquina superior derecha en el mockup; quedó como
+   parte de la fila del título. Se movió a `absolute top-2 right-2` sobre la tarjeta, con
+   `padding-right` extra en el contenido para no toparse.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Faltaba el encabezado del proyecto:** Sebastián señaló que el header (`.projhead` del
+mockup) tampoco había quedado igual — el mockup reemplaza el texto plano "X/Y subtareas
+resueltas" por un **anillo de progreso circular** (SVG, porcentaje al centro) al lado del
+conteo, más "📅 Entrega {fecha corta}" (antes decía solo la fecha, sin la palabra "Entrega").
+Nuevo componente `AnilloProgreso` en `ProyectoDetailPage.tsx` — mismo dato de siempre
+(`resueltas`/`total`), presentado como pedía el mockup: círculo de fondo (`stroke-surface-2`) +
+círculo de progreso animado (`stroke-emerald-500`, `stroke-dashoffset` calculado por
+porcentaje) + el número al centro.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**La Lista tampoco había quedado igual — esta vez sí se tocó la "segunda mejora" aplazada.**
+Sebastián señaló el bloque `.tree`/`.trow` del mockup: fila simple (caret, título, cantidad de
+subtareas, pastilla de estado), sin ningún control de edición a la vista — justo lo que antes
+se había decidido dejar para después (por tocar un componente compartido con Minuta). Antes de
+aplicarlo se preguntó cómo se editaría responsable/fecha/estado sin esos controles en la fila:
+Sebastián eligió que **tocar la fila abra un panel de detalle** con todo editable (el caret
+solo expande/colapsa, no abre nada).
+
+**Implementado — Proyectos deja de compartir el árbol con Minuta:**
+
+- Nuevo `ArbolProyecto`/`FilaArbol` en `ProyectoDetailPage.tsx` (NO se tocó
+  `SubtareasPanel` — Minuta lo sigue usando exactamente igual que siempre): fila con caret
+  (fondo indigo cuando está expandida, gris cuando no, oculto si no tiene subtareas), título,
+  pastilla "N subtareas" si tiene hijos, y pastilla de estado coloreada (`PILL_ESTILO`, mismo
+  significado que `COLUMNA_ESTILO`/`estadoColors`, formato pastilla en vez de `Badge` con
+  borde). Colapsado por defecto, mismo criterio que ya se aplicó en `SubtareasPanel`.
+- Nuevo `DetalleSubtareaModal`: se abre al tocar la fila (no el caret). Reconstruye ahí todo lo
+  que la fila de `SubtareasPanel` ya permitía — tema (editable), responsable
+  (`MemberMultiSelect`), fecha de entrega (`DatePicker` vía `changePlazo`), comentarios
+  (`ComentarioLibre`), agregar una subtarea propia, Asignar actividad / Discutir en reunión, y
+  eliminar (con confirmación de dos pasos dentro del mismo panel, sin modal extra encima). Se
+  sumó algo que antes no existía en ningún lado de Proyectos salvo arrastrando en el Tablero:
+  un `<select>` de estado directo para subtareas sin actividad vinculada (antes solo se podía
+  "Asignar", sin forma de tocar el `estado` crudo a mano).
+- Al confirmar "Asignar" desde el detalle, se cierra el panel de detalle antes de abrir
+  `AsignarActividadModal` (evita dos modales superpuestos).
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre). No probado aún visualmente.
+
+**Ajuste de UX señalado por Sebastián:** "Agregar subtarea" en el detalle solo confirmaba con
+Enter — sin un botón a la vista, no era obvio cómo confirmar (sobre todo en el celular). Se
+agregó un botón "+ Agregar" explícito al lado del campo (deshabilitado si está vacío); Enter
+sigue funcionando igual. Al agregar, el campo queda listo para la siguiente en vez de cerrarse
+— agregar varias subtareas seguidas es el caso más común.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Cronograma: rediseño de grilla (`.gantt-grid` del mockup).** Sebastián señaló el bloque del
+Cronograma con columna de etiquetas + semanas + barras + leyenda con "Hoy". El `GanttModal`
+anterior era una lista de filas sueltas (fecha a la derecha de cada una, línea de "hoy" como
+fila aparte al final) — se rediseñó como grilla real:
+
+- Columna izquierda: nombre de la tarea + el/los responsables en texto chico debajo (nuevo
+  prop `memberName`, ya existía en ambos llamadores — `MinutaPage.tsx`/`ProyectoDetailPage.tsx`
+  — solo faltaba pasarlo al modal).
+- Columna derecha: cabecera de semanas calculada de verdad (tramos de 7 días reales desde la
+  fecha más temprana, no columnas parejas como en el mockup estático), y una única línea de
+  "Hoy" que atraviesa TODAS las filas de una vez (antes era una fila aparte al final).
+- Leyenda: se agregó el punto rojo "Hoy" al final, junto a los 4 estados — antes solo tenía los
+  4 colores de estado.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Cronograma deja de ser un modal: ahora es una tercera pestaña, igual que Lista/Tablero.**
+Sebastián pidió que ocupe toda la hoja como las otras dos vistas, no un popup encima. Se separó
+la lógica en dos:
+
+- `GanttChart` (nuevo, exportado desde `MinutaPage.tsx`): el contenido puro del cronograma
+  (grilla, semanas, barras, leyenda), sin ningún `Modal` alrededor — reusable tanto dentro de
+  un modal como a pantalla completa.
+- `GanttModal`: ahora es solo un envoltorio fino (`<Modal><GanttChart/></Modal>`) — se mantiene
+  intacto para el "Ver Gantt" puntual de una subtarea en Minuta, donde sí tiene sentido un
+  popup chico.
+- `ProyectoDetailPage.tsx`: `vista` pasó de `'lista' | 'tablero'` a `'lista' | 'tablero' |
+'cronograma'`, con un tercer botón en el mismo selector segmentado (ya no hay un botón aparte
+  que abre un modal) — `GanttChart` se renderiza inline en el área de contenido, igual que
+  Lista/Tablero.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Bug real de layout: "se ve mal".** Sebastián confirmó los 4 síntomas a la vez (etiquetas de
+semana superpuestas/cortadas, barras desalineadas con sus filas, scroll horizontal raro,
+columna de nombres rota) — todos apuntaban a la misma causa: la fila de nombre (tema +
+responsable + selector de "+ inicio") medía más que la altura fija (34px) que se le había
+puesto, así que cada fila empujaba a la siguiente y el desfase se acumulaba fila tras fila,
+mientras la columna de barras (con altura fija, sin ese contenido) no se movía — la razón real
+de "las barras no se alinean". Las etiquetas de semana además usaban posicionamiento absoluto
+por porcentaje sin espacio propio, así que una cerca del borde se cortaba o se montaba sobre
+otra.
+
+**Corregido de raíz:** se dejaron de usar dos columnas independientes (una `flex` para
+nombres, otra para barras) y se pasó a **una sola grilla CSS** (`grid-template-columns: '150px
+1fr'`) donde nombre y barra de una misma tarea son la MISMA fila de grilla — el navegador
+ajusta la altura de la fila sola, en los dos lados a la vez, sin importar cuánto texto tenga el
+nombre: ya no se puede desalinear. Las semanas pasaron a columnas de ancho igual (`flex-1`,
+mismo criterio que el mockup) en vez de posición por porcentaje — nunca se superponen ni se
+cortan. Se agregó además un tope para que una barra cerca del final del rango no se salga del
+borde derecho (`Math.min(..., 100 - pct(inicio))`).
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+**Sebastián pidió calco 1:1 del HTML del mockup, no una versión "equivalente".** Al comparar de
+nuevo con el HTML exacto (`.gantt-rowlabels`/`.gantt-rowlabel` con alto FIJO de 34px, columnas
+independientes, una sola línea de "Hoy" que se estira por arriba con `top` negativo) se vio la
+raíz real de por qué la versión de grilla unificada no alcanzaba: esa reconstrucción existía
+porque el nombre de fila llevaba un `DatePicker` de "+ inicio" inline, que podía ocupar más de
+34px. **Se sacó ese selector del Cronograma** (el mockup nunca lo tenía) y se volvió al mismo
+esquema de dos columnas independientes con alto fijo que usa el mockup — ahora es seguro porque
+la fila nunca lleva más de 2 líneas (tema + responsable, igual que el mockup).
+
+- La fecha de inicio se edita ahora desde el **detalle de la subtarea** en Proyectos (al lado
+  de "Fecha de entrega"), no desde el Cronograma — que pasa a ser de solo lectura, calco del
+  mockup.
+- La línea de "Hoy" volvió a ser una sola (no un segmento por fila): se estira con `top: -30px`
+  hasta `bottom: -6px` dentro de `.gantt-rows`, exactamente como el mockup, con su etiqueta
+  "Hoy" flotando arriba.
+- Semanas: `grid grid-flow-col auto-cols-fr` (equivalente exacto de `grid-auto-flow: column;
+grid-auto-columns: 1fr` del mockup), no columnas por porcentaje.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre).
+
+---
+
+## Reformulación completa del módulo de Proyectos ✅ HECHO (pendiente confirmación visual)
+
+Sebastián pidió, en una especificación larga y detallada, dejar de lado los ajustes puntuales
+y **reformular completamente** el módulo: estructura, navegación, jerarquía visual y UX, no
+solo estética — con el principio "una actividad es un único objeto, Lista/Tablero/Cronograma
+son solo formas distintas de verlo", y pidiendo implementación directa, no solo propuesta.
+
+### Decisión de arquitectura (no se fusionaron `activities` y `minute_items`)
+
+El pedido conceptual ("una actividad es un único objeto") ya estaba resuelto en la arquitectura
+existente: un nodo del árbol de Proyectos (`minute_items`, `tipo='proyecto'`) es ese objeto
+único — aparece igual en Lista, Tablero y Cronograma porque las tres vistas leen exactamente
+la misma fila. Lo que faltaba eran dos campos para tener paridad con la especificación
+(prioridad, y una fecha de inicio real — esta última ya se había agregado en la pasada
+anterior). **No se fusionó** con la tabla `activities` real (la que se usa para "asignar" una
+subtarea a alguien) — eso es un concepto aparte y ya resuelto (una subtarea puede convertirse
+en una actividad real asignable, sigue funcionando igual); tocarlo hubiera sido un cambio de
+esquema mucho más arriesgado sin necesidad real.
+
+**Migración 048** (aplicada a la base real, verificada con insert/update/delete de prueba
+contra Equipo Prueba, incluyendo que el `CHECK` rechaza valores fuera de 1-3): `prioridad
+SMALLINT` en `minute_items`, mismo criterio y colores que ya usa `activities.priority`
+(1=alta/roja, 2=media/ámbar, 3=baja/esmeralda) — no se inventó una escala nueva.
+
+**No se agregó una columna de "avance" (%):** se calcula en vivo a partir de las subtareas
+resueltas (`avanceDe()`, nueva función en `subtareas.ts`) en vez de guardar un número aparte
+que se podría desincronizar de la realidad — mismo criterio que ya usa `plazoEfectivo()`.
+
+**Nuevos helpers en `subtareas.ts`:**
+
+- `avanceDe(item, allItems)`: % resuelto de las subtareas (o 0/100 según el propio estado si
+  no tiene subtareas).
+- `resumenProyecto(proyectoId, allItems)`: separa "actividades" (hijos directos del proyecto)
+  de "subtareas" (todo lo que cuelga de esas actividades) — Sebastián pidió mostrar los dos
+  conteos por separado ("24 actividades · 68 subtareas").
+- `fechaInicioEfectiva`: espejo de `plazoEfectivo` pero tomando la fecha más temprana en vez
+  de la más lejana — arma el rango "01/09 → 30/09" de la tarjeta.
+- `alertasProyecto`: cuenta vencidas/próximas a vencer (3 días)/bloqueadas (mira las
+  actividades reales vinculadas, ya que `minute_items` no tiene un estado "bloqueado" propio).
+
+### 1. Lista de Proyectos (`ProyectosPage.tsx`)
+
+Tarjeta enriquecida: nombre, pastilla de estado general (Completado/Atrasado/En curso/Sin
+actividades — no es el `estado` de la fila, es una lectura de conjunto), conteo de
+actividades y subtareas por separado, rango de fechas, % de avance + barra, y chips de alerta
+(vencidas/por vencer) solo si corresponde. Se sacó el responsable de la tarjeta (no estaba en
+lo que pidió Sebastián y mantiene la tarjeta limpia).
+
+### 2. Encabezado del proyecto (`ProyectoDetailPage.tsx`)
+
+- **"Volver" ya no es un link de 11px** fácil de pasar por alto — ahora es un `Button` real
+  con área de toque cómoda.
+- Resumen: anillo de progreso + actividades/subtareas/completadas/pendientes.
+- Alertas (vencidas/por vencer/bloqueadas) como chips, solo si hay alguna.
+- **"+ Nueva actividad"** explícito junto al título — antes no existía ninguna forma clara de
+  agregar una actividad desde esta pantalla. Crea el item y abre directo su panel de detalle
+  para nombrarlo ahí mismo (antes una fila en blanco podía quedar perdida en la Lista).
+
+### 3-4. Un solo objeto, un solo panel de edición (`Drawer` nuevo)
+
+Nuevo componente compartido `src/shared/components/ui/Drawer.tsx` (mismo patrón de
+overlay/Escape/scroll-lock que `Modal`, pero desliza desde la derecha y ocupa todo el alto).
+**Las tres vistas abren el mismo `DetalleDrawer`** al tocar una fila/tarjeta/barra — un solo
+camino de edición (tema, responsable, fechas, estado, prioridad, comentarios,
+agregar/abrir subtareas, asignar actividad, discutir en reunión, eliminar), no tres
+implementaciones distintas.
+
+### 5. Lista jerárquica
+
+`FilaArbol` (ya existía desde la pasada anterior) ganó una segunda línea compacta por fila:
+punto de prioridad, responsable(s), fecha, % de avance — antes solo mostraba título + cantidad
+de subtareas + estado. Sigue colapsada por defecto.
+
+### 6. Tablero simplificado
+
+`TarjetaTablero` se simplificó a un resumen de solo lectura (nombre, prioridad, avatares,
+fecha, cantidad de subtareas, acciones rápidas) — **se sacaron el título editable inline y el
+comentario siempre abierto que tenía antes**: tocar la tarjeta abre el mismo `DetalleDrawer`
+que Lista y Cronograma, en vez de que el Tablero fuera "otra aplicación" con su propia forma de
+editar. El arrastrar-para-cambiar-de-columna se mantiene igual (con el candado 🔒 para
+tarjetas con actividad vinculada).
+
+### 8. Cronograma: zoom + avance + click abre detalle
+
+`GanttChart` (compartido con Minuta) ganó:
+
+- Selector **Día / Semana / Mes** (cambia el tamaño de los tramos del eje — Día=1 día,
+  Semana=7 días como antes, Mes≈30 días).
+- Cada barra ahora se **rellena según el avance real** (`avanceDe`): fondo del color al 25% de
+  opacidad, relleno sólido hasta el % de progreso — antes la barra completa era un solo color
+  parejo sin indicar cuánto se había avanzado.
+- Click en una fila/barra abre el mismo `DetalleDrawer` (prop `onGuardarFechaInicio` se sacó
+  del Cronograma en la pasada anterior — la fecha de inicio se sigue editando desde el drawer).
+  En Minuta (`GanttModal`), `onOpen` no se pasa: sigue de solo lectura, sin cambios ahí.
+
+### 9-10. Diseño y no romper lo existente
+
+No se tocó `SubtareasPanel` (Minuta lo sigue usando exactamente igual), ni `useMinuta.ts` más
+allá de lo ya hecho en pasadas anteriores, ni la tabla `activities` ni su flujo de
+"asignar actividad" (`AsignarActividadModal` intacto). El componente `ComentarioLibre`,
+`EditableText`, `Avatar`, `Badge`, `DatePicker`, `MemberMultiSelect` se reusaron tal cual, sin
+bifurcar ninguno para este cambio.
+
+### Explícitamente fuera de esta pasada (no construido)
+
+- **Archivos/adjuntos**: no existe ninguna infraestructura de almacenamiento de archivos en
+  toda la app (ni bucket, ni tabla, ni UI) — agregarla es un subsistema nuevo aparte, no algo
+  que se pueda sumar como un campo más. Se deja marcado como pendiente real, no se simuló.
+- **Zoom "Día"**: funciona (tramos de 1 día), pero con proyectos largos puede generar muchas
+  columnas angostas — no se limitó el rango visible ni se agregó paginación del eje.
+- **Mes calendario real**: se aproxima a 30 días por tramo en vez de respetar los días reales
+  de cada mes (28-31) — simplificación consciente para no complicar el cálculo del eje.
+
+`npx tsc --noEmit`, `npm run build` y `npx eslint .` limpios (0 errores, mismas 10 advertencias
+de siempre). Probado contra Equipo Prueba (insert/update/delete de `prioridad`, `CHECK`
+verificado). **Confirmado visualmente por Sebastián: "quedó genial".**

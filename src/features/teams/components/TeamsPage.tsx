@@ -38,6 +38,10 @@ export function TeamsPage() {
   // lo rechaza se revierte, para que el control nunca muestre algo que no quedo guardado.
   const [umbral, setUmbral] = useState(2)
   const [error, setError] = useState('')
+  // Confirmacion de 2 pasos para acciones destructivas sin modal (remover a alguien del
+  // equipo o borrar un grupo): antes disparaban al primer click, sin forma de arrepentirse.
+  const [confirmarRemover, setConfirmarRemover] = useState<string | null>(null)
+  const [confirmarGrupo, setConfirmarGrupo] = useState<string | null>(null)
 
   // Puede gestionar el equipo seleccionado el admin global o la jefatura de ESE equipo.
   // Se exige que la membresia sea del equipo seleccionado (evita datos obsoletos al cambiar
@@ -174,21 +178,45 @@ export function TeamsPage() {
                             Sin grupos todavía — crea uno para poder asignarlo a las personas.
                           </p>
                         )}
-                        {grupos.map((g) => (
-                          <span
-                            key={g.id}
-                            className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface text-[11px] text-fg-body"
-                          >
-                            {g.nombre}
-                            <button
-                              onClick={() => eliminarGrupo(g.id)}
-                              title="Eliminar grupo"
-                              className="text-slate-500 hover:text-red-400 light:hover:text-red-600"
+                        {grupos.map((g) =>
+                          confirmarGrupo === g.id ? (
+                            <span
+                              key={g.id}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-red-500/10 text-[11px] text-red-400"
                             >
-                              ✕
-                            </button>
-                          </span>
-                        ))}
+                              ¿Borrar "{g.nombre}"?
+                              <button
+                                onClick={() => {
+                                  eliminarGrupo(g.id)
+                                  setConfirmarGrupo(null)
+                                }}
+                                className="font-medium hover:text-red-300"
+                              >
+                                Sí
+                              </button>
+                              <button
+                                onClick={() => setConfirmarGrupo(null)}
+                                className="text-slate-500 hover:text-fg-muted"
+                              >
+                                No
+                              </button>
+                            </span>
+                          ) : (
+                            <span
+                              key={g.id}
+                              className="inline-flex items-center gap-1.5 px-2 py-1 rounded-lg bg-surface text-[11px] text-fg-body"
+                            >
+                              {g.nombre}
+                              <button
+                                onClick={() => setConfirmarGrupo(g.id)}
+                                title="Eliminar grupo"
+                                className="text-slate-500 hover:text-red-400 light:hover:text-red-600"
+                              >
+                                ✕
+                              </button>
+                            </span>
+                          ),
+                        )}
                       </div>
                       <div className="flex gap-2">
                         <input
@@ -262,14 +290,34 @@ export function TeamsPage() {
                                 {m.user_id !== profile?.id &&
                                   (canManageThis ||
                                     (puedeGestionarMiembros &&
-                                      (m.role === 'colaborador' || m.role === 'invitado'))) && (
+                                      (m.role === 'colaborador' || m.role === 'invitado'))) &&
+                                  (confirmarRemover === m.user_id ? (
+                                    <span className="flex items-center gap-1.5 text-[10px] text-red-400">
+                                      ¿Seguro?
+                                      <button
+                                        onClick={() => {
+                                          removeMember(m.user_id)
+                                          setConfirmarRemover(null)
+                                        }}
+                                        className="font-medium hover:text-red-300"
+                                      >
+                                        Sí
+                                      </button>
+                                      <button
+                                        onClick={() => setConfirmarRemover(null)}
+                                        className="text-slate-500 hover:text-fg-muted"
+                                      >
+                                        No
+                                      </button>
+                                    </span>
+                                  ) : (
                                     <button
-                                      onClick={() => removeMember(m.user_id)}
+                                      onClick={() => setConfirmarRemover(m.user_id)}
                                       className="text-[10px] text-red-400 hover:text-red-300"
                                     >
                                       Remover
                                     </button>
-                                  )}
+                                  ))}
                               </div>
                             </div>
 
